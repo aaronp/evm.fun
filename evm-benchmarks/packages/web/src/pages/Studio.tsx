@@ -11,7 +11,7 @@ import { useApp } from '../state'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
-import { Input, Select } from '../ui/input'
+import { fieldHint, fieldLabel, Input, Select } from '../ui/input'
 import { compileInWorker } from '../solc/client'
 import { templates } from '../solc/templates'
 import type { CompileResult } from '../solc/compile'
@@ -222,8 +222,8 @@ export function Studio() {
                   {list.map(a => <option key={a.address} value={a.address}>{a.label} ({a.address.slice(0, 8)}…)</option>)}
                 </Select>
                 {ctor.map((p: { name: string; type: string }, i: number) => (
-                  <label key={i} className="block space-y-1 text-sm">
-                    <span>{p.name || `arg${i}`} <span className="font-mono text-xs text-muted">({p.type})</span></span>
+                  <label key={i} className={fieldLabel}>
+                    <span>{p.name || `arg${i}`} <span className={fieldHint}>{p.type}</span></span>
                     <Input className="w-full" list={p.type === 'address' ? ADDRESS_LIST : undefined} value={args[i] ?? ''} onChange={e => setArgs(a => Object.assign([...a], { [i]: e.target.value }))} />
                   </label>
                 ))}

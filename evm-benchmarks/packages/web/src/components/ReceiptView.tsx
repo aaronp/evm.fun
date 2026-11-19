@@ -4,6 +4,7 @@ import { decodeEventLog, type Abi } from 'viem'
 import type { Receipt } from '@evmb/core'
 import type { ChainHandle } from '../chain/handle'
 import { Badge } from '../ui/badge'
+import { Panel } from '../ui/panel'
 
 export const show = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? x.toString() : x))
 
@@ -23,11 +24,7 @@ export function ReceiptView({ chain, receipt, abi }: { chain: ChainHandle; recei
   })
   const block = raw ? Number(BigInt(raw.blockNumber)) : undefined
   return (
-    <aside aria-label="Result" className="overflow-hidden rounded-xl border border-line-strong bg-bg text-sm">
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="font-display text-sm font-semibold">Result</h2>
-        <Badge variant={receipt.status === 'success' ? 'success' : 'danger'}>{receipt.status}</Badge>
-      </div>
+    <Panel as="aside" aria-label="Result" title="Result" inset badge={<Badge variant={receipt.status === 'success' ? 'success' : 'danger'}>{receipt.status}</Badge>}>
       <div className="space-y-3 p-4">
         {receipt.error && <div className="text-danger">{receipt.error}</div>}
         <div className={row}><span className="text-text-2">Transaction</span><span className="min-w-0 break-all text-right font-mono text-xs">{receipt.hash}</span></div>
@@ -59,6 +56,6 @@ export function ReceiptView({ chain, receipt, abi }: { chain: ChainHandle; recei
           })}
         </div>
       )}
-    </aside>
+    </Panel>
   )
 }

@@ -10,7 +10,7 @@ import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { fnKind } from '../abi/kind'
 import { Card } from '../ui/card'
-import { Input, Select } from '../ui/input'
+import { fieldHint, fieldLabel, Input, Select } from '../ui/input'
 import { Erc20Card, isErc20 } from '../components/Erc20Card'
 import { FunctionForm } from '../components/FunctionForm'
 import { ADDRESS_LIST } from '../components/AddressList'
@@ -65,12 +65,12 @@ export function Transact() {
         <h2 className="font-mono text-lg font-medium"><span className="text-accent">transfer</span><span className="text-muted">(to, value)</span></h2>
         <Badge variant="warn">writes</Badge>
       </div>
-      <label className="flex flex-col gap-1.5 font-semibold">
-        <span>to <span className="font-mono text-xs font-medium text-muted">address</span></span>
+      <label className={fieldLabel}>
+        <span>to <span className={fieldHint}>address</span></span>
         <Input aria-label="Recipient" placeholder="to (address)" list={ADDRESS_LIST} className="font-mono font-normal" value={eth.to} onChange={e => setEth({ ...eth, to: e.target.value })} />
       </label>
-      <label className="flex flex-col gap-1.5 font-semibold">
-        <span>value <span className="font-mono text-xs font-medium text-muted">wei</span></span>
+      <label className={fieldLabel}>
+        <span>value <span className={fieldHint}>wei</span></span>
         <Input aria-label="Amount" placeholder="amount (wei)" className="font-mono font-normal" value={eth.amount} onChange={e => setEth({ ...eth, amount: e.target.value })} />
       </label>
       <div className="flex flex-wrap items-center gap-3">

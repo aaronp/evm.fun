@@ -9,3 +9,7 @@ export function Input({ className = '', ...props }: InputHTMLAttributes<HTMLInpu
 export function Select({ className = '', ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return <select className={`${field} ${className}`} {...props} />
 }
+
+/** Field label text (text-2) and its mono type hint (muted), shared by every form. */
+export const fieldLabel = 'flex flex-col gap-1.5 text-sm text-text-2'
+export const fieldHint = 'font-mono text-xs text-muted'

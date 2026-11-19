@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CHAIN_TYPE_BLURB, ChainTypeHelp } from '../components/ChainTypeHelp'
+import { ChainTypeHelp, ChainTypePicker } from '../components/ChainTypeHelp'
 import { useNavigate } from 'react-router-dom'
 import { createRevmEngine } from 'webevm/revm'
 import { wasmUrl } from 'revm-wasm/wasm-url'
@@ -12,9 +12,10 @@ import { useApp } from '../state'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
 import { Badge } from '../ui/badge'
-import { Input, Select } from '../ui/input'
+import { fieldLabel, Input, Select } from '../ui/input'
 import { Notice } from '../ui/notice'
-import { Table } from '../ui/table'
+import { Panel } from '../ui/panel'
+import { Table, td, th } from '../ui/table'
 import { DistributionChart } from '../components/DistributionChart'
 import { tradeoffChips } from '../bench/view'
 
@@ -119,23 +120,15 @@ export function Benchmark() {
       <h1 className="font-display text-xl font-semibold">Benchmark</h1>
       {err && <Notice>{err}</Notice>}
       <Card className="space-y-4 text-sm">
-        <h2 className="font-semibold">New run</h2>
+        <h2 className="font-display text-sm font-semibold">New run</h2>
         <div className="space-y-2">
-          <div className="grid gap-2 sm:grid-cols-2">
-            {(['plain', 'sequencer'] as const).map(t => (
-              <label key={t} className={`block cursor-pointer rounded-lg border p-3 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${type === t ? 'border-accent bg-accent-soft' : 'border-line-strong bg-surface hover:bg-surface-hover'}`}>
-                <input className="mr-2 accent-accent" type="radio" name="type" checked={type === t} onChange={() => setType(t)} />
-                <b>{t}</b>
-                <span className="mt-1 block text-muted">{CHAIN_TYPE_BLURB[t]}</span>
-              </label>
-            ))}
-          </div>
+          <ChainTypePicker type={type} onChange={setType} />
           <ChainTypeHelp />
         </div>
         <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1.5 text-xs font-medium text-muted">scenario <Select value={scenario} onChange={e => setScenario(e.target.value as keyof typeof scenarios)}>{Object.keys(scenarios).map(s => <option key={s}>{s}</option>)}</Select></label>
-          <label className="flex flex-col gap-1.5 text-xs font-medium text-muted">N <Input className="w-28 font-mono" value={n} onChange={e => setN(e.target.value)} /></label>
-          <label className="flex flex-col gap-1.5 text-xs font-medium text-muted">senders <Input className="w-24 font-mono" value={senders} onChange={e => setSenders(e.target.value)} /></label>
+          <label className={fieldLabel}>scenario <Select value={scenario} onChange={e => setScenario(e.target.value as keyof typeof scenarios)}>{Object.keys(scenarios).map(s => <option key={s}>{s}</option>)}</Select></label>
+          <label className={fieldLabel}>N <Input className="w-28 font-mono" value={n} onChange={e => setN(e.target.value)} /></label>
+          <label className={fieldLabel}>senders <Input className="w-24 font-mono" value={senders} onChange={e => setSenders(e.target.value)} /></label>
           <Button disabled={busy || 'error' in size} onClick={run}>{busy ? 'Running…' : 'Run benchmark'}</Button>
         </div>
         {'error' in size && <p role="alert" className="text-danger">{size.error}</p>}
@@ -149,34 +142,32 @@ export function Benchmark() {
       {last && <ResultView r={last} />}
       {last && <Button variant="ghost" onClick={() => open(last)}>Open in Explorer</Button>}
       {runs.length > 0 && (
-        <section className="overflow-hidden rounded-xl border border-line-strong bg-surface">
-          <h2 className="border-b border-line px-4 py-3 text-sm font-semibold">Session runs</h2>
+        <Panel title="Session runs">
           <Table>
-            <table className="w-full min-w-[32rem] text-left text-sm">
-              <thead><tr className="text-xs text-muted"><th className="px-4 py-2 font-medium">run</th><th className="px-2 py-2 font-medium">TPS</th><th className="px-2 py-2 font-medium">p50</th><th className="px-2 py-2 font-medium">p99</th><th className="px-2 py-2 font-medium">verified</th><th /></tr></thead>
+            <table className="w-full min-w-[32rem] text-sm">
+              <thead><tr><th className={th}>run</th><th className={th}>TPS</th><th className={th}>p50</th><th className={th}>p99</th><th className={th}>verified</th><th /></tr></thead>
               <tbody>
                 {runs.map(r => (
                   <tr key={r.handle.info.id} className="border-t border-line hover:bg-surface-hover">
-                    <td className="px-4 py-2 font-medium">{r.name}</td>
-                    <td className="px-2 font-mono">{r.result.tps === null ? '—' : f(r.result.tps)}</td>
-                    <td className="px-2 font-mono">{f(r.result.latencyMs.p50)}</td>
-                    <td className="px-2 font-mono">{f(r.result.latencyMs.p99)}</td>
-                    <td className={`px-2 ${r.result.verified ? 'text-success-text' : 'text-danger'}`}>{r.result.verified ? 'yes' : 'no'}</td>
-                    <td className="px-2 text-right"><Button variant="ghost" size="sm" onClick={() => open(r)}>Open in Explorer</Button></td>
+                    <td className={`${td} font-medium`}>{r.name}</td>
+                    <td className={`${td} font-mono`}>{r.result.tps === null ? '—' : f(r.result.tps)}</td>
+                    <td className={`${td} font-mono`}>{f(r.result.latencyMs.p50)}</td>
+                    <td className={`${td} font-mono`}>{f(r.result.latencyMs.p99)}</td>
+                    <td className={`${td} ${r.result.verified ? 'text-success-text' : 'text-danger'}`}>{r.result.verified ? 'yes' : 'no'}</td>
+                    <td className={`${td} text-right`}><Button variant="ghost" size="sm" onClick={() => open(r)}>Open in Explorer</Button></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </Table>
-        </section>
+        </Panel>
       )}
       {sampled.length > 0 && (
-        <section className="overflow-hidden rounded-xl border border-line-strong bg-surface">
-          <h2 className="border-b border-line px-4 py-3 text-sm font-semibold">Latency distribution</h2>
+        <Panel title="Latency distribution">
           <div className="p-4">
             <DistributionChart series={sampled.map(r => ({ id: r.handle.info.id, name: r.name, samples: r.result.latencySamplesMs! }))} />
           </div>
-        </section>
+        </Panel>
       )}
     </div>
   )

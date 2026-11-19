@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { percentile } from '@evmb/core'
+import { Segmented } from '../ui/segmented'
 import { cumulative, histogram, type Series } from '../bench/distribution'
 
 type View = 'histogram' | 'cumulative'
@@ -44,16 +45,13 @@ export function DistributionChart({ series }: { series: Series[] }) {
 
   return (
     <div className="space-y-3">
-      <fieldset className="flex items-center gap-3 text-sm">
-        <legend className="sr-only">View</legend>
+      <div className="flex items-center gap-3 text-sm">
         <span className="text-xs font-medium text-muted" aria-hidden="true">View:</span>
-        {(['histogram', 'cumulative'] as const).map(v => (
-          <label key={v} className={`cursor-pointer rounded-md border px-2.5 py-1 text-xs font-medium has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${view === v ? 'border-accent bg-selected text-text' : 'border-transparent text-muted hover:text-text'}`}>
-            <input type="radio" name="dist-view" value={v} checked={view === v} onChange={() => setView(v)} className="sr-only" />
-            {v === 'histogram' ? 'Histogram' : 'Cumulative'}
-          </label>
-        ))}
-      </fieldset>
+        <Segmented<View>
+          label="View" name="dist-view" value={view} onChange={setView} className="flex items-center gap-3" itemClassName="px-2.5 py-1 text-xs font-medium"
+          options={[{ value: 'histogram', content: 'Histogram' }, { value: 'cumulative', content: 'Cumulative' }]}
+        />
+      </div>
       <div className="overflow-x-auto"><svg role="img" aria-label={label} viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[480px]">
         {yTicks.map(t => (
           <g key={t}>

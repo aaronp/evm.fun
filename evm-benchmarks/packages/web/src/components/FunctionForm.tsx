@@ -8,7 +8,7 @@ import { fnKind } from '../abi/kind'
 import { readContract, signAndSend } from '../tx/send'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
-import { Input } from '../ui/input'
+import { fieldHint, fieldLabel, Input } from '../ui/input'
 import { useApp } from '../state'
 import { show } from './ReceiptView'
 import { ADDRESS_LIST } from './AddressList'
@@ -58,16 +58,16 @@ export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
       {fn.inputs.map((p, i) => {
         const label = p.name || `arg${i}`
         return (
-          <label key={i} className="flex flex-col gap-1.5 font-semibold">
-            <span>{label} <span className="font-mono text-xs font-medium text-muted">{p.type}</span></span>
+          <label key={i} className={fieldLabel}>
+            <span>{label} <span className={fieldHint}>{p.type}</span></span>
             <Input aria-label={label} placeholder={`${label} (${p.type})`} className="font-mono font-normal" list={p.type === 'address' ? ADDRESS_LIST : undefined}
               value={raw[i] ?? ''} onChange={e => setRaw(r => Object.assign([...r], { [i]: e.target.value }))} />
           </label>
         )
       })}
       {fn.stateMutability === 'payable' && (
-        <label className="flex flex-col gap-1.5 font-semibold">
-          <span>value <span className="font-mono text-xs font-medium text-muted">wei</span></span>
+        <label className={fieldLabel}>
+          <span>value <span className={fieldHint}>wei</span></span>
           <Input aria-label="value" placeholder="value (wei)" className="font-mono font-normal" value={value} onChange={e => setValue(e.target.value)} />
         </label>
       )}

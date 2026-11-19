@@ -10,7 +10,8 @@ import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
 import { Input } from '../ui/input'
 import { Notice } from '../ui/notice'
-import { Table } from '../ui/table'
+import { Panel } from '../ui/panel'
+import { Table, td, th } from '../ui/table'
 import { ExplorerIcon } from '../ui/icons'
 import type { ChainHandle } from '../chain/handle'
 
@@ -19,22 +20,7 @@ const short = (s: string) => `${s.slice(0, 10)}…${s.slice(-6)}`
 type Names = Map<string, DeployedContract>
 
 const muted = 'text-sm text-muted'
-const th = 'px-4 py-2.5 text-left text-xs font-medium text-text-2'
-const td = 'px-4 py-3'
 const link = 'text-accent hover:underline'
-
-/** Panel with a header strip, as in the mockup's table cards. */
-function Panel({ title, badge, children }: { title: string; badge?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="overflow-hidden rounded-xl border border-line-strong bg-surface text-sm">
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <h2 className="min-w-0 break-all font-display text-sm font-semibold">{title}</h2>
-        {badge}
-      </div>
-      {children}
-    </section>
-  )
-}
 
 /** Run `f` when deps change; `undefined` = loading, `null` = not found. Rejections read as not found. */
 function useLoad<T>(f: () => Promise<T | null>, deps: unknown[]) {
