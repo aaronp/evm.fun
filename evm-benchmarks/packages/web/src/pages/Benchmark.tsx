@@ -102,7 +102,8 @@ export function Benchmark() {
         { type, scenario, ...size, host: benchHost },
         (p, d, t) => setProgress([p, d, t]),
       )
-      registry.addEphemeral(addRun(result, handle, type, scenario).handle)
+      try { registry.addEphemeral(handle) } catch (e) { await handle.dispose().catch(() => {}); throw e } // cap filled mid-run: free the run's chain, show the error
+      addRun(result, handle, type, scenario)
       setRuns(sessionRuns())
       await refresh()
     } catch (e) {
