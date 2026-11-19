@@ -45,8 +45,8 @@ export function Erc20Card({ chain, to, abi, account, refresh, onReceipt }: {
         </tbody>
       </table></Table>
       <p className="text-xs text-muted">Amounts in the forms below are raw units ({info.decimals} decimals).</p>
-      {transfer && <FunctionForm fn={transfer} abi={abi} to={to} chain={chain} account={account} onReceipt={onReceipt} />}
-      {mint && isOwner && <FunctionForm fn={mint} abi={abi} to={to} chain={chain} account={account} onReceipt={onReceipt} />}
+      {transfer && <div className="border-t border-line pt-3"><FunctionForm fn={transfer} abi={abi} to={to} chain={chain} account={account} onReceipt={onReceipt} /></div>}
+      {mint && isOwner && <div className="border-t border-line pt-3"><FunctionForm fn={mint} abi={abi} to={to} chain={chain} account={account} onReceipt={onReceipt} /></div>}
     </Card>
   )
 }

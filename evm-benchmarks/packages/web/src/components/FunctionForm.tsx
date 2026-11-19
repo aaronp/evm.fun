@@ -4,6 +4,7 @@ import type { Receipt } from '@evmb/core'
 import type { ChainHandle } from '../chain/handle'
 import type { Account } from '../store/accounts'
 import { encodeArgs } from '../abi/args'
+import { fnKind } from '../abi/kind'
 import { readContract, signAndSend } from '../tx/send'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
@@ -21,7 +22,7 @@ export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
   const [value, setValue] = useState('')
   const [out, setOut] = useState<{ ok: boolean; text: string }>()
   const [busy, setBusy] = useState(false)
-  const read = fn.stateMutability === 'view' || fn.stateMutability === 'pure'
+  const read = fnKind(fn) === 'read'
 
   const run = async () => {
     const parsed = encodeArgs(fn.inputs, raw)
@@ -49,16 +50,31 @@ export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="w-28 font-mono font-medium">{fn.name}</span>
-      <Badge variant={read ? 'accent' : 'warn'}>{read ? 'read' : 'writes'}</Badge>
-      {fn.inputs.map((p, i) => (
-        <Input key={i} aria-label={p.name || `arg${i}`} placeholder={`${p.name || `arg${i}`} (${p.type})`} className="w-full sm:w-48" list={p.type === 'address' ? ADDRESS_LIST : undefined}
-          value={raw[i] ?? ''} onChange={e => setRaw(r => Object.assign([...r], { [i]: e.target.value }))} />
-      ))}
-      {fn.stateMutability === 'payable' && <Input aria-label="value" placeholder="value (wei)" className="w-full sm:w-32" value={value} onChange={e => setValue(e.target.value)} />}
-      <Button variant={read ? 'ghost' : 'primary'} onClick={run} disabled={busy}>{read ? 'Call' : 'Send'}</Button>
-      {out && <span role="status" className={`whitespace-pre-wrap font-mono text-xs ${out.ok ? 'text-success-text' : 'text-danger'}`}>{out.text}</span>}
+    <div className="space-y-4 text-sm">
+      <div className="space-y-1">
+        <h2 className="break-all font-mono text-lg font-medium"><span className="text-accent">{fn.name}</span><span className="text-muted">({fn.inputs.map(p => `${p.type}${p.name ? ' ' + p.name : ''}`).join(', ')})</span></h2>
+        <Badge variant={read ? 'accent' : 'warn'}>{read ? 'read' : 'writes'}</Badge>
+      </div>
+      {fn.inputs.map((p, i) => {
+        const label = p.name || `arg${i}`
+        return (
+          <label key={i} className="flex flex-col gap-1.5 font-semibold">
+            <span>{label} <span className="font-mono text-xs font-medium text-muted">{p.type}</span></span>
+            <Input aria-label={label} placeholder={`${label} (${p.type})`} className="font-mono font-normal" list={p.type === 'address' ? ADDRESS_LIST : undefined}
+              value={raw[i] ?? ''} onChange={e => setRaw(r => Object.assign([...r], { [i]: e.target.value }))} />
+          </label>
+        )
+      })}
+      {fn.stateMutability === 'payable' && (
+        <label className="flex flex-col gap-1.5 font-semibold">
+          <span>value <span className="font-mono text-xs font-medium text-muted">wei</span></span>
+          <Input aria-label="value" placeholder="value (wei)" className="font-mono font-normal" value={value} onChange={e => setValue(e.target.value)} />
+        </label>
+      )}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant={read ? 'ghost' : 'primary'} onClick={run} disabled={busy}>{read ? 'Call' : 'Send'}</Button>
+        {out && <span role="status" className={`min-w-0 whitespace-pre-wrap break-all font-mono text-xs ${out.ok ? 'text-success-text' : 'text-danger'}`}>{out.text}</span>}
+      </div>
     </div>
   )
 }
