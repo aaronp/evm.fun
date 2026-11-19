@@ -1,5 +1,6 @@
 import { test, expect } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import { THEMES } from '../src/theme/theme'
 
 const css = readFileSync(new URL('../src/theme/tokens.css', import.meta.url), 'utf8')
 
@@ -28,7 +29,16 @@ for (const [fg, soft] of [['accent', 'accent-soft'], ['success-text', 'success-s
 pairs.push(['on-accent', 'accent', 4.5])
 for (const bg of ['bg', 'surface']) pairs.push(['accent', bg, 3]) // focus ring
 
-for (const theme of ['dark', 'light', 'paper']) {
+const cssThemes = [...css.matchAll(/:root\[data-theme="(\w+)"\]/g)].map((m) => m[1]!)
+test('tokens.css themes match THEMES', () => {
+  expect([...cssThemes].sort()).toEqual([...THEMES].sort())
+})
+test('index.html pre-paint script knows every theme', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
+  for (const t of THEMES) expect(html, `index.html missing '${t}'`).toContain(`'${t}'`)
+})
+
+for (const theme of cssThemes) {
   const t = themeMap(theme)
   test(`${theme}: contrast`, () => {
     for (const [fg, bg, min] of pairs) {

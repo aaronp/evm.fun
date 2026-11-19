@@ -24,11 +24,11 @@ Three themes: **dark**, **light** and **paper** (warm off-white). Colours are CS
 
 The header switcher calls `setTheme()` (`src/theme/theme.ts`), which sets `data-theme` on `<html>` (instant, no reload) and saves the choice in `localStorage` under `evmb.theme`. With nothing stored, the OS `prefers-color-scheme` picks dark or light. A small inline script in `index.html` applies the theme before first paint (keep it in sync with `initialTheme()`). If storage is blocked the choice lasts for the session only.
 
-**Add a theme:** add one `:root[data-theme="name"] { ... }` block to `tokens.css` defining every `--c-*` token, add `'name'` to `THEMES` in `theme.ts`, then run `bun test` (the contrast test checks each theme's text/background pairs).
+**Add a theme:** (1) add one `:root[data-theme="name"] { ... }` block to `tokens.css` defining every `--c-*` token; (2) add `'name'` to `THEMES` in `src/theme/theme.ts` (the `Theme` type and the switcher options follow); (3) add its label to the `label` map in `src/components/ThemeSwitcher.tsx`; (4) add `'name'` to the allowed names in the inline script in `index.html`. Then run `bun test`: the contrast test discovers themes from `tokens.css`, fails if they differ from `THEMES`, checks each theme's contrast pairs, and fails if `index.html` misses a name.
 
 Two guard tests:
 
-- `test/contrast.test.ts` checks WCAG contrast ratios for every theme block in `tokens.css`.
+- `test/contrast.test.ts` checks WCAG contrast ratios for every theme block in `tokens.css`, and that `tokens.css`, `THEMES` and `index.html` list the same themes.
 - `test/no-raw-colours.test.ts` fails if any file in `src/` (other than `tokens.css`) contains a hex, `rgb()`/`hsl()` or Tailwind palette colour. Its allowlist is empty and must stay so.
 
 ## Known limits

@@ -1,5 +1,5 @@
-export type Theme = 'dark' | 'light' | 'paper'
-export const THEMES: Theme[] = ['dark', 'light', 'paper']
+export const THEMES = ['dark', 'light', 'paper'] as const
+export type Theme = typeof THEMES[number]
 const KEY = 'evmb.theme'
 
 // Keep in sync with the inline pre-paint script in index.html.

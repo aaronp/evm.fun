@@ -31,6 +31,9 @@ const editorTheme = EditorView.theme({
   '.cm-activeLine': { backgroundColor: 'var(--c-surface-hover)' },
   '.cm-activeLineGutter': { backgroundColor: 'var(--c-surface-hover)', color: 'var(--c-text-2)' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: 'var(--c-selected)' },
+  // base: '&light.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground'
+  '&.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': { backgroundColor: 'var(--c-selected)' },
+  '&.cm-editor .cm-selectionMatch.cm-selectionMatch': { backgroundColor: 'var(--c-accent-soft)' },
   '.cm-matchingBracket': { backgroundColor: 'var(--c-accent-soft)', outline: '1px solid var(--c-accent)' },
   // Popups: CodeMirror's base theme hard-codes light colours behind '&light ...' selectors; '&.cm-editor' and doubled classes out-rank them.
   '&.cm-editor .cm-tooltip.cm-tooltip': { backgroundColor: 'var(--c-surface)', color: 'var(--c-text)', border: '1px solid var(--c-line-strong)' },
@@ -39,9 +42,10 @@ const editorTheme = EditorView.theme({
   '&.cm-editor .cm-panels-top.cm-panels': { borderBottom: '1px solid var(--c-line-strong)' },
   '&.cm-editor .cm-panels-bottom.cm-panels': { borderTop: '1px solid var(--c-line-strong)' },
   '&.cm-editor .cm-panel.cm-search label': { color: 'var(--c-text-2)' },
-  '&.cm-editor .cm-panel.cm-search input, &.cm-editor .cm-panel.cm-search button, &.cm-editor .cm-textfield.cm-textfield, &.cm-editor .cm-button.cm-button': {
+  '&.cm-editor .cm-panel.cm-search input, &.cm-editor .cm-panel.cm-search button:not([name=close]), &.cm-editor .cm-textfield.cm-textfield, &.cm-editor .cm-button.cm-button': {
     backgroundColor: 'var(--c-panel)', backgroundImage: 'none', color: 'var(--c-text)', border: '1px solid var(--c-line-strong)',
   },
+  '&.cm-editor .cm-panel.cm-search [name=close]': { backgroundColor: 'transparent', color: 'var(--c-text-2)', border: 'none' },
   '&.cm-editor .cm-searchMatch.cm-searchMatch': { backgroundColor: 'var(--c-accent-soft)', outline: '1px solid var(--c-line-strong)' },
   '&.cm-editor .cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'var(--c-accent-soft)', outline: '2px solid var(--c-accent)' },
   '&.cm-editor .cm-foldPlaceholder.cm-foldPlaceholder': { backgroundColor: 'var(--c-surface)', border: '1px solid var(--c-line-strong)', color: 'var(--c-muted)' },
