@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { ChainHandle } from '../../chain/handle'
 import { latestBlocks } from '../data'
@@ -13,14 +13,15 @@ const short = (s: string) => `${s.slice(0, 10)}…${s.slice(-6)}`
 const muted = 'p-4 text-sm text-muted'
 
 /** No filter: pages through all blocks. With a filter: matches within the latest-500 window. */
-export function TableView({ chain, q, headers, total }: { chain: ChainHandle; q: string; headers: Header[]; total: number }) {
+export function TableView({ chain, q, headers, total, loading }: { chain: ChainHandle; q: string; headers: Header[]; total: number; loading: boolean }) {
   const nav = useNavigate()
-  const [page, setPage] = useState(0)
+  const [at, setAt] = useState({ q, chain, page: 0 })
+  const page = at.q === q && at.chain === chain ? at.page : 0 // a new filter or chain starts at page 0 without a stale render
+  const setPage = (p: number) => setAt({ q, chain, page: p })
   const filtering = q.trim() !== ''
-  useEffect(() => setPage(0), [q, chain])
   const all = useLoad(() => (filtering ? Promise.resolve(null) : latestBlocks(chain, page, PAGE)), [chain, page, filtering, total])
   const matches = filtering ? headers.filter(b => blockMatches(b, q)) : []
-  const rows = filtering ? matches.slice(page * PAGE, (page + 1) * PAGE) : all
+  const rows = filtering ? (loading ? undefined : matches.slice(page * PAGE, (page + 1) * PAGE)) : all
   const more = filtering ? (page + 1) * PAGE < matches.length : rows?.length === PAGE
   return (
     <Panel title="Latest blocks" badge={filtering ? <span className="text-xs text-muted">Filtering the latest 500 blocks</span> : undefined}>

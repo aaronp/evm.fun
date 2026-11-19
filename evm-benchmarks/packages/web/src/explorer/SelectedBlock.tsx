@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { ChainHandle } from '../chain/handle'
-import { block } from './data'
+import { big, block } from './data'
 import { useLoad } from './useLoad'
 import { Button } from '../ui/button'
 import { CopyIcon } from '../ui/icons'
@@ -10,12 +10,13 @@ const link = 'text-accent hover:underline'
 const short = (s: string) => `${s.slice(0, 10)}…${s.slice(-6)}`
 
 /** `n` undefined = no selection: shows the tip, headed "Latest block". `tip` comes from the block window. */
-export function SelectedBlock({ chain, n, tip }: { chain: ChainHandle; n?: number; tip?: number }) {
+export function SelectedBlock({ chain, n, tip, loading }: { chain: ChainHandle; n?: number; tip?: number; loading?: boolean }) {
   const num = n ?? tip
-  const b = useLoad(async () => (num === undefined ? null : block(chain, num, 0, 10)), [chain, num])
-  const child = useLoad(async () => (num === undefined ? null : block(chain, num + 1, 0, 0)), [chain, num])
+  const b = useLoad(async () => (num === undefined ? null : block(chain, num, 0, 10)), [chain, num, tip])
+  const child = useLoad(async () => (num === undefined ? null : block(chain, num + 1, 0, 0)), [chain, num, tip])
   const title = n === undefined ? 'Latest block' : `Block #${n}`
   const body = (() => {
+    if (num === undefined && loading) return <p className="p-4 text-muted">Loading…</p>
     if (num === undefined || b === null) return <p className="p-4 text-muted">{n === undefined ? 'No blocks.' : `Not found: block ${n}`}</p>
     if (b === undefined) return <p className="p-4 text-muted">Loading…</p>
     const h = b.header
@@ -29,7 +30,7 @@ export function SelectedBlock({ chain, n, tip }: { chain: ChainHandle; n?: numbe
             <Button variant="ghost" size="sm" title="Copy hash" onClick={() => navigator.clipboard?.writeText(h.hash)}><CopyIcon /><span className="sr-only">Copy hash</span></Button>
           </dd>
         </div>
-        <div><dt className="text-text-2">Timestamp</dt><dd>{new Date(Number(BigInt(h.timestamp)) * 1000).toISOString()}</dd></div>
+        <div><dt className="text-text-2">Timestamp</dt><dd>{new Date(Number(big(h.timestamp)) * 1000).toISOString()}</dd></div>
         <div><dt className="text-text-2">Transactions</dt><dd className="font-mono">{b.txTotal}</dd></div>
         <div><dt className="text-text-2">Parent</dt><dd>{num > 0 ? <Link className={`font-mono ${link}`} to={`/chains/block/${num - 1}`}>Block #{num - 1}</Link> : 'None — genesis block'}</dd></div>
         <div><dt className="text-text-2">Child</dt><dd>{child === undefined ? '…' : child ? <Link className={`font-mono ${link}`} to={`/chains/block/${num + 1}`}>Block #{num + 1}</Link> : 'None — this is the tip'}</dd></div>

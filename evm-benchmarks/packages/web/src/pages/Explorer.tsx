@@ -162,7 +162,7 @@ export type ExplorerView = 'table' | 'chain' | 'timeline' | 'fisheye'
 
 /** Table is built; the other views arrive in later tasks. */
 function ActiveView({ view, chain, q, win }: { view: ExplorerView; chain: ChainHandle; q: string; win: Win }) {
-  if (view === 'table') return <TableView chain={chain} q={q} headers={win.headers} total={win.total} />
+  if (view === 'table') return <TableView chain={chain} q={q} headers={win.headers} total={win.total} loading={win.loading} />
   return <Panel title={view[0]!.toUpperCase() + view.slice(1)}><p className={`${muted} p-4`}>Coming in this plan</p></Panel>
 }
 type Win = { headers: Header[]; total: number; loading: boolean }
@@ -174,7 +174,7 @@ function Browse({ chain, view, q, win }: { chain: ChainHandle; view: ExplorerVie
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="min-w-0"><ActiveView view={view} chain={chain} q={q} win={win} /></div>
-      <SelectedBlock chain={chain} n={sel} tip={win.headers[0]?.number} />
+      <SelectedBlock chain={chain} n={sel} tip={win.headers[0]?.number} loading={win.loading} />
     </div>
   )
 }
