@@ -23,6 +23,9 @@ const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'obj
 const isStr = (v: unknown) => typeof v === 'string'
 const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v)
 const MAX = 200
+// Untrusted values must never be interpolated directly (a toString that isn't a function throws).
+const show = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? String(v)
+  : typeof v === 'string' ? JSON.stringify(v.slice(0, 40)) : Array.isArray(v) ? 'array' : v === null ? 'null' : typeof v
 const str = (v: unknown) => isStr(v) && (v as string).length <= MAX
 const hex = (n: number) => (v: unknown) => isStr(v) && new RegExp(`^0x[0-9a-fA-F]{${n}}$`).test(v as string)
 const isAddr = hex(40), isHash = hex(64)
@@ -38,8 +41,12 @@ function contractError(c: any, i: number): string | null {
   return null
 }
 
-export function decodeChainFile(text: string, opts: { engine: string; crossEngineOk: boolean }):
-  { ok: true; file: ChainFile } | { ok: false; error: string } {
+type Decoded = { ok: true; file: ChainFile } | { ok: false; error: string }
+export function decodeChainFile(text: string, opts: { engine: string; crossEngineOk: boolean }): Decoded {
+  try { return decode(text, opts) } catch { return { ok: false, error: 'Invalid file' } }
+}
+
+function decode(text: string, opts: { engine: string; crossEngineOk: boolean }): Decoded {
   const bad = (error: string) => ({ ok: false as const, error })
   let badBigint = false
   const reviver = (_k: string, v: any) => {
@@ -53,9 +60,9 @@ export function decodeChainFile(text: string, opts: { engine: string; crossEngin
   if (badBigint) return bad('Invalid $bigint value')
   if (!isObj(f)) return bad('Not a chain file: expected a JSON object')
   if (f.format !== 'evm.fun/chain') return bad(`Wrong format: expected "evm.fun/chain"`)
-  if (typeof f.version === 'number' && f.version > 1) return bad(`Unsupported version ${f.version}: made by a newer version of evm.fun`)
+  if (typeof f.version === 'number' && f.version > 1) return bad(`Unsupported version ${show(f.version)}: made by a newer version of evm.fun`)
   if (f.version !== 1) return bad('Missing or invalid version: expected 1')
-  if (f.chainId !== 31337) return bad(`Unsupported chainId ${f.chainId}: only 31337 can be imported`)
+  if (f.chainId !== 31337) return bad(`Unsupported chainId ${show(f.chainId)}: only 31337 can be imported`)
   if (!isStr(f.exportedAt)) return bad('Missing or invalid exportedAt')
   if (!isStr(f.engine)) return bad('Missing or invalid engine')
   if (!isObj(f.chain) || !str(f.chain.name) || (f.chain.type !== 'plain' && f.chain.type !== 'sequencer'))
@@ -71,7 +78,7 @@ export function decodeChainFile(text: string, opts: { engine: string; crossEngin
   if (missing.length) return bad(`Invalid dump: missing ${missing.join(', ')}`)
   for (const k of ['accounts', 'code', 'storage']) if (!isObj(d[k])) return bad(`Invalid dump: ${k} is not an object`)
   for (const k of ['blocks', 'receipts', 'transactions']) if (!Array.isArray(d[k])) return bad(`Invalid dump: ${k} is not an array`)
-  if (d.chainId !== 31337) return bad(`Invalid dump: chainId ${d.chainId} is not 31337`)
+  if (d.chainId !== 31337) return bad(`Invalid dump: chainId ${show(d.chainId)} is not 31337`)
   if (f.source !== undefined) {
     const s = f.source
     const ok = isObj(s) && Number.isInteger(s.height) && s.height >= 0 && (s.kind === 'import' ? str(s.fileName)
@@ -79,7 +86,7 @@ export function decodeChainFile(text: string, opts: { engine: string; crossEngin
     if (!ok) return bad('Invalid source')
   }
   if (!opts.crossEngineOk && f.engine !== opts.engine)
-    return bad(`Engine mismatch: file is from ${f.engine}, this app runs ${opts.engine}`)
+    return bad(`Engine mismatch: file is from ${show(f.engine)}, this app runs ${opts.engine}`)
   return { ok: true, file: f as ChainFile }
 }
 

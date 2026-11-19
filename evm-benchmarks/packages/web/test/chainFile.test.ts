@@ -111,3 +111,24 @@ test('fileNameFor caps long names under 120 characters', () => {
   expect(n.endsWith('-123456.evmfun.json')).toBe(true)
   expect(fileNameFor('a-'.repeat(100), 1)).not.toContain('--')
 })
+
+test('hostile values never make decode throw', () => {
+  const evil = { toString: 1, valueOf: 1 }
+  const b = base()
+  const variants: any[] = [
+    { ...b, chainId: evil }, { ...b, dump: { ...b.dump, chainId: evil } }, { ...b, version: evil },
+    { ...b, engine: evil }, { ...b, format: evil }, { ...b, exportedAt: [] }, { ...b, chain: [] },
+    { ...b, chain: { name: evil, type: evil } }, { ...b, contracts: [evil] }, { ...b, contracts: [[]] },
+    { ...b, contracts: [{ ...goodC, abi: [evil, []] }] }, { ...b, contracts: {} }, { ...b, dump: evil },
+    { ...b, dump: { ...b.dump, accounts: evil, blocks: evil } }, { ...b, source: evil }, { ...b, source: [] },
+    { ...b, source: { kind: evil, height: evil } }, { ...b, chainId: [[[]]] }, { ...b, version: null }, { ...b, dump: 5 },
+    [], 5, 'x', null,
+  ]
+  for (const v of variants) {
+    let r: ReturnType<typeof dec> | undefined
+    expect(() => { r = dec(v) }).not.toThrow()
+    expect(r!.ok).toBe(false)
+  }
+  expect(err(dec({ ...b, chainId: evil }))).toMatch(/chainId/)
+  expect(err(dec({ ...b, dump: { ...b.dump, chainId: evil } }))).toMatch(/chainId/)
+})
