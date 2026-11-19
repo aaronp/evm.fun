@@ -42,6 +42,7 @@ describe('blockMatches', () => {
   })
   test('hash prefix with or without 0x, case-insensitive', () => {
     expect(blockMatches(H(1, hash), '0xabcd')).toBe(true)
+    expect(blockMatches(H(1, hash), '0x')).toBe(true) // a bare 0x matches every block
     expect(blockMatches(H(1, hash), 'ABCD1')).toBe(true)
     expect(blockMatches(H(1, hash), 'abce')).toBe(false)
   })

@@ -25,6 +25,8 @@ export function FisheyeView({ q, headers, total, selected, loading }: { q: strin
   const nav = useNavigate()
   const len = useLensLen()
   const [f, setF] = useState<number | null>(null)
+  const tip = headers[0]?.number
+  useEffect(() => setF(null), [selected, tip]) // keyboard focus is an index: drop it when the window or selection moves
   const n = headers.length
   const selIdx = selected === undefined ? -1 : headers.findIndex(h => h.number === selected)
   const rest = Math.max(0, selIdx)
@@ -64,7 +66,7 @@ export function FisheyeView({ q, headers, total, selected, loading }: { q: strin
               <div key={b.number} id={`fe-${b.number}`} role="option" aria-selected={isSel} onClick={() => go(i)}
                 style={{ height: size }}
                 className={`flex cursor-pointer items-center gap-2 overflow-hidden border-t border-line px-2 text-xs ${hit ? 'text-text' : 'text-faint opacity-40'} ${isSel ? 'border-l-4 border-l-accent bg-selected font-semibold' : ''} ${filtering && hit ? 'underline' : ''}`}>
-                {size >= 14 && <span className="font-mono">#{b.number} · {b.txCount} txs · {iso(b.timestamp)}</span>}
+                {size >= 14 ? <span className="font-mono">#{b.number} · {b.txCount} txs · {iso(b.timestamp)}</span> : <span className="sr-only">#{b.number}</span>}
                 {size >= max * 0.5 && <span className="font-mono text-text-2">{short(b.hash)}</span>}
                 {isSel && <span className="sr-only"> (selected)</span>}
                 {filtering && !hit && <span className="sr-only"> (does not match filter)</span>}

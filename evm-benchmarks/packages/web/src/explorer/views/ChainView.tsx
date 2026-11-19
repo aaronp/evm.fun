@@ -14,6 +14,7 @@ const short = (s: string) => `${s.slice(0, 10)}…${s.slice(-6)}`
 /** The focus block (selected, else the tip) with up to 3 parents and 3 children. Cards come from block() fetches, not the window. */
 export function ChainView({ chain, q, selected, total, loading }: { chain: ChainHandle; q: string; selected?: number; total: number; loading: boolean }) {
   const nav = useNavigate()
+  const filtering = q.trim() !== ''
   const head = total - 1
   const focus = selected ?? head
   const { parents, children } = neighbours(focus, head)
@@ -49,7 +50,7 @@ export function ChainView({ chain, q, selected, total, loading }: { chain: Chain
               {i > 0 && <span aria-hidden className="text-muted md:hidden">↓</span>}
               {i > 0 && <span aria-hidden className="hidden text-muted md:inline">→</span>}
               <Link to={`/chains/block/${n}`} aria-current={isFocus ? 'true' : undefined}
-                className={`block w-full rounded-lg border bg-surface p-3 text-sm hover:bg-surface-hover md:w-auto ${isFocus ? 'border-2 border-accent' : 'border-line'} ${dim ? 'opacity-40' : ''}`}>
+                className={`block w-full rounded-lg border bg-surface p-3 text-sm hover:bg-surface-hover md:w-auto ${isFocus ? 'border-2 border-accent' : 'border-line'} ${dim ? 'opacity-40' : ''} ${filtering && !dim ? 'underline' : ''}`}>
                 <div className="font-mono font-medium">#{n}</div>
                 <div className="font-mono text-xs text-text-2" title={b?.header.hash}>{b ? short(b.header.hash) : 'not found'}</div>
                 <div className="text-xs text-text-2">{b ? `${b.txTotal} txs` : ''}</div>

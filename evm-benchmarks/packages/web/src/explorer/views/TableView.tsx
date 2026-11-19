@@ -13,7 +13,7 @@ const short = (s: string) => `${s.slice(0, 10)}…${s.slice(-6)}`
 const muted = 'p-4 text-sm text-muted'
 
 /** No filter: pages through all blocks. With a filter: matches within the latest-500 window. */
-export function TableView({ chain, q, headers, total, loading }: { chain: ChainHandle; q: string; headers: Header[]; total: number; loading: boolean }) {
+export function TableView({ chain, q, headers, total, loading, selected }: { chain: ChainHandle; q: string; headers: Header[]; total: number; loading: boolean; selected?: number }) {
   const nav = useNavigate()
   const [at, setAt] = useState({ q, chain, page: 0 })
   const page = at.q === q && at.chain === chain ? at.page : 0 // a new filter or chain starts at page 0 without a stale render
@@ -31,8 +31,8 @@ export function TableView({ chain, q, headers, total, loading }: { chain: ChainH
             <thead><tr><th className={th}>Block</th><th className={th}>Hash</th><th className={th}>Time</th><th className={`${th} text-right`}>Txs</th></tr></thead>
             <tbody>
               {rows.map(b => (
-                <tr key={b.number} className="cursor-pointer border-t border-line hover:bg-surface-hover" onClick={() => nav(`/chains/block/${b.number}`)}>
-                  <td className={td}><Link className="font-mono text-accent hover:underline" to={`/chains/block/${b.number}`} onClick={e => e.stopPropagation()}>{b.number}</Link></td>
+                <tr key={b.number} aria-current={b.number === selected ? 'true' : undefined} className={`cursor-pointer border-t border-line hover:bg-surface-hover ${b.number === selected ? 'border-l-4 border-l-accent bg-selected' : ''}`} onClick={() => nav(`/chains/block/${b.number}`)}>
+                  <td className={td}><Link className="font-mono text-accent hover:underline" to={`/chains/block/${b.number}`} onClick={e => e.stopPropagation()}>{b.number}</Link>{b.number === selected && <span className="sr-only"> (selected)</span>}</td>
                   <td className={`${td} font-mono text-xs`} title={b.hash}>{short(b.hash)}</td>
                   <td className={`${td} whitespace-nowrap text-text-2`}>{new Date(b.timestamp * 1000).toISOString()}</td>
                   <td className={`${td} text-right font-mono`}>{b.txCount}</td>

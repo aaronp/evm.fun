@@ -164,19 +164,19 @@ function Address({ chain, names }: { chain: ChainHandle; names: Names }) {
 export type ExplorerView = 'table' | 'chain' | 'timeline' | 'fisheye'
 
 function ActiveView({ view, chain, q, win, sel }: { view: ExplorerView; chain: ChainHandle; q: string; win: Win; sel?: number }) {
-  if (view === 'table') return <TableView chain={chain} q={q} headers={win.headers} total={win.total} loading={win.loading} />
+  if (view === 'table') return <TableView chain={chain} q={q} headers={win.headers} total={win.total} loading={win.loading} selected={sel} />
   if (view === 'chain') return <ChainView chain={chain} q={q} selected={sel} total={win.total} loading={win.loading} />
   if (view === 'timeline') return <TimelineView q={q} headers={win.headers} total={win.total} selected={sel} loading={win.loading} />
   return <FisheyeView q={q} headers={win.headers} total={win.total} selected={sel} loading={win.loading} />
 }
 type Win = { headers: Header[]; total: number; loading: boolean }
 
-/** The view plus the selected-block panel (beside it at lg, below on narrower screens). */
+/** The view plus the selected-block panel (beside it when the pane is wide enough (container query), else below). */
 function Browse({ chain, view, q, win }: { chain: ChainHandle; view: ExplorerView; q: string; win: Win }) {
   const { n } = useParams()
   const sel = n !== undefined && /^\d+$/.test(n) ? Number(n) : undefined
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+    <div className="grid gap-4 @4xl:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="min-w-0"><ActiveView view={view} chain={chain} q={q} win={win} sel={sel} /></div>
       <SelectedBlock chain={chain} n={sel} tip={win.headers[0]?.number} loading={win.loading} />
     </div>
