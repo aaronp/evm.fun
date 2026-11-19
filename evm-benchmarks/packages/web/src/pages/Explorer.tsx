@@ -9,6 +9,7 @@ import { SelectedBlock } from '../explorer/SelectedBlock'
 import { ChainView } from '../explorer/views/ChainView'
 import { TableView } from '../explorer/views/TableView'
 import { TimelineView } from '../explorer/views/TimelineView'
+import { FisheyeView } from '../explorer/views/FisheyeView'
 import type { Header } from '../explorer/window'
 import { Pager } from '../ui/pager'
 import { isErc20 } from '../components/Erc20Card'
@@ -162,12 +163,11 @@ function Address({ chain, names }: { chain: ChainHandle; names: Names }) {
 
 export type ExplorerView = 'table' | 'chain' | 'timeline' | 'fisheye'
 
-/** Fisheye arrives in a later task. */
 function ActiveView({ view, chain, q, win, sel }: { view: ExplorerView; chain: ChainHandle; q: string; win: Win; sel?: number }) {
   if (view === 'table') return <TableView chain={chain} q={q} headers={win.headers} total={win.total} loading={win.loading} />
   if (view === 'chain') return <ChainView chain={chain} q={q} selected={sel} total={win.total} loading={win.loading} />
   if (view === 'timeline') return <TimelineView q={q} headers={win.headers} total={win.total} selected={sel} loading={win.loading} />
-  return <Panel title={view[0]!.toUpperCase() + view.slice(1)}><p className={`${muted} p-4`}>Coming in this plan</p></Panel>
+  return <FisheyeView q={q} headers={win.headers} total={win.total} selected={sel} loading={win.loading} />
 }
 type Win = { headers: Header[]; total: number; loading: boolean }
 
