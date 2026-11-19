@@ -68,6 +68,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 ## Done
 
+### web: Timeline spreads clustered blocks
+- id: t-47
+- owner: Claude
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T17:55:00Z
+  - Doing @ 2026-11-19T17:55:30Z by Claude
+  - Done @ 2026-11-19T17:57:00Z by Claude
+
 ### web: view toggle in viewer header
 - id: t-46
 - owner: Claude

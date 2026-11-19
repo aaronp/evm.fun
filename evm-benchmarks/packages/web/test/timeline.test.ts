@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { markRadius, ticks, timeScale } from '../src/explorer/timeline'
+import { markRadius, ticks, timeScale, timelineLayout } from '../src/explorer/timeline'
 import type { Header } from '../src/explorer/window'
 
 const h = (timestamp: number): Header => ({ number: 0, hash: '0x00', parentHash: '0x00', timestamp, txCount: 0 })
@@ -38,4 +38,26 @@ describe('ticks', () => {
   })
   test('deduplicated for a tiny span', () => expect(ticks(10, 12)).toEqual([10, 11, 12]))
   test('single value when lo === hi', () => expect(ticks(7, 7)).toEqual([7]))
+})
+
+describe('timelineLayout', () => {
+  const hn = (number: number, timestamp: number): Header => ({ ...h(timestamp), number })
+  test('equal timestamps spread by block number', () => {
+    const hs = [0, 1, 2, 3, 4].map(n => hn(n, 7))
+    const l = timelineLayout(hs, 600)
+    expect(l.mode).toBe('index')
+    const xs = hs.map(l.x)
+    expect(xs[0]).toBe(16)
+    expect(xs[4]).toBe(584)
+    xs.forEach((v, i) => i && expect(v).toBeGreaterThan(xs[i - 1]))
+  })
+  test('well-spread timestamps use timeScale', () => {
+    const hs = [0, 1, 2, 3].map(n => hn(n, n * 100))
+    const l = timelineLayout(hs, 600)
+    const X = timeScale(hs, 600)
+    expect(l.mode).toBe('time')
+    hs.forEach(b => expect(l.x(b)).toBe(X(b.timestamp)))
+  })
+  test('single block is centred', () => expect(timelineLayout([hn(3, 9)], 600).x(hn(3, 9))).toBe(300))
+  test('empty does not throw', () => expect(timelineLayout([], 600).mode).toBe('index'))
 })
