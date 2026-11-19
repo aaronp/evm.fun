@@ -88,8 +88,8 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - tags: cli, report
 - history:
   - To Do @ 2026-11-19T09:38:00Z
-  - Doing @ 2026-11-19T11:30:00Z by Claude
-  - Done @ 2026-11-19T11:45:00Z by Claude
+  - Doing @ 2026-11-19T11:15:34Z by Claude
+  - Done @ 2026-11-19T11:24:34Z by Claude
 
 ### Approach 02: seq-memory
 - id: t-08
@@ -97,8 +97,8 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - tags: approach
 - history:
   - To Do @ 2026-11-19T09:38:00Z
-  - Doing @ 2026-11-19T10:43:22Z by Claude
-  - Done @ 2026-11-19T11:15:07Z by Claude
+  - Doing @ 2026-11-19T10:41:43Z by Claude
+  - Done @ 2026-11-19T11:15:34Z by Claude
 
 ```md
 Parallel sig pre-verify, single-writer sequencer, ring buffer, batched blocks, no state root, in-memory log.
@@ -110,7 +110,7 @@ Parallel sig pre-verify, single-writer sequencer, ring buffer, batched blocks, n
 - tags: cli
 - history:
   - To Do @ 2026-11-19T09:38:00Z
-  - Doing @ 2026-11-19T10:32:27Z by Claude
+  - Doing @ 2026-11-19T10:30:28Z by Claude
   - Done @ 2026-11-19T10:41:43Z by Claude
 
 ### core: Approach interface, trade-off schema, metrics
@@ -119,8 +119,8 @@ Parallel sig pre-verify, single-writer sequencer, ring buffer, batched blocks, n
 - tags: core
 - history:
   - To Do @ 2026-11-19T09:38:00Z
-  - Doing @ 2026-11-19T10:05:40Z by Claude
-  - Done @ 2026-11-19T10:30:26Z by Claude
+  - Doing @ 2026-11-19T10:04:27Z by Claude
+  - Done @ 2026-11-19T10:30:28Z by Claude
 
 ### core: five scenarios (generator + verifier each)
 - id: t-05
@@ -128,8 +128,8 @@ Parallel sig pre-verify, single-writer sequencer, ring buffer, batched blocks, n
 - tags: core
 - history:
   - To Do @ 2026-11-19T09:38:00Z
-  - Doing @ 2026-11-19T10:25:00Z by Claude
-  - Done @ 2026-11-19T10:26:00Z by Claude
+  - Doing @ 2026-11-19T10:17:10Z by Claude
+  - Done @ 2026-11-19T10:21:13Z by Claude
 
 ```md
 eth-transfer, erc20-disjoint, erc20-hot, erc20-mint, atomic-swap
@@ -141,8 +141,8 @@ eth-transfer, erc20-disjoint, erc20-hot, erc20-mint, atomic-swap
 - tags: approach
 - history:
   - To Do @ 2026-11-19T09:38:00Z
-  - Doing @ 2026-11-19T10:05:40Z by Claude
-  - Done @ 2026-11-19T10:17:06Z by Claude
+  - Doing @ 2026-11-19T10:04:27Z by Claude
+  - Done @ 2026-11-19T10:17:10Z by Claude
 
 ### contracts: MintableToken + AtomicSwap compiled with solc-js
 - id: t-03
@@ -150,8 +150,8 @@ eth-transfer, erc20-disjoint, erc20-hot, erc20-mint, atomic-swap
 - tags: contracts
 - history:
   - To Do @ 2026-11-19T09:38:00Z
-  - Doing @ 2026-11-19T10:00:44Z by Claude
-  - Done @ 2026-11-19T10:04:25Z by Claude
+  - Doing @ 2026-11-19T09:59:31Z by Claude
+  - Done @ 2026-11-19T10:04:27Z by Claude
 
 ### Design evm-benchmarks
 - id: t-00
@@ -171,8 +171,8 @@ evm-benchmarks/docs/superpowers/specs/2026-11-19-evm-benchmarks-design.md
 - tags: spike, engine
 - history:
   - To Do @ 2026-11-19T09:38:00Z
-  - Doing @ 2026-11-19T09:58:20Z by Claude
-  - Done @ 2026-11-19T09:58:20Z by Claude
+  - Doing @ 2026-11-19T09:50:45Z by Claude
+  - Done @ 2026-11-19T09:59:31Z by Claude
 
 ```md
 Confirm the features approaches 02-05 rely on. Record outcome in ADR "Which EVM engine backs the sequencer" and risk R01.
@@ -184,5 +184,5 @@ Confirm the features approaches 02-05 rely on. Record outcome in ADR "Which EVM 
 - tags: infra
 - history:
   - To Do @ 2026-11-19T09:38:00Z
-  - Doing @ 2026-11-19T09:58:20Z by Claude
-  - Done @ 2026-11-19T09:58:20Z by Claude
+  - Doing @ 2026-11-19T09:50:45Z by Claude
+  - Done @ 2026-11-19T09:59:31Z by Claude
