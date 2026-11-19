@@ -13,7 +13,6 @@ interface Opts { orient: Orient; order: Order; rest: Rest; mag: number; spread: 
 
 const KEY = 'evmb.fisheye'
 const DEFAULTS: Opts = { orient: 'horizontal', order: 'newest', rest: 'newest', mag: LENS_MAG, spread: LENS_SPREAD, len: 860 }
-const short = (h: string) => `${h.slice(0, 8)}…${h.slice(-4)}` // mockup C.short
 const STEP = 30 // Older / Newer step, in blocks
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x))
 const num = (v: unknown, lo: number, hi: number, d: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : d)
@@ -159,7 +158,7 @@ export function FisheyeView({ q, headers, selected, loading }: { q: string; head
                     {(t.full || t.mid) && (
                       <span className={H ? 'flex flex-col gap-0.5' : 'flex items-center gap-2.5'}>
                         <span className={`font-semibold ${t.full ? 'text-[15px]' : ''} ${ul}`}>#{b.number}</span>
-                        <span className={`font-mono ${t.mid && H ? 'text-[11px]' : 'text-xs'} ${ul}`}>{t.full ? short(b.hash) : b.hash.slice(2, 8)}</span>
+                        <span className={`font-mono ${t.mid && H ? 'text-[11px]' : 'text-xs'} ${ul}`}>{b.hash.slice(2, 8)}</span>
                       </span>
                     )}
                     {!t.full && !t.mid && <span className="sr-only">#{b.number}</span>}
