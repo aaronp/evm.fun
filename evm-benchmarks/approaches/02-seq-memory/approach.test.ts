@@ -278,8 +278,7 @@ test('restore refuses while txs are pending, and they still settle', async () =>
   await ap.dispose();
 });
 
-// webevm's loadState does NOT clear its manual-mining queue (`pending`). The pipeline mines every
-// queued tx before it settles, so restore() (which requires pending() === 0) never sees a stale queue.
+// restore() loads the dump into a fresh node, so webevm's manual-mining queue cannot leak across it.
 test('after restore the next block holds only new txs', async () => {
   const ap = create(opts);
   await ap.setup({prefund: {[a.address]: 10n ** 21n}});
@@ -292,5 +291,36 @@ test('after restore the next block holds only new txs', async () => {
   const b: any = await ap.request!('eth_getBlockByNumber', ['latest', false]);
   expect(b.transactions).toEqual([keccak256(raws[2]!)]);
   expect(await ap.getBalance(B)).toBe(3n);
+  await ap.dispose();
+});
+
+// C1: webevm's loadState only puts the dump's accounts/code/storage, so restore must start a fresh node.
+const C = '0x00000000000000000000000000000000000c0ffe' as const;
+// constructor: SSTORE(0, 0x2a); runtime code 0xff
+const INIT = '0x602a60005560ff60005360016000f3' as const;
+const signAny = (nonce: number, extra: {to?: Hex; value?: bigint; data?: Hex}) =>
+  a.signTransaction({
+    type: 'eip1559',
+    chainId: 31337,
+    nonce,
+    gas: 100_000n,
+    maxFeePerGas: 2_000_000_000n,
+    maxPriorityFeePerGas: 1_000_000_000n,
+    ...extra,
+  });
+
+test('restore replaces state: an account funded and a contract deployed after the snapshot are gone', async () => {
+  const ap = create(opts, {persistence: memPersist()});
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  await settle(ap, await snapRaws(0, 1));
+  const dump = await ap.snapshot!();
+  const [, deploy] = await settle(ap, [await signAny(1, {to: C, value: 5n}), await signAny(2, {data: INIT})]);
+  const K = deploy!.contractAddress!;
+  expect(await ap.getBalance(C)).toBe(5n);
+  expect(await ap.request!('eth_getCode', [K, 'latest'])).toBe('0xff');
+  await ap.restore!(dump);
+  expect(await ap.getBalance(C)).toBe(0n);
+  expect(await ap.request!('eth_getCode', [K, 'latest'])).toBe('0x');
+  expect(BigInt((await ap.request!('eth_getStorageAt', [K, '0x0', 'latest'])) as string)).toBe(0n);
   await ap.dispose();
 });

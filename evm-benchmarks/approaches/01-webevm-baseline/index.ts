@@ -26,8 +26,8 @@ const factory: ApproachFactory = (_opts, host = {}) => {
 
   async function start(p: PersistenceAdapter | undefined, initialBalances?: Record<Address, bigint>) {
     await node?.dispose();
-    receipts = new Map();
-    waiters = [];
+    receipts = new Map(); // blocks after a restored dump are gone, and so are their receipts
+    notify(); // in-flight awaitSettled calls re-check against the new map instead of being orphaned
     submitMs = 0;
     node = await createNode({
       chainId: 31337,
@@ -51,7 +51,10 @@ const factory: ApproachFactory = (_opts, host = {}) => {
 
     async setup({prefund, dump}) {
       await start(persistence && fresh(persistence), dump ? undefined : prefund);
-      if (dump) await approach.restore!(dump);
+      if (!dump) return;
+      // into a fresh node: webevm's loadState only puts the dump's state, it never clears newer state
+      await node!.loadState(dump as any);
+      if (persistence) await persistence.save(await node!.dumpState());
     },
 
     async snapshot() {
@@ -59,10 +62,7 @@ const factory: ApproachFactory = (_opts, host = {}) => {
     },
 
     async restore(dump) {
-      await node!.loadState(dump as any);
-      receipts = new Map(); // blocks after the dump are gone, and so are their receipts
-      notify();
-      if (persistence) await persistence.save(await node!.dumpState());
+      await approach.setup({prefund: {}, dump});
     },
 
     pending: () => 0,
@@ -80,8 +80,10 @@ const factory: ApproachFactory = (_opts, host = {}) => {
       const t0 = performance.now();
       for (const raw of rawTxs) {
         const hash = keccak256(raw);
+        const n = node!;
         try {
-          const r: any = await node!.request({method: 'eth_sendRawTransactionSync', params: [raw]});
+          const r: any = await n.request({method: 'eth_sendRawTransactionSync', params: [raw]});
+          if (n !== node) throw new Error('chain was restored while the tx was in flight');
           record({
             hash,
             status: r.status === '0x1' ? 'success' : 'reverted',

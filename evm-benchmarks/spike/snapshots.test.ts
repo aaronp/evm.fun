@@ -164,3 +164,35 @@ for (const engine of ['default', 'revm'] as const) {
     await m.dispose();
   }, 120_000);
 }
+
+// C1 regression: loadState into a RUNNING node only puts the dump's accounts/code/storage and never
+// clears what was created after the snapshot, so restore must load into a fresh node instead.
+for (const engine of ['default', 'revm'] as const) {
+  test(`loadState merges into a running node; a fresh node is clean (${engine})`, async () => {
+    const C = '0x00000000000000000000000000000000000c0ffe';
+    const n = await make(engine, 'auto');
+    await sendTxs(n, 'auto', 0, 1);
+    const dump = await n.dumpState();
+    const tx = (nonce: number, extra: object) =>
+      account.signTransaction({
+        type: 'eip1559', chainId: 31337, nonce, gas: 100_000n,
+        maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n, ...extra,
+      });
+    await rpc(n, 'evm_sendRawTransactionSyncAs', [await tx(1, {to: C, value: 5n}), account.address]);
+    const rc = await rpc(n, 'evm_sendRawTransactionSyncAs', [await tx(2, {data: '0x602a60005560ff60005360016000f3'}), account.address]);
+    const K = rc.contractAddress;
+    expect(await rpc(n, 'eth_getCode', [K, 'latest'])).toBe('0xff');
+
+    await n.loadState(dump); // the webevm 0.9.1 behaviour restore must avoid
+    expect(BigInt(await rpc(n, 'eth_getBalance', [C, 'latest']))).toBe(5n);
+    expect(await rpc(n, 'eth_getCode', [K, 'latest'])).toBe('0xff');
+
+    const f = await make(engine, 'auto');
+    await f.loadState(dump);
+    expect(BigInt(await rpc(f, 'eth_getBalance', [C, 'latest']))).toBe(0n);
+    expect(await rpc(f, 'eth_getCode', [K, 'latest'])).toBe('0x');
+    expect(BigInt(await rpc(f, 'eth_getStorageAt', [K, '0x0', 'latest']))).toBe(0n);
+    await n.dispose();
+    await f.dispose();
+  });
+}

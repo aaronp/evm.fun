@@ -95,8 +95,8 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
 
   async function start(p: PersistenceAdapter | undefined, initialBalances?: Record<Address, bigint>) {
     await teardown();
-    receipts = new Map();
-    waiters = [];
+    receipts = new Map(); // blocks after a restored dump are gone, and so are their receipts
+    notify(); // in-flight awaitSettled calls re-check against the new map instead of being orphaned
     fatal = undefined;
     submitted = settled = 0;
     executeMs = mineMs = 0;
@@ -140,7 +140,10 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
 
     async setup({prefund, dump}) {
       await start(persistence && fresh(persistence), dump ? undefined : prefund);
-      if (dump) await approach.restore!(dump);
+      if (!dump) return;
+      // into a fresh node: webevm's loadState only puts the dump's state, it never clears newer state
+      await run!.node.loadState(dump as any);
+      if (persistence) await persistence.save(await run!.node.dumpState());
     },
 
     async snapshot() {
@@ -150,10 +153,7 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
     async restore(dump) {
       // the executor is the node's only caller while txs are in flight
       if (submitted !== settled) throw new Error(`02-seq-memory: restore refused, ${submitted - settled} txs pending`);
-      await run!.node.loadState(dump as any);
-      receipts = new Map(); // blocks after the dump are gone, and so are their receipts
-      notify();
-      if (persistence) await persistence.save(await run!.node.dumpState());
+      await approach.setup({prefund: {}, dump});
     },
 
     pending: () => submitted - settled,

@@ -49,7 +49,7 @@ export interface Approach {
   request?(method: string, params?: unknown[]): Promise<unknown>;
   /** webevm dumpState() of the live node */
   snapshot?(): Promise<ChainDump>;
-  /** loadState into the live node (rewinds it); persists if persistence given */
+  /** replace the chain with the dump (restarts on a fresh node, then loadState); persists if persistence given */
   restore?(dump: ChainDump): Promise<void>;
   /** txs submitted but not yet settled */
   pending?(): number;

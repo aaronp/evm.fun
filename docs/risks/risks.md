@@ -261,8 +261,12 @@ Each running chain holds an engine, and sequencer chains start `hardwareConcurre
 - category: Technology
 - driver: Claude
 - approver: Aaron
+- status: closed
+- closed: 2026-11-19
 
 Restore calls webevm `loadState` on the live node. In webevm 0.9.1 `loadState` does not clear the manual-mining queue, so txs queued before a restore would be mined on top of the restored state. The pipeline cannot reach this: `restoreTo` requires `pending() === 0` and the dialog disables Restore otherwise. It is reachable through the raw request pass-through (a manual-mining chain given txs by direct JSON-RPC, then restored).
+
+Closed 2026-11-19: moot. `loadState` also never clears accounts, code or storage created after the snapshot (it merges), so restore now disposes the node and loads the dump into a fresh one (the `setup({dump})` path). A fresh node has an empty queue, so nothing queued before a restore can survive it.
 
 ### Controls
 | Control | Type | Effectiveness |

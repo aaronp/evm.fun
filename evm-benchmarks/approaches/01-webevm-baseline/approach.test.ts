@@ -224,3 +224,48 @@ test('restore wakes an in-flight awaitSettled instead of orphaning it', async ()
   expect(done).toBe(true);
   await ap.dispose();
 });
+
+// C1: webevm's loadState only puts the dump's accounts/code/storage, so restore must start a fresh node.
+const C = '0x00000000000000000000000000000000000c0ffe' as const;
+// constructor: SSTORE(0, 0x2a); runtime code 0xff
+const INIT = '0x602a60005560ff60005360016000f3' as const;
+const signAny = (nonce: number, extra: {to?: Hex; value?: bigint; data?: Hex}) =>
+  a.signTransaction({
+    type: 'eip1559',
+    chainId: 31337,
+    nonce,
+    gas: 100_000n,
+    maxFeePerGas: 2_000_000_000n,
+    maxPriorityFeePerGas: 1_000_000_000n,
+    ...extra,
+  });
+
+test('restore replaces state: an account funded and a contract deployed after the snapshot are gone', async () => {
+  const ap = create({}, {persistence: memPersist()});
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  await settle(ap, await snapRaws(0, 1));
+  const dump = await ap.snapshot!();
+  const [, deploy] = await settle(ap, [await signAny(1, {to: C, value: 5n}), await signAny(2, {data: INIT})]);
+  const K = deploy!.contractAddress!;
+  expect(await ap.getBalance(C)).toBe(5n);
+  expect(await ap.request!('eth_getCode', [K, 'latest'])).toBe('0xff');
+  await ap.restore!(dump);
+  expect(await ap.getBalance(C)).toBe(0n);
+  expect(await ap.request!('eth_getCode', [K, 'latest'])).toBe('0x');
+  expect(BigInt((await ap.request!('eth_getStorageAt', [K, '0x0', 'latest'])) as string)).toBe(0n);
+  await ap.dispose();
+});
+
+test('a send in flight across restore settles (rejected) instead of hanging', async () => {
+  const ap = create();
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  const dump = await ap.snapshot!();
+  const raw = await sign(0);
+  const sent = ap.submit([raw]);
+  await ap.restore!(dump);
+  await sent;
+  const [r] = await ap.awaitSettled([keccak256(raw)]);
+  expect(['rejected', 'success']).toContain(r!.status);
+  expect(await ap.getBalance(B)).toBe(0n);
+  await ap.dispose();
+});
