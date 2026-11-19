@@ -34,7 +34,8 @@ export function histogram(series: Series[], bins = 40): { edges: number[]; share
 export function cumulative(series: Series[], points = 100): { xs: number[]; ys: number[][] } {
   const r = range(series)
   if (!r) return { xs: [], ys: [] }
-  const [lo, hi] = r
+  const [lo, max] = r
+  const hi = max > lo ? max : lo + 1 // all-equal samples: widen like histogram, else a zero-length path
   const xs = Array.from({ length: points }, (_, i) => (i === points - 1 ? hi : lo + ((hi - lo) * i) / (points - 1)))
   const ys = series.map(s => xs.map(x => (s.samples.length ? (countAtOrBelow(s.samples, x) * 100) / s.samples.length : 0)))
   return { xs, ys }

@@ -40,6 +40,13 @@ test('cumulative: non-decreasing, ends at 100, shared xs min..max', () => {
   expect(c.ys[1]![0]).toBe(0) // nothing in b is <= 1
 })
 
+test('cumulative: all-equal samples span a unit-wide x range', () => {
+  const c = cumulative([{ id: 'a', name: 'a', samples: [5, 5, 5] }], 10)
+  expect(c.xs[0]).toBe(5)
+  expect(c.xs[9]).toBe(6)
+  expect(c.ys[0]!.every(y => y === 100)).toBe(true)
+})
+
 test('cumulative: empty series array gives empty output', () => {
   expect(cumulative([])).toEqual({ xs: [], ys: [] })
 })
