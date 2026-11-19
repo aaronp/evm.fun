@@ -20,18 +20,20 @@ Both are real EVMs running unmodified Solidity bytecode; in this playground both
 
 ## Chains page and explorer
 
-The app bar links every page and carries the theme switcher. **Chains** (`/chains`) combines the chain list and the explorer. Pick a chain on the left (filter and tabs narrow the list); the **+** button opens a dialog to create one (Esc closes it and focus returns to **+**), and Delete removes a chain. The selected chain drives the context box, Studio and Transact. Old `/explorer/...` links redirect to the matching `/chains/...` route.
+The sidebar links every page and holds the theme switcher; the app bar shows the page title, breadcrumbs and page actions (on Chains, the View toggle and Refresh). **Chains** (`/chains`) combines the chain list and the explorer. Pick a chain on the left (the filter box and tabs narrow the list); the **+** button opens a dialog to create one (Esc closes it and focus returns to **+**), and Delete removes a chain. Below the `lg` breakpoint the list becomes a compact picker above the pane, without the filter box and tabs. The selected chain drives the context box, Studio and Transact. Old `/explorer/...` links redirect to the matching `/chains/...` route.
 
 Chains are either running (they hold an engine in this tab) or stopped. The list shows the **last known height** of a stopped chain, saved whenever it changes, so you can see it without opening the chain. At most 8 chains can run at once: the page warns at 4 and refuses to start more at 8. Nothing is closed automatically; delete one or reload.
 
 The explorer pane has four views on a linear chain, remembered in `localStorage` (`evmb.explorerView`, default Table):
 
 - **Table**: the latest blocks, paged.
-- **Chain**: the selected block with its parent and child.
+- **Chain**: the selected block (or the tip) with up to 3 parents and 3 children, Parent/Child buttons and the left/right arrow keys; when the selection is beyond the head the Parent button becomes "Go to tip".
 - **Timeline**: blocks laid out along a time axis.
-- **Fisheye**: a magnified lens over the blocks near the selection.
+- **Fisheye**: a magnified list of blocks around the selection; up/down arrows move and Enter opens.
 
-Timeline and Fisheye use the latest 500 blocks; a selected older block still shows in the selected-block panel and Chain view. The panel lists the block's transactions ("All N transactions" opens the full list). The search box filters by number or hash prefix; Enter on a full tx hash, address or block number opens it, anything else shows "Not found".
+Timeline and Fisheye use the latest 500 blocks; a selected older block still shows in the selected-block panel and Chain view, and the Timeline and Fisheye captions say it is older than the latest 500. The panel lists the block's transactions ("All N transactions" opens the full list).
+
+**Filter:** digits match the block number exactly; hex (with or without `0x`) matches a block-hash prefix. Table hides non-matches within the latest 500 blocks (a caption says so); Chain, Timeline and Fisheye dim non-matches. Enter navigates to a full tx hash, address or block number; other input shows "Not found".
 
 Fork views come later, with snapshots, export/import and restore, when there is real fork data to show.
 
@@ -39,7 +41,7 @@ Fork views come later, with snapshots, export/import and restore, when there is 
 
 Three themes: **dark**, **light** and **paper** (warm off-white). Colours are CSS custom properties (`--c-*`) defined once per theme in `src/theme/tokens.css` and mapped to Tailwind colours in `src/index.css`; components use only those tokens.
 
-The app bar switcher calls `setTheme()` (`src/theme/theme.ts`), which sets `data-theme` on `<html>` (instant, no reload) and saves the choice in `localStorage` under `evmb.theme`. With nothing stored, the OS `prefers-color-scheme` picks dark or light. A small inline script in `index.html` applies the theme before first paint (keep it in sync with `initialTheme()`). If storage is blocked the choice lasts for the session only.
+The sidebar switcher calls `setTheme()` (`src/theme/theme.ts`), which sets `data-theme` on `<html>` (instant, no reload) and saves the choice in `localStorage` under `evmb.theme`. With nothing stored, the OS `prefers-color-scheme` picks dark or light. A small inline script in `index.html` applies the theme before first paint (keep it in sync with `initialTheme()`). If storage is blocked the choice lasts for the session only.
 
 **Add a theme:** (1) add one `:root[data-theme="name"] { ... }` block to `tokens.css` defining every `--c-*` token; (2) add `'name'` to `THEMES` in `src/theme/theme.ts` (the `Theme` type and the switcher options follow); (3) add its label to the `label` map in `src/components/ThemeSwitcher.tsx`; (4) add `'name'` to the allowed names in the inline script in `index.html`. Then run `bun test`: the contrast test discovers themes from `tokens.css`, fails if they differ from `THEMES`, checks each theme's contrast pairs, and fails if `index.html` misses a name.
 
