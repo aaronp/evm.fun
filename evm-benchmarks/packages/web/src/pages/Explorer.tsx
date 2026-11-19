@@ -1,4 +1,3 @@
-import { useAppBar } from '../state/appBar'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import type { Abi } from 'viem'
@@ -36,7 +35,7 @@ function useLoad<T>(f: () => Promise<T | null>, deps: unknown[]) {
 }
 
 const Addr = ({ a, names }: { a: string | null; names: Names }) =>
-  a ? <Link title={a} className={`font-mono ${link}`} to={`/explorer/address/${a}`}>{names.get(a.toLowerCase())?.name ?? short(a)}</Link> : <span className="text-muted">(create)</span>
+  a ? <Link title={a} className={`font-mono ${link}`} to={`/chains/address/${a}`}>{names.get(a.toLowerCase())?.name ?? short(a)}</Link> : <span className="text-muted">(create)</span>
 
 function Pager({ page, set, more }: { page: number; set(p: number): void; more: boolean }) {
   return (
@@ -62,7 +61,7 @@ function Latest({ chain }: { chain: ChainHandle }) {
             <tbody>
               {rows.map(b => (
                 <tr key={b.number} className="border-t border-line hover:bg-surface-hover">
-                  <td className={td}><Link className={`font-mono ${link}`} to={`/explorer/block/${b.number}`}>{b.number}</Link></td>
+                  <td className={td}><Link className={`font-mono ${link}`} to={`/chains/block/${b.number}`}>{b.number}</Link></td>
                   <td className={`${td} font-mono text-xs`} title={b.hash}>{short(b.hash)}</td>
                   <td className={`${td} whitespace-nowrap text-text-2`}>{new Date(b.timestamp * 1000).toISOString()}</td>
                   <td className={`${td} text-right font-mono`}>{b.txCount}</td>
@@ -104,7 +103,7 @@ function Block({ chain, names }: { chain: ChainHandle; names: Names }) {
             <tbody>
               {b.txs.map(t => (
                 <tr key={t.hash} className="border-t border-line hover:bg-surface-hover">
-                  <td className={td}><Link className={`font-mono text-xs ${link}`} title={t.hash} to={`/explorer/tx/${t.hash}`}>{short(t.hash)}</Link></td>
+                  <td className={td}><Link className={`font-mono text-xs ${link}`} title={t.hash} to={`/chains/tx/${t.hash}`}>{short(t.hash)}</Link></td>
                   <td className={`${td} text-xs`}><Addr a={t.from} names={names} /></td>
                   <td className={`${td} text-xs`}><Addr a={t.to} names={names} /></td>
                   <td className={`${td} text-right font-mono`}>{t.value.toString()}</td>
@@ -142,7 +141,7 @@ function Tx({ chain, names }: { chain: ChainHandle; names: Names }) {
       <Details>
         <Row k="Hash"><span className="font-mono text-xs" title={t.tx.hash}>{t.tx.hash}</span></Row>
         <Row k="Status"><Badge variant={ok ? 'success' : 'danger'}>{ok ? 'success' : 'reverted'}</Badge></Row>
-        <Row k="Block"><Link className={`font-mono ${link}`} to={`/explorer/block/${bn}`}>{bn}</Link></Row>
+        <Row k="Block"><Link className={`font-mono ${link}`} to={`/chains/block/${bn}`}>{bn}</Link></Row>
         <Row k="From"><Addr a={t.tx.from} names={names} /></Row>
         <Row k="To"><Addr a={t.tx.to} names={names} /></Row>
         {r.contractAddress && <Row k="Created"><Addr a={r.contractAddress} names={names} /></Row>}
@@ -206,7 +205,6 @@ function Address({ chain, names }: { chain: ChainHandle; names: Names }) {
 }
 
 export function Explorer() {
-  useAppBar({ title: 'Explorer' })
   const { chain } = useApp()
   const nav = useNavigate()
   const [q, setQ] = useState('')
@@ -226,7 +224,7 @@ export function Explorer() {
     const s = q.trim()
     const kind = classify(s)
     setMiss(kind === 'invalid')
-    if (kind !== 'invalid') nav(`/explorer/${kind}/${s}`)
+    if (kind !== 'invalid') nav(`/chains/${kind}/${s}`)
   }
   return (
     <div className="space-y-4">
@@ -241,6 +239,7 @@ export function Explorer() {
       <Routes>
         <Route index element={<Latest chain={chain} />} />
         <Route path="block/:n" element={<Block chain={chain} names={names} />} />
+        <Route path="block/:n/txs" element={<Block chain={chain} names={names} />} />
         <Route path="tx/:hash" element={<Tx chain={chain} names={names} />} />
         <Route path="address/:addr" element={<Address chain={chain} names={names} />} />
         <Route path="*" element={<NotFound what="page" />} />

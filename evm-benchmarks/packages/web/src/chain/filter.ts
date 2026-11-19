@@ -1,0 +1,9 @@
+import type { ChainInfo } from './handle'
+
+export type ChainTab = 'all' | 'saved' | 'bench'
+
+/** Name filter (trimmed, case-insensitive) plus tab: saved = persisted, bench = ephemeral. Order is kept. */
+export function filterChains(chains: ChainInfo[], q: string, tab: ChainTab): ChainInfo[] {
+  const s = q.trim().toLowerCase()
+  return chains.filter(c => c.name.toLowerCase().includes(s) && (tab === 'all' || !!c.ephemeral === (tab === 'bench')))
+}

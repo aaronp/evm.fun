@@ -30,7 +30,7 @@ export function ReceiptView({ chain, receipt, abi }: { chain: ChainHandle; recei
         <div className={row}><span className="text-text-2">Transaction</span><span className="min-w-0 break-all text-right font-mono text-xs">{receipt.hash}</span></div>
         {raw && (
           <>
-            <div className={row}><span className="text-text-2">Block</span><Link className="font-mono text-accent underline" to={`/explorer/block/${block}`}>{block}</Link></div>
+            <div className={row}><span className="text-text-2">Block</span><Link className="font-mono text-accent underline" to={`/chains/block/${block}`}>{block}</Link></div>
             <div className={row}><span className="text-text-2">Gas used</span><span className="font-mono">{BigInt(raw.gasUsed).toString()}</span></div>
           </>
         )}

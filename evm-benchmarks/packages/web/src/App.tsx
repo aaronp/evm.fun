@@ -1,28 +1,29 @@
 import type { ReactElement } from 'react'
-import { HashRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { HashRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { StorageNotice } from './ui/notice'
 import { AppState } from './state'
 import { AppBarProvider } from './state/appBar'
 import { AppBar } from './components/AppBar'
 import { Accounts } from './pages/Accounts'
-import { Chains } from './pages/Chains'
+import { Chains } from './pages/ChainsPage'
+import { legacyRoute } from './routes'
 import { Studio } from './pages/Studio'
 import { Transact } from './pages/Transact'
-import { Explorer } from './pages/Explorer'
 import { Benchmark } from './pages/Benchmark'
 import { ContextBox, ContextStrip } from './components/ContextBox'
 import { ThemeSwitcher } from './components/ThemeSwitcher'
 import { ENGINE } from './chain/revm'
-import { AccountsIcon, BenchmarkIcon, BrandIcon, ChainsIcon, ExplorerIcon, StudioIcon, TransactIcon } from './ui/icons'
+import { AccountsIcon, BenchmarkIcon, BrandIcon, ChainsIcon, StudioIcon, TransactIcon } from './ui/icons'
 import { AddressList } from './components/AddressList'
 
 const groups = [
   { label: 'Setup', items: [['Accounts', AccountsIcon], ['Chains', ChainsIcon]] },
-  { label: 'Build & run', items: [['Studio', StudioIcon], ['Transact', TransactIcon], ['Explorer', ExplorerIcon], ['Benchmark', BenchmarkIcon]] },
+  { label: 'Build & run', items: [['Studio', StudioIcon], ['Transact', TransactIcon], ['Benchmark', BenchmarkIcon]] },
 ] as const
 const pages = groups.flatMap(g => g.items.map(([n]) => n))
 
-const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Explorer: <Explorer />, Benchmark: <Benchmark /> }
+const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Benchmark: <Benchmark /> }
+const LegacyRedirect = () => <Navigate to={legacyRoute(useLocation().pathname) ?? '/chains'} replace />
 const Stub = ({ name }: { name: string }) => <h1 className="text-xl font-semibold">{name}</h1>
 
 export function App() {
@@ -68,8 +69,9 @@ export function App() {
           <AddressList />
           <Routes>
             {pages.map(p => (
-              <Route key={p} path={p === 'Explorer' ? '/explorer/*' : `/${p.toLowerCase()}`} element={real[p] ?? <Stub name={p} />} />
+              <Route key={p} path={p === 'Chains' ? '/chains/*' : `/${p.toLowerCase()}`} element={real[p] ?? <Stub name={p} />} />
             ))}
+            <Route path="/explorer/*" element={<LegacyRedirect />} />
             <Route path="*" element={<Navigate to="/accounts" replace />} />
           </Routes>
         </main>

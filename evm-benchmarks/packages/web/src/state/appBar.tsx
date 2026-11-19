@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useLayoutEffect, useState, type ReactNode } from 'react'
 
 export type AppBarAction =
   | { kind: 'button'; id: string; label: string; icon: ReactNode; onClick: () => void; disabled?: boolean }
@@ -18,8 +18,8 @@ export const useAppBarConfig = () => useContext(Value)
 /** Registers the bar's content while the calling page is mounted, then clears it. */
 export function useAppBar(config: AppBarConfig) {
   const set = useContext(Setter)
-  useEffect(() => { set(config) }) // every render: actions close over fresh page state
-  useEffect(() => () => set(undefined), [set])
+  useLayoutEffect(() => { set(config) }) // every render: actions close over fresh page state
+  useLayoutEffect(() => () => set(undefined), [set])
 }
 
 const short = (s: string) => `${s.slice(0, 6)}…${s.slice(-4)}`

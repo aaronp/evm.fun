@@ -114,7 +114,7 @@ export function Benchmark() {
   async function open(r: Run) {
     await refresh()
     await selectChain(r.handle.info.id)
-    nav('/explorer')
+    nav('/chains')
   }
 
   return (
