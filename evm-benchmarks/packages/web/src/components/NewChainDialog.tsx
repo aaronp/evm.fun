@@ -2,6 +2,7 @@ import { useState, type RefObject } from 'react'
 import { ChainTypeHelp, ChainTypePicker } from './ChainTypeHelp'
 import { accounts } from '../store/accounts'
 import { registry } from '../chain/revm'
+import { MAX_NAME } from '../chain/chainFile'
 import type { ChainType } from '../chain/registry'
 import { useApp } from '../state'
 import { Button } from '../ui/button'
@@ -39,7 +40,7 @@ export function NewChainDialog({ dialogRef }: { dialogRef: RefObject<HTMLDialogE
       <form method="dialog" className="space-y-3" onSubmit={e => { e.preventDefault(); create() }}>
         <h2 id="new-chain-title" className="font-display text-base font-semibold">New chain</h2>
         {err && <Notice>{err}</Notice>}
-        <Input aria-label="Chain name" className="w-full" placeholder="Chain name" value={name} onChange={e => setName(e.target.value)} />
+        <Input aria-label="Chain name" className="w-full" maxLength={MAX_NAME} placeholder="Chain name" value={name} onChange={e => setName(e.target.value)} />
         <div className="space-y-2 text-sm">
           <ChainTypePicker type={type} onChange={setType} />
           <ChainTypeHelp />

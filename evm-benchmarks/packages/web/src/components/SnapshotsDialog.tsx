@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { registry, snapshots } from '../chain/revm'
-import { defaultSnapshotName } from '../chain/chainFile'
+import { defaultSnapshotName, MAX_NAME } from '../chain/chainFile'
 import type { ChainHandle } from '../chain/handle'
 import type { Snapshot } from '../chain/snapshots'
-import { NO_SNAPSHOT, sizeKb, WARN_BYTES } from '../chain/snapshotUi'
+import { forkName, NO_SNAPSHOT, sizeKb, WARN_BYTES } from '../chain/snapshotUi'
 import { useApp } from '../state'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
@@ -52,7 +52,7 @@ export function TakeSnapshotDialog({ dialogRef, chain, openTick, onFlash }: {
       <form method="dialog" className="space-y-3" onSubmit={e => { e.preventDefault(); take() }}>
         <h2 id="take-snapshot-title" className="font-display text-base font-semibold">Take snapshot</h2>
         {err && <Notice>{err}</Notice>}
-        <Input aria-label="Snapshot name" className="w-full" value={name} onChange={e => setName(e.target.value)} />
+        <Input aria-label="Snapshot name" className="w-full" maxLength={MAX_NAME} value={name} onChange={e => setName(e.target.value)} />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={() => dialogRef.current?.close()}>Cancel</Button>
           <Button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Take snapshot'}</Button>
@@ -83,7 +83,7 @@ export function SnapshotsDialog({ dialogRef, chain, openTick, onFlash }: {
   const fork = (s: Snapshot) => run(async () => {
     if (!chain!.approach.snapshot) throw new Error(NO_SNAPSHOT)
     const h = await registry.createFrom(s.dump, {
-      name: `${s.name} (fork)`, type: chain!.info.type, contracts: s.contracts,
+      name: forkName(s.name), type: chain!.info.type, contracts: s.contracts,
       source: { kind: 'snapshot', snapshotName: s.name, fromChainName: chain!.info.name, height: s.height },
     })
     await refresh()

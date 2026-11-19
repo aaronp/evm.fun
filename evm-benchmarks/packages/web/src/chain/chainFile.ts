@@ -24,7 +24,9 @@ export const encodeChainFile = (f: ChainFile): string =>
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const isStr = (v: unknown) => typeof v === 'string'
 const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v)
-const MAX = 200
+/** Longest chain/contract name a file may carry; the UI caps its name inputs to the same. */
+export const MAX_NAME = 200
+const MAX = MAX_NAME
 // Untrusted values must never be interpolated directly (a toString that isn't a function throws).
 const show = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? String(v)
   : typeof v === 'string' ? JSON.stringify(v.slice(0, 40)) : Array.isArray(v) ? 'array' : v === null ? 'null' : typeof v

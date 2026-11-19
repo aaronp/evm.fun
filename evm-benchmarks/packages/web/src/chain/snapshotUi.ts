@@ -1,4 +1,4 @@
-import type { ChainSource } from './chainFile'
+import { MAX_NAME, type ChainSource } from './chainFile'
 
 export const WARN_BYTES = 20 * 1024 * 1024
 export const NO_FUNDS = 'None of your accounts has funds on this imported chain — create an account and fund it to send transactions.'
@@ -18,3 +18,6 @@ export const dumpHeight = (dump: unknown): number => {
 export const importSource = (fileName: string, dump: unknown): ChainSource => ({ kind: 'import', fileName, height: dumpHeight(dump) })
 
 export const sizeKb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024)).toLocaleString('en-US')} KB`
+
+/** "<snapshot> (fork)", clamped so the fork's name still fits an import. */
+export const forkName = (snapshotName: string) => snapshotName.slice(0, MAX_NAME - ' (fork)'.length) + ' (fork)'

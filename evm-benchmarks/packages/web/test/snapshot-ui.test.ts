@@ -1,5 +1,6 @@
 import { test, expect } from 'bun:test'
-import { restoreBlockedReason, importSource, dumpHeight, sizeKb, WARN_BYTES } from '../src/chain/snapshotUi'
+import { restoreBlockedReason, importSource, dumpHeight, sizeKb, WARN_BYTES, forkName } from '../src/chain/snapshotUi'
+import { MAX_NAME } from '../src/chain/chainFile'
 
 test('restore is blocked only while txs are pending', () => {
   expect(restoreBlockedReason(0)).toBeNull()
@@ -21,4 +22,11 @@ test('size in KB and the 20 MB warning threshold', () => {
   expect(sizeKb(2048)).toBe('2 KB')
   expect(sizeKb(100)).toBe('1 KB')
   expect(WARN_BYTES).toBe(20 * 1024 * 1024)
+})
+
+test('fork name keeps " (fork)" and fits the 200-character import cap', () => {
+  expect(forkName('s1')).toBe('s1 (fork)')
+  const long = forkName('x'.repeat(200))
+  expect(long.length).toBe(MAX_NAME)
+  expect(long.endsWith(' (fork)')).toBe(true)
 })
