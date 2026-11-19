@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CHAIN_TYPE_BLURB, ChainTypeHelp } from '../components/ChainTypeHelp'
 import { useNavigate } from 'react-router-dom'
 import { createRevmEngine } from 'webevm/revm'
 import { wasmUrl } from 'revm-wasm/wasm-url'
@@ -79,6 +80,11 @@ export function Benchmark() {
         <label>N <input className={`${input} w-24`} value={n} onChange={e => setN(e.target.value)} /></label>
         <label>senders <input className={`${input} w-24`} value={senders} onChange={e => setSenders(e.target.value)} /></label>
         <Button disabled={busy} onClick={run}>{busy ? 'Running…' : 'Run benchmark'}</Button>
+        <div className="basis-full space-y-1">
+          <p><b>plain</b>: {CHAIN_TYPE_BLURB.plain}</p>
+          <p><b>sequencer</b>: {CHAIN_TYPE_BLURB.sequencer}</p>
+          <ChainTypeHelp />
+        </div>
       </Card>
       {progress && (
         <div className="space-y-1 text-sm">

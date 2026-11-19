@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { CHAIN_TYPE_BLURB, ChainTypeHelp } from '../components/ChainTypeHelp'
 import { accounts } from '../store/accounts'
 import { registry } from '../chain/revm'
 import type { ChainType } from '../chain/registry'
@@ -37,10 +38,11 @@ export function Chains() {
       {(err || error) && <Notice>{err ?? error!}</Notice>}
       <Card className="space-y-3">
         <input className="rounded-md border border-slate-300 px-2 py-1 text-sm" placeholder="Chain name" value={name} onChange={e => setName(e.target.value)} />
-        <div className="flex gap-4 text-sm">
+        <div className="space-y-1 text-sm">
           {(['plain', 'sequencer'] as const).map(t => (
-            <label key={t}><input type="radio" name="type" checked={type === t} onChange={() => setType(t)} /> {t}</label>
+            <label key={t} className="block"><input type="radio" name="type" checked={type === t} onChange={() => setType(t)} /> <b>{t}</b>: {CHAIN_TYPE_BLURB[t]}</label>
           ))}
+          <ChainTypeHelp />
         </div>
         <div className="text-sm">
           Prefund 1,000 ETH:

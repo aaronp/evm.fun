@@ -9,6 +9,15 @@ A static, in-browser playground: create accounts and chains, write and deploy So
 
 Address inputs suggest your accounts and the contracts deployed on the selected chain; free text still works.
 
+## Chain types
+
+- **plain** (approach `01-webevm-baseline`): a stock webevm node. Each transaction is checked (signature recovered), executed and mined into its own block as it arrives, one tx per block. Simple and immediately consistent, but throughput is limited because every tx pays for signature recovery plus a block on a single thread.
+- **sequencer** (approach `02-seq-memory`): signatures are verified in parallel in background Web Workers. A single-writer sequencer puts the transactions in a fixed order (an in-memory log feeding a ring buffer), and one executor runs them in batches, mining many transactions per block. Execution trusts the sender recovered by the workers, so signatures are not re-checked.
+
+Measured with the CLI (n=10000, median of 3 runs, `REPORT.md`): ERC-20 transfers (erc20-disjoint) about 3.2k TPS on sequencer vs about 1.3k TPS on plain; eth-transfer about 315 vs 273. Trade-offs of the sequencer: each tx waits for its batch, so per-tx latency is higher under load; the ordering log is in memory, so transactions not yet mined are lost on reload.
+
+Both are real EVMs running unmodified Solidity bytecode; in this playground both run on the revm engine. The full comparison, and other architectures to come, are in `evm-benchmarks/REPORT.md`.
+
 ## Known limits
 
 - The UI stutters during benchmarks: the EVM runs on the main thread.
