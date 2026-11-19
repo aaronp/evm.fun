@@ -1,0 +1,97 @@
+/* Colour tokens, one block per theme. The only file allowed to hold raw colours. */
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --c-bg: #0A0C10;
+  --c-panel: #0E1117;
+  --c-surface: #121620;
+  --c-surface-hover: #151A25;
+  --c-selected: #1A2133;
+  --c-line: #1C2230;
+  --c-line-strong: #232A38;
+  --c-input-line: #2C3446;
+  --c-text: #E7EAF0;
+  --c-text-2: #C3CAD8;
+  --c-muted: #A3ACBD;
+  --c-subtle: #97A0B3;
+  --c-faint: #8A93A6;
+  --c-disabled: #5A6377;
+  --c-accent: #8AA8FF;
+  --c-accent-hover: #B3C6FF;
+  --c-accent-soft: #141B2E;
+  --c-on-accent: #0A0C10;
+  --c-success: #4ADE80;
+  --c-success-text: #86EFAC;
+  --c-success-soft: #173A27;
+  --c-warn: #FFB054;
+  --c-warn-text: #FFD7A3;
+  --c-warn-soft: #2A2416;
+  --c-danger: #FF8A8A;
+  --c-danger-soft: #3A1A1E;
+  --c-code-keyword: #C792EA;
+  --c-code-string: #7FDBCA;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --c-bg: #F6F7F9;
+  --c-panel: #EEF0F4;
+  --c-surface: #FFFFFF;
+  --c-surface-hover: #F1F3F7;
+  --c-selected: #E3E9F8;
+  --c-line: #E2E6ED;
+  --c-line-strong: #D3D9E3;
+  --c-input-line: #B8C0CE;
+  --c-text: #111827;
+  --c-text-2: #374151;
+  --c-muted: #4B5563;
+  --c-subtle: #566070;
+  --c-faint: #5B6577;
+  --c-disabled: #9AA3B2;
+  --c-accent: #2447C8;
+  --c-accent-hover: #1A36A0;
+  --c-accent-soft: #E6ECFD;
+  --c-on-accent: #FFFFFF;
+  --c-success: #15803D;
+  --c-success-text: #166534;
+  --c-success-soft: #DCF5E4;
+  --c-warn: #B45309;
+  --c-warn-text: #8A4207;
+  --c-warn-soft: #FDF0D9;
+  --c-danger: #B42318;
+  --c-danger-soft: #FCE8E6;
+  --c-code-keyword: #7C3AED;
+  --c-code-string: #0F766E;
+}
+
+:root[data-theme="paper"] {
+  color-scheme: light;
+  --c-bg: #EFE8DC;
+  --c-panel: #E6DDCE;
+  --c-surface: #FFFDF7;
+  --c-surface-hover: #F6F0E2;
+  --c-selected: #E2D8C4;
+  --c-line: #D9CFBC;
+  --c-line-strong: #CBBFA8;
+  --c-input-line: #A89C85;
+  --c-text: #2B2622;
+  --c-text-2: #443D36;
+  --c-muted: #5F574E;
+  --c-subtle: #635A50;
+  --c-faint: #675E53;
+  --c-disabled: #A99E8C;
+  --c-accent: #2F4FB8;
+  --c-accent-hover: #22399A;
+  --c-accent-soft: #EDEBF7;
+  --c-on-accent: #FFFDF7;
+  --c-success: #2E7D4F;
+  --c-success-text: #25663F;
+  --c-success-soft: #E1F0E3;
+  --c-warn: #A8520E;
+  --c-warn-text: #7A3B08;
+  --c-warn-soft: #F8EAD0;
+  --c-danger: #B03A2E;
+  --c-danger-soft: #F6E1DC;
+  --c-code-keyword: #7B3FA8;
+  --c-code-string: #1E6B63;
+}

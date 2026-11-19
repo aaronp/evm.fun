@@ -6,6 +6,54 @@ theme: paper
 
 ## To Do
 
+### web: UI primitives, icons, app shell
+- id: t-29
+- owner:
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
+
+### web: Accounts and Chains restyle
+- id: t-30
+- owner:
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
+
+### web: Studio restyle
+- id: t-31
+- owner:
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
+
+### web: Transact restyle
+- id: t-32
+- owner:
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
+
+### web: Explorer restyle
+- id: t-33
+- owner:
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
+
+### web: Benchmark restyle
+- id: t-34
+- owner:
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
+
+### web: allowlist empty, smoke check, docs
+- id: t-35
+- owner:
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
 
 ### Approach 03: seq-stateroot
 - id: t-09
@@ -70,6 +118,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### web: tokens, themes, theme store, guard tests
+- id: t-28
+- owner: Claude
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
+  - Doing @ 2026-11-19T15:23:22Z by Claude
+  - Done @ 2026-11-19T15:23:24Z by Claude
 
 ### web: browser smoke test and docs
 - id: t-27

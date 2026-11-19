@@ -1,4 +1,43 @@
 @import "tailwindcss";
+@import "./theme/tokens.css";
+
+@theme inline {
+  --color-bg: var(--c-bg);
+  --color-panel: var(--c-panel);
+  --color-surface: var(--c-surface);
+  --color-surface-hover: var(--c-surface-hover);
+  --color-selected: var(--c-selected);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-input-line: var(--c-input-line);
+  --color-text: var(--c-text);
+  --color-text-2: var(--c-text-2);
+  --color-muted: var(--c-muted);
+  --color-subtle: var(--c-subtle);
+  --color-faint: var(--c-faint);
+  --color-disabled: var(--c-disabled);
+  --color-accent: var(--c-accent);
+  --color-accent-hover: var(--c-accent-hover);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-on-accent: var(--c-on-accent);
+  --color-success: var(--c-success);
+  --color-success-text: var(--c-success-text);
+  --color-success-soft: var(--c-success-soft);
+  --color-warn: var(--c-warn);
+  --color-warn-text: var(--c-warn-text);
+  --color-warn-soft: var(--c-warn-soft);
+  --color-danger: var(--c-danger);
+  --color-danger-soft: var(--c-danger-soft);
+  --color-code-keyword: var(--c-code-keyword);
+  --color-code-string: var(--c-code-string);
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+body {
+  @apply bg-bg text-text font-sans;
+}
 
 /* long hashes/addresses wrap instead of widening the page at phone width */
 .font-mono { overflow-wrap: anywhere; }

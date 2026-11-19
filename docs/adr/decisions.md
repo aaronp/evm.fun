@@ -388,3 +388,49 @@ Bundle the browser playground so module Workers, the revm `.wasm` and static sol
 
 ## Decision
 Use Vite. Bun 1.3.13 was tried first with a throwaway worker and revm-wasm: the worker chunk was not emitted (the bundle kept `new URL("./probe.worker.ts", import.meta.url)`, a `.ts` file that is not in dist) and `revm-wasm/wasm-url` stayed `new URL("../wasm/revm.wasm", import.meta.url)` with no such file emitted. Vite 7 emitted `assets/probe.worker-*.js`, rewrote the URL to it relative to `import.meta.url`, and emitted `assets/revm-*.wasm` for both import forms. `base: './'` gives relative URLs. soljson and the OpenZeppelin `.sol` tree are copied by `packages/web/build.ts` into `public/` (so dev and dist both serve them). Tailwind 4 via `@tailwindcss/vite`.
+
+---
+title: Playground theming via CSS-variable tokens
+status: accepted
+date: 2026-11-19
+tags: architecture, web
+decision: tokens
+---
+
+## Goal
+Give the playground three themes (Dark, Light, Paper) without hard-coding colours in components.
+
+## People
+- Claude — author
+- Aaron — decider
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| onesys | One styling system | 5 | Higher = one place to change a colour. |
+| deps | No new dependency | 4 | Higher = nothing new to install or maintain. |
+| fidelity | Matches the designer's palette | 3 | Higher = closer to the mockups. |
+
+## Solution: tokens — Semantic CSS variables per theme, mapped into Tailwind 4 (`@theme inline`)
+| criterion | score |
+| --- | --- |
+| onesys | 5 |
+| deps | 5 |
+| fidelity | 4 |
+
+## Solution: sheet — Port the mockups' inline styles to a separate stylesheet
+| criterion | score |
+| --- | --- |
+| onesys | 1 |
+| deps | 5 |
+| fidelity | 5 |
+
+## Solution: lib — Themed component library (daisyUI, shadcn/Radix)
+| criterion | score |
+| --- | --- |
+| onesys | 4 |
+| deps | 1 |
+| fidelity | 2 |
+
+## Decision
+Tokens. Colours live only in `packages/web/src/theme/tokens.css`, one `:root[data-theme=…]` block per theme; Tailwind utilities (`bg-surface`, `text-muted`, …) read them through `@theme inline`. A pre-paint script in `index.html` sets `data-theme` from `localStorage['evmb.theme']` or `prefers-color-scheme`. Two tests guard it: WCAG contrast for every token pair in every theme, and a grep that fails on raw colours outside the tokens file.
