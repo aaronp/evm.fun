@@ -8,6 +8,9 @@ import type {Scenario, ScenarioParams} from './index.ts';
 
 const abi = MintableToken.abi;
 
+/** number of timed txs sent by sender/pair j */
+export const txCount = (p: ScenarioParams, j: number) => Math.floor(p.n / p.senders) + (j < p.n % p.senders ? 1 : 0);
+
 export async function balanceOf(a: Approach, token: Address, who: Address): Promise<bigint> {
   const data = encodeFunctionData({abi, functionName: 'balanceOf', args: [who]});
   return decodeFunctionResult({abi, functionName: 'balanceOf', data: await a.call({to: token, data})}) as bigint;
@@ -70,16 +73,20 @@ function make(kind: Kind): () => Scenario {
       async verify(approach, p) {
         const bals = await Promise.all(receivers(p).map((r) => balanceOf(approach, token, r.address)));
         const supply = await totalSupply(approach, token);
+        if (kind === 'mint') {
+          const bad = bals.filter((b) => b !== 1n).length;
+          return {ok: bad === 0 && supply === BigInt(p.n), detail: `${p.n - bad}/${p.n} receivers hold 1; supply ${supply} (want ${p.n})`};
+        }
+        const sBals = await Promise.all(deriveAccounts(p.seed, p.senders).map((s) => balanceOf(approach, token, s.address)));
+        const sendersOk = sBals.every((b, j) => b === BigInt(p.n - txCount(p, j)));
+        const supplyOk = supply === BigInt(p.senders) * BigInt(p.n);
+        let rxOk: boolean;
         if (kind === 'hot') {
           const lo = BigInt(Math.floor(p.n / 4));
           const hi = BigInt(Math.ceil(p.n / 4));
-          const sum = bals.reduce((x, y) => x + y, 0n);
-          const ok = sum === BigInt(p.n) && bals.every((b) => b === lo || b === hi);
-          return {ok, detail: `balances ${bals.join(',')} sum ${sum}`};
-        }
-        const bad = bals.filter((b) => b !== 1n).length;
-        const want = kind === 'mint' ? BigInt(p.n) : BigInt(p.senders) * BigInt(p.n);
-        return {ok: bad === 0 && supply === want, detail: `${p.n - bad}/${p.n} receivers hold 1; supply ${supply} (want ${want})`};
+          rxOk = bals.reduce((x, y) => x + y, 0n) === BigInt(p.n) && bals.every((b) => b === lo || b === hi);
+        } else rxOk = bals.every((b) => b === 1n);
+        return {ok: sendersOk && supplyOk && rxOk, detail: `senders ${sendersOk}, receivers ${rxOk}, supply ${supply}`};
       },
     };
   };

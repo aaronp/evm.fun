@@ -36,3 +36,17 @@ test('verify fails when txs not submitted', async () => {
 test('deriveAccounts is deterministic', () => {
   expect(deriveAccounts('s', 3).map((a) => a.address)).toEqual(deriveAccounts('s', 3).map((a) => a.address));
 });
+
+for (const id of ['erc20-disjoint', 'erc20-hot', 'atomic-swap'] as const) {
+  test(`${id}: verify fails when last tx missing`, async () => {
+    const ap = create();
+    const sc = scenarios[id]();
+    await ap.setup({prefund: sc.prefund(p)});
+    await sc.setup(ap, p);
+    const raws = (await sc.generate(p)).slice(0, -1);
+    await ap.submit(raws);
+    await ap.awaitSettled(raws.map((r) => keccak256(r)));
+    expect((await sc.verify(ap, p)).ok).toBe(false);
+    await ap.dispose();
+  }, 60_000);
+}

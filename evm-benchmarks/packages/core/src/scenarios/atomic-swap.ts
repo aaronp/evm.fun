@@ -3,7 +3,7 @@ import {AtomicSwap, MintableToken} from '@evmb/contracts';
 import {deriveAccounts} from '../accounts.ts';
 import {nonces, settleSetup, signTx} from '../tx.ts';
 import {FUND} from './eth-transfer.ts';
-import {balanceOf} from './erc20.ts';
+import {balanceOf, txCount} from './erc20.ts';
 import type {Scenario} from './index.ts';
 
 const abi = MintableToken.abi;
@@ -61,11 +61,18 @@ export const atomicSwap = (): Scenario => {
       );
     },
     async verify(approach, p) {
-      const sum = async (token: Address, who: {address: Address}[]) =>
-        (await Promise.all(who.map((w) => balanceOf(approach, token, w.address)))).reduce((x, y) => x + y, 0n);
-      const aGot = await sum(tokenA, bParties(p.seed, p.senders));
-      const bGot = await sum(tokenB, aParties(p.seed, p.senders));
-      return {ok: aGot === BigInt(p.n) && bGot === BigInt(p.n), detail: `B-parties hold ${aGot} A; A-parties hold ${bGot} B (want ${p.n})`};
+      const bad: number[] = [];
+      const a = aParties(p.seed, p.senders), b = bParties(p.seed, p.senders);
+      for (let j = 0; j < p.senders; j++) {
+        const c = BigInt(txCount(p, j)), n = BigInt(p.n);
+        const got = await Promise.all([
+          balanceOf(approach, tokenA, a[j]!.address), balanceOf(approach, tokenB, a[j]!.address),
+          balanceOf(approach, tokenA, b[j]!.address), balanceOf(approach, tokenB, b[j]!.address),
+        ]);
+        const want = [n - c, c, c, n - c];
+        if (got.some((g, k) => g !== want[k])) bad.push(j);
+      }
+      return {ok: bad.length === 0, detail: bad.length ? `pairs with wrong balances: ${bad.join(',')}` : `all ${p.senders} pairs exact`};
     },
   };
 };
