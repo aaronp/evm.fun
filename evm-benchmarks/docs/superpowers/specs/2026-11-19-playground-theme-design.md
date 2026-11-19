@@ -158,3 +158,34 @@ The names are semantic. The Dark values are taken from the mockups' most-used co
 ## Left to the builder
 
 The exact Light and Paper values (subject to the contrast test), component APIs, the icon set picked from the mockups, spacing details, and how to restyle each page within its mockup's layout.
+
+## Addendum: latency distribution chart (user request, 2026-11-19)
+
+**What:** A chart on the Benchmark page that overlays the per-transaction latency distribution of every run in the session. Each run gets its own colour. A toggle switches between **Histogram** (the default) and **Cumulative** (CDF). Both views are hand-drawn SVG with no chart library.
+
+**Data:**
+- `runBenchmark` gains `keepSamples?: boolean` (default `false`). When it is true, `RunResult.latencySamplesMs` holds every tx's latency (ms, sorted ascending).
+- The browser passes `true`. The CLI does not, so result JSON files are unchanged.
+
+**Histogram:**
+- All runs share one set of bin edges: 40 equal bins from the smallest to the largest sample across the runs shown.
+- The y axis is the share of that run's txs (%), so runs of different N compare fairly.
+- Each run is drawn as a step outline with a light fill.
+
+**Cumulative:**
+- x is latency (ms), y is the 0–100 % of txs at or below that latency.
+- One line per run. p50 and p99 can be read off the curve.
+
+**Colours and legend:**
+- New tokens `--c-series-1` … `--c-series-6` per theme, cycled by run order. The contrast test checks each against `surface` at ≥ 3:1 (graphics).
+- The legend shows each run's name, its colour swatch, and its p50 and p99, so colour is never the only key.
+
+**Accessibility:**
+- The SVG has `role="img"` and an `aria-label` summarising the runs.
+- The toggle is a labelled radio group, like the theme switcher.
+
+**Honesty:**
+- A caption notes that all txs are submitted at once, so latency largely reflects queue position. This matches REPORT.md.
+- Runs without samples are not plotted.
+
+**Out of scope:** p90/p99.9 tiles, hover tooltips, chart export.
