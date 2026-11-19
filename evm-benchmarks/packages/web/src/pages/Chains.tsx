@@ -70,9 +70,9 @@ export function Chains() {
             <div className="text-xs text-slate-500">{c.type}{c.ephemeral ? ' · benchmark (not saved)' : ''} · {c.createdAt}</div>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => selectChain(c.id)}>Select</Button>
+            <Button variant="ghost" onClick={() => selectChain(c.id)}>Select</Button>
             <Button
-              variant="destructive"
+              variant="danger"
               onClick={async () => {
                 if (!confirm(`Delete chain "${c.name}"?`)) return
                 if (c.id === chain?.info.id) await selectChain(undefined)

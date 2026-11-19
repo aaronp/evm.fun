@@ -17,7 +17,7 @@ const input = 'rounded-md border border-slate-300 px-2 py-1 text-sm'
 const ETH = 'eth'
 
 export function Transact() {
-  const { chain, account, selectAccount } = useApp()
+  const { chain, account, selectAccount, bumpBalance } = useApp()
   const [params] = useSearchParams()
   const [contracts, setContracts] = useState<DeployedContract[]>([])
   const [target, setTarget] = useState(params.get('contract') ?? ETH)
@@ -44,7 +44,7 @@ export function Transact() {
     if (!/^0x[0-9a-fA-F]{40}$/.test(e)) return setEthErr('Recipient is not a valid address')
     if (!/^\d+$/.test(eth.amount.trim())) return setEthErr('Amount must be a non-negative integer (wei)')
     if (!from) return setEthErr('Select an account first')
-    try { record(await signAndSend(chain, from, { to: e as `0x${string}`, value: BigInt(eth.amount.trim()) })) }
+    try { record(await signAndSend(chain, from, { to: e as `0x${string}`, value: BigInt(eth.amount.trim()) }, bumpBalance)) }
     catch (x) { setEthErr(x instanceof Error ? x.message : String(x)) }
   }
 

@@ -33,9 +33,9 @@ const Addr = ({ a, names }: { a: string | null; names: Names }) =>
 function Pager({ page, set, more }: { page: number; set(p: number): void; more: boolean }) {
   return (
     <div className="flex items-center gap-2 text-sm">
-      <Button variant="outline" disabled={page === 0} onClick={() => set(page - 1)}>Prev</Button>
+      <Button variant="ghost" disabled={page === 0} onClick={() => set(page - 1)}>Prev</Button>
       <span>page {page + 1}</span>
-      <Button variant="outline" disabled={!more} onClick={() => set(page + 1)}>Next</Button>
+      <Button variant="ghost" disabled={!more} onClick={() => set(page + 1)}>Next</Button>
     </div>
   )
 }

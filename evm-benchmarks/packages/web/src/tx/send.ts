@@ -9,6 +9,8 @@ export async function signAndSend(
   handle: ChainHandle,
   account: Account,
   tx: { to?: Address; data?: Hex; value?: bigint },
+  /** called once the tx has settled, e.g. to refresh balances */
+  onSent?: () => void,
 ): Promise<Receipt> {
   const nonce = Number(BigInt((await handle.request('eth_getTransactionCount', [account.address, 'pending'])) as string))
   let gas = 3_000_000n
@@ -22,7 +24,9 @@ export async function signAndSend(
   } catch {
     // estimate unsupported or the call reverts: fall back and let the receipt report it
   }
-  return handle.send(await signTx(privateKeyToAccount(account.privateKey), nonce, { ...tx, gas }))
+  const receipt = await handle.send(await signTx(privateKeyToAccount(account.privateKey), nonce, { ...tx, gas }))
+  onSent?.()
+  return receipt
 }
 
 /** eth_call a view/pure function and decode the result. */

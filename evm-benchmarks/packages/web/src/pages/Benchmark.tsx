@@ -96,7 +96,7 @@ export function Benchmark() {
         </div>
       )}
       {last && <ResultCard r={last} />}
-      {last && <Button variant="outline" onClick={() => open(last)}>Open in Explorer</Button>}
+      {last && <Button variant="ghost" onClick={() => open(last)}>Open in Explorer</Button>}
       {runs.length > 0 && (
         <div className="overflow-x-auto"><table className="w-full text-left text-sm">
           <thead><tr><th>run</th><th>TPS</th><th>p50</th><th>p99</th><th>verified</th><th /></tr></thead>
@@ -108,7 +108,7 @@ export function Benchmark() {
                 <td>{f(r.result.latencyMs.p50)}</td>
                 <td>{f(r.result.latencyMs.p99)}</td>
                 <td>{r.result.verified ? 'yes' : 'no'}</td>
-                <td><Button variant="outline" onClick={() => open(r)}>Open in Explorer</Button></td>
+                <td><Button variant="ghost" onClick={() => open(r)}>Open in Explorer</Button></td>
               </tr>
             ))}
           </tbody>

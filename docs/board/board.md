@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### web: UI primitives, icons, app shell
-- id: t-29
-- owner:
-- tags: web, plan4
-- history:
-  - To Do @ 2026-11-19T15:16:20Z
-
 ### web: Accounts and Chains restyle
 - id: t-30
 - owner:
@@ -118,6 +111,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### web: UI primitives, icons, app shell
+- id: t-29
+- owner: Claude
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
+  - Doing @ 2026-11-19T15:26:35Z by Claude
+  - Done @ 2026-11-19T15:29:35Z by Claude
 
 ### web: tokens, themes, theme store, guard tests
 - id: t-28

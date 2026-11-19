@@ -40,7 +40,7 @@ function Editor({ value, onChange, viewRef }: { value: string; onChange(v: strin
 }
 
 export function Studio() {
-  const { chain, account } = useApp()
+  const { chain, account, bumpBalance } = useApp()
   const [source, setSource] = useState(templates[0]!.source)
   const [fileName, setFileName] = useState(templates[0]!.name) // unit name feeds the metadata hash
   const view = useRef<EditorView>()
@@ -94,7 +94,7 @@ export function Studio() {
     setDeploying(true)
     try {
       const data = encodeDeployData({ abi: contract.abi, bytecode: contract.bytecode, args: parsed.values })
-      const r = await signAndSend(chain, from, { data })
+      const r = await signAndSend(chain, from, { data }, bumpBalance)
       if (r.status !== 'success' || !r.contractAddress) throw new Error(`Deploy ${r.status}${r.error ? `: ${r.error}` : ''}`)
       await contractsRegistry.add(chain.info.id, { address: r.contractAddress, name: contract.name, abi: contract.abi, deployer: from.address, txHash: r.hash })
       setDeployed(await contractsRegistry.list(chain.info.id))

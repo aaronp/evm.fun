@@ -16,6 +16,9 @@ type State = {
   /** selected account address */
   account?: string
   selectAccount(address: string | undefined): void
+  /** bumped after every send so balance displays re-read */
+  balanceTick: number
+  bumpBalance(): void
 }
 
 const Ctx = createContext<State>(undefined as never)
@@ -25,6 +28,8 @@ export function AppState({ children }: { children: ReactNode }) {
   const [chains, setChains] = useState<ChainInfo[]>([])
   const [chain, setChain] = useState<ChainHandle>()
   const [error, setError] = useState<string>()
+  const [balanceTick, setTick] = useState(0)
+  const bumpBalance = useCallback(() => setTick(t => t + 1), [])
   const [account, setAccount] = useState<string | undefined>(() => accounts.list()[0]?.address)
 
   const refresh = useCallback(async () => setChains(await registry.list()), [])
@@ -46,5 +51,5 @@ export function AppState({ children }: { children: ReactNode }) {
     })
   }, [refresh, selectChain])
 
-  return <Ctx.Provider value={{ chains, chain, error, selectChain, refresh, account, selectAccount: setAccount }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ chains, chain, error, selectChain, refresh, account, selectAccount: setAccount, balanceTick, bumpBalance }}>{children}</Ctx.Provider>
 }

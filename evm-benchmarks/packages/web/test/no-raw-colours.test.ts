@@ -12,7 +12,6 @@ const RAW = [
 
 // Files still using raw colours; each is removed from this list by the task that ports it.
 const NOT_YET_PORTED: string[] = [
-  'src/App.tsx',
   'src/components/Erc20Card.tsx',
   'src/components/FunctionForm.tsx',
   'src/components/ReceiptView.tsx',
@@ -22,9 +21,6 @@ const NOT_YET_PORTED: string[] = [
   'src/pages/Explorer.tsx',
   'src/pages/Studio.tsx',
   'src/pages/Transact.tsx',
-  'src/ui/button.tsx',
-  'src/ui/card.tsx',
-  'src/ui/notice.tsx',
 ]
 
 const root = new URL('..', import.meta.url).pathname

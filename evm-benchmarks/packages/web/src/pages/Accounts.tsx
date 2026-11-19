@@ -50,10 +50,10 @@ export function Accounts() {
             <div className="text-sm"><Balance address={a.address} /></div>
           </div>
           <div className="flex shrink-0 gap-2">
-            <Button variant="outline" onClick={() => selectAccount(a.address)}>Select</Button>
-            <Button variant="outline" onClick={() => navigator.clipboard?.writeText(a.address)}>Copy</Button>
+            <Button variant="ghost" onClick={() => selectAccount(a.address)}>Select</Button>
+            <Button variant="ghost" onClick={() => navigator.clipboard?.writeText(a.address)}>Copy</Button>
             <Button
-              variant="destructive"
+              variant="danger"
               onClick={() => {
                 accounts.remove(a.address)
                 if (a.address === account) selectAccount(accounts.list()[0]?.address)

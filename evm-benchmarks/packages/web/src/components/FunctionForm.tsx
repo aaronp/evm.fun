@@ -6,6 +6,7 @@ import type { Account } from '../store/accounts'
 import { encodeArgs } from '../abi/args'
 import { readContract, signAndSend } from '../tx/send'
 import { Button } from '../ui/button'
+import { useApp } from '../state'
 import { show } from './ReceiptView'
 import { ADDRESS_LIST } from './AddressList'
 
@@ -15,6 +16,7 @@ const input = 'rounded-md border border-slate-300 px-2 py-1 text-sm'
 export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
   fn: AbiFunction; abi: Abi; to: Address; chain: ChainHandle; account?: Account; onReceipt(r: Receipt): void
 }) {
+  const { bumpBalance } = useApp()
   const [raw, setRaw] = useState<string[]>([])
   const [value, setValue] = useState('')
   const [out, setOut] = useState<{ ok: boolean; text: string }>()
@@ -35,7 +37,7 @@ export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
       if (read) setOut({ ok: true, text: show(await readContract(chain, to, abi, fn.name, parsed.values)) })
       else {
         if (!account) throw new Error('Select an account first')
-        const r = await signAndSend(chain, account, { to, data: encodeFunctionData({ abi, functionName: fn.name, args: parsed.values } as any), value: wei || undefined })
+        const r = await signAndSend(chain, account, { to, data: encodeFunctionData({ abi, functionName: fn.name, args: parsed.values } as any), value: wei || undefined }, bumpBalance)
         setOut({ ok: r.status === 'success', text: r.status })
         onReceipt(r)
       }
@@ -54,7 +56,7 @@ export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
           value={raw[i] ?? ''} onChange={e => setRaw(r => Object.assign([...r], { [i]: e.target.value }))} />
       ))}
       {fn.stateMutability === 'payable' && <input aria-label="value" placeholder="value (wei)" className={`${input} w-full sm:w-32`} value={value} onChange={e => setValue(e.target.value)} />}
-      <Button variant={read ? 'outline' : 'default'} onClick={run} disabled={busy}>{read ? 'Call' : 'Send'}</Button>
+      <Button variant={read ? 'ghost' : 'primary'} onClick={run} disabled={busy}>{read ? 'Call' : 'Send'}</Button>
       {out && <span role="status" className={`whitespace-pre-wrap font-mono text-xs ${out.ok ? 'text-green-700' : 'text-red-700'}`}>{out.text}</span>}
     </div>
   )
