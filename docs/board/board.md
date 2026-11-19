@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### web: allowlist empty, smoke check, docs
-- id: t-35
-- owner:
-- tags: web, plan4
-- history:
-  - To Do @ 2026-11-19T15:16:20Z
-
 ### Approach 03: seq-stateroot
 - id: t-09
 - owner:
@@ -76,6 +69,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### web: allowlist empty, smoke check, docs
+- id: t-35
+- owner: Claude
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
+  - Doing @ 2026-11-19T16:09:05Z by Claude
+  - Done @ 2026-11-19T16:09:50Z by Claude
 
 ### web: Benchmark restyle
 - id: t-34

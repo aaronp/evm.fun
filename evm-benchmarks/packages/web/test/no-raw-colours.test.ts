@@ -10,9 +10,8 @@ const RAW = [
   /\b(?:bg|text|border|ring|outline|divide|fill|stroke|from|to|via|placeholder|accent|caret|shadow)-(?:white|black)\b/,
 ]
 
-// Files still using raw colours; each is removed from this list by the task that ports it.
-const NOT_YET_PORTED: string[] = [
-]
+// Files exempt from the guard. Must stay empty: every file uses theme tokens.
+const NOT_YET_PORTED: string[] = []
 
 const root = new URL('..', import.meta.url).pathname
 const files = [...new Glob('src/**/*.{ts,tsx,css}').scanSync(root)].filter((f) => f !== 'src/theme/tokens.css').sort()
@@ -25,4 +24,7 @@ test('no raw colours outside tokens.css (except not-yet-ported files)', () => {
 test('allowlist is not stale', () => {
   const stale = NOT_YET_PORTED.filter((f) => !files.includes(f) || !matches(f))
   expect(stale).toEqual([])
+})
+test('allowlist is empty', () => {
+  expect(NOT_YET_PORTED).toEqual([])
 })

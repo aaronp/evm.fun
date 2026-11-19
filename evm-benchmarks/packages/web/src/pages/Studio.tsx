@@ -32,6 +32,19 @@ const editorTheme = EditorView.theme({
   '.cm-activeLineGutter': { backgroundColor: 'var(--c-surface-hover)', color: 'var(--c-text-2)' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: 'var(--c-selected)' },
   '.cm-matchingBracket': { backgroundColor: 'var(--c-accent-soft)', outline: '1px solid var(--c-accent)' },
+  // Popups: CodeMirror's base theme hard-codes light colours behind '&light ...' selectors; '&.cm-editor' and doubled classes out-rank them.
+  '&.cm-editor .cm-tooltip.cm-tooltip': { backgroundColor: 'var(--c-surface)', color: 'var(--c-text)', border: '1px solid var(--c-line-strong)' },
+  '&.cm-editor .cm-tooltip.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: 'var(--c-accent-soft)', color: 'var(--c-text)' },
+  '&.cm-editor .cm-panels.cm-panels': { backgroundColor: 'var(--c-surface)', color: 'var(--c-text)', borderColor: 'var(--c-line-strong)' },
+  '&.cm-editor .cm-panels-top.cm-panels': { borderBottom: '1px solid var(--c-line-strong)' },
+  '&.cm-editor .cm-panels-bottom.cm-panels': { borderTop: '1px solid var(--c-line-strong)' },
+  '&.cm-editor .cm-panel.cm-search label': { color: 'var(--c-text-2)' },
+  '&.cm-editor .cm-panel.cm-search input, &.cm-editor .cm-panel.cm-search button, &.cm-editor .cm-textfield.cm-textfield, &.cm-editor .cm-button.cm-button': {
+    backgroundColor: 'var(--c-panel)', backgroundImage: 'none', color: 'var(--c-text)', border: '1px solid var(--c-line-strong)',
+  },
+  '&.cm-editor .cm-searchMatch.cm-searchMatch': { backgroundColor: 'var(--c-accent-soft)', outline: '1px solid var(--c-line-strong)' },
+  '&.cm-editor .cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'var(--c-accent-soft)', outline: '2px solid var(--c-accent)' },
+  '&.cm-editor .cm-foldPlaceholder.cm-foldPlaceholder': { backgroundColor: 'var(--c-surface)', border: '1px solid var(--c-line-strong)', color: 'var(--c-muted)' },
 })
 const highlight = syntaxHighlighting(
   HighlightStyle.define([

@@ -18,6 +18,19 @@ Measured with the CLI (n=10000, median of 3 runs, `REPORT.md`): ERC-20 transfers
 
 Both are real EVMs running unmodified Solidity bytecode; in this playground both run on the revm engine. The full comparison, and other architectures to come, are in `evm-benchmarks/REPORT.md`.
 
+## Themes
+
+Three themes: **dark**, **light** and **paper** (warm off-white). Colours are CSS custom properties (`--c-*`) defined once per theme in `src/theme/tokens.css` and mapped to Tailwind colours in `src/index.css`; components use only those tokens.
+
+The header switcher calls `setTheme()` (`src/theme/theme.ts`), which sets `data-theme` on `<html>` (instant, no reload) and saves the choice in `localStorage` under `evmb.theme`. With nothing stored, the OS `prefers-color-scheme` picks dark or light. A small inline script in `index.html` applies the theme before first paint (keep it in sync with `initialTheme()`). If storage is blocked the choice lasts for the session only.
+
+**Add a theme:** add one `:root[data-theme="name"] { ... }` block to `tokens.css` defining every `--c-*` token, add `'name'` to `THEMES` in `theme.ts`, then run `bun test` (the contrast test checks each theme's text/background pairs).
+
+Two guard tests:
+
+- `test/contrast.test.ts` checks WCAG contrast ratios for every theme block in `tokens.css`.
+- `test/no-raw-colours.test.ts` fails if any file in `src/` (other than `tokens.css`) contains a hex, `rgb()`/`hsl()` or Tailwind palette colour. Its allowlist is empty and must stay so.
+
 ## Known limits
 
 - The UI stutters during benchmarks: the EVM runs on the main thread.
