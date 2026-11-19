@@ -152,7 +152,7 @@ A native (non-EVM) ERC-20 approach, labelled `evm: false`, shows how much throug
 
 soljson is several MB and takes seconds to initialise, which slows first compile in the Studio.
 
-Measured (plan 3, task 5): soljson.js 0.8.38 is 10,811,469 bytes (10.3 MiB) uncompressed, fetched only on the first Compile and evaluated inside the compiler worker.
+Measured (plan 3, task 5): soljson.js 0.8.38 is 10,811,469 bytes (10.3 MiB) uncompressed, fetched only on the first Compile and evaluated inside the compiler worker. Observed in the browser smoke check: compiling works, and because the load is lazy and off the main thread the rest of the UI stays usable while it initialises.
 
 ### Controls
 | Control | Type | Effectiveness |
@@ -171,6 +171,8 @@ Measured (plan 3, task 5): soljson.js 0.8.38 is 10,811,469 bytes (10.3 MiB) unco
 
 Bun's HTML bundler may not emit the wasm file or module workers with relative URLs, which breaks revm or the solc worker on a static host.
 
+Observed (plan 3): Bun's HTML bundler did fail for this, so the playground is built with Vite. The Vite dev server's dependency pre-bundling then broke the revm-wasm URL (the wasm was resolved relative to the pre-bundled chunk); fixed with `optimizeDeps.exclude: ['revm-wasm']`. The built site, served from a sub-path, was smoke-checked by hand and works.
+
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
@@ -187,6 +189,8 @@ Bun's HTML bundler may not emit the wasm file or module workers with relative UR
 - approver: Aaron
 
 webevm saves the whole chain as one IndexedDB record on every state-changing request. Large chains make each save slow, and a failed or blocked write can lose history; clearing site data loses everything.
+
+Observed (plan 3): persistence re-serialises the whole chain on every change. That is fine at playground scale (a handful of accounts, contracts and transactions in the smoke check). Benchmark chains are in memory only and are never persisted.
 
 ### Controls
 | Control | Type | Effectiveness |

@@ -53,6 +53,10 @@ Target: 1,000 TPS — ❌ not met
 
 <!-- notes -->
 
+### 2026-11-19: browser playground
+
+The browser playground (`packages/web`) runs the same scenarios in-browser on the revm engine; the smoke check ran erc20-disjoint on the sequencer, verified. Browser TPS not yet recorded.
+
 ### 2026-11-19: 01 vs 02, n=10000, 3 runs, webevm@0.9.1 default engine
 
 Median TPS, 01 baseline / 02 seq-memory: atomic-swap 834 / 1,351; erc20-disjoint 1,319 / 3,233; erc20-hot 1,321 / 3,197; erc20-mint 1,458 / 4,238; eth-transfer 273 / 315. All runs verified, none rejected or reverted.

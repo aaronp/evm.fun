@@ -67,16 +67,18 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 
 
-### web: browser smoke test and docs
-- id: t-27
-- owner:
-- tags: web, plan3
-- history:
-  - To Do @ 2026-11-19T12:33:12Z
-
 ## Doing
 
 ## Done
+
+### web: browser smoke test and docs
+- id: t-27
+- owner: Claude
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+  - Doing @ 2026-11-19T14:34:05Z by Claude
+  - Done @ 2026-11-19T14:34:06Z by Claude
 
 ### web: in-browser Benchmark
 - id: t-15
