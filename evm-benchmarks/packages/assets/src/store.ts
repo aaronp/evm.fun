@@ -9,9 +9,9 @@ export function memoryStore(): KeyValueStore {
   const m = new Map<string, Map<string, unknown>>()
   const ns = (n: string) => m.get(n) ?? m.set(n, new Map()).get(n)!
   return {
-    get: async (n, k) => ns(n).get(k) as any,
-    set: async (n, k, v) => void ns(n).set(k, v),
+    get: async (n, k) => structuredClone(ns(n).get(k)) as any,
+    set: async (n, k, v) => void ns(n).set(k, structuredClone(v)),
     del: async (n, k) => void ns(n).delete(k),
-    list: async n => [...ns(n).values()] as any,
+    list: async n => structuredClone([...ns(n).values()]) as any,
   }
 }

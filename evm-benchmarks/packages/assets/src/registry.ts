@@ -15,6 +15,11 @@ export const rebase = (a: Asset, newChainId: string): Asset =>
 
 const ns = (chainId: string) => `assets:${chainId}`
 const key = (address: string) => address.toLowerCase()
+const split = (id: AssetId): [string, string] => {
+  const i = id.indexOf(':')
+  if (i < 0) throw new Error('Invalid asset id')
+  return [id.slice(0, i), id.slice(i + 1)]
+}
 const isStored = (a: Asset): a is Asset & { address: Address } => a.kind === 'erc20' && !!a.address
 
 export function createAssetRegistry(store: KeyValueStore) {
@@ -26,9 +31,8 @@ export function createAssetRegistry(store: KeyValueStore) {
       return [...rows, nativeAsset(chainId)]
     },
     async get(id: AssetId): Promise<Asset | undefined> {
-      const i = id.indexOf(':')
-      const chainId = id.slice(0, i), rest = id.slice(i + 1)
-      return rest === 'native' ? nativeAsset(chainId) : store.get<Asset>(ns(chainId), rest)
+      const [chainId, rest] = split(id)
+      return rest === 'native' ? nativeAsset(chainId) : store.get<Asset>(ns(chainId), key(rest))
     },
     /** Idempotent per id: the first record is kept. */
     async add(a: Asset) {
@@ -36,13 +40,13 @@ export function createAssetRegistry(store: KeyValueStore) {
       if (!(await store.get(ns(a.chainId), key(a.address)))) await store.set(ns(a.chainId), key(a.address), a)
     },
     async remove(id: AssetId) {
-      const i = id.indexOf(':')
-      if (id.slice(i + 1) === 'native') throw new Error("The native asset can't be removed")
-      await store.del(ns(id.slice(0, i)), id.slice(i + 1))
+      const [chainId, rest] = split(id)
+      if (rest === 'native') throw new Error("The native asset can't be removed")
+      await store.del(ns(chainId), key(rest))
     },
     /** Make the chain's stored tokens exactly `assets` (native ignored). Writes first, then prunes. */
     async replace(chainId: string, assets: Asset[]) {
-      const keep = assets.filter(isStored)
+      const keep = assets.filter(isStored).map(a => rebase(a, chainId) as Asset & { address: Address })
       for (const a of keep) await store.set(ns(chainId), key(a.address), a)
       const ids = new Set(keep.map(a => key(a.address)))
       for (const a of await stored(chainId)) if (!ids.has(key(a.address!))) await store.del(ns(chainId), key(a.address!))

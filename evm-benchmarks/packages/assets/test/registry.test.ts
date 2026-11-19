@@ -65,3 +65,35 @@ describe('registry', () => {
     expect(rebase(nativeAsset('c1'), 'c9').id).toBe('c9:native')
   })
 })
+
+describe('hardening', () => {
+  test('get and remove lowercase the address; id without ":" throws', async () => {
+    const r = fresh()
+    await r.add(tok('c1', A))
+    expect((await r.get(`c1:${A}`))?.symbol).toBe('TKN')
+    await r.remove(`c1:${A}`)
+    expect((await r.list('c1')).length).toBe(1)
+    await expect(r.get('nocolon')).rejects.toThrow('Invalid asset id')
+    await expect(r.remove('nocolon')).rejects.toThrow('Invalid asset id')
+  })
+  test('replace re-stamps foreign chainId and id', async () => {
+    const r = fresh()
+    await r.replace('c2', [tok('c1', A)])
+    const [t] = await r.list('c2')
+    expect(t.chainId).toBe('c2')
+    expect(t.id).toBe(assetId('c2', A))
+    expect(await r.get(assetId('c2', A))).toEqual(t)
+  })
+  test('memoryStore clones on set, get and list', async () => {
+    const s = memoryStore()
+    const v = { n: { x: 1 } }
+    await s.set('ns', 'k', v)
+    v.n.x = 2
+    const g = (await s.get<typeof v>('ns', 'k'))!
+    expect(g.n.x).toBe(1)
+    g.n.x = 3
+    expect((await s.list<typeof v>('ns'))[0].n.x).toBe(1)
+    ;(await s.list<typeof v>('ns'))[0].n.x = 4
+    expect((await s.get<typeof v>('ns', 'k'))!.n.x).toBe(1)
+  })
+})
