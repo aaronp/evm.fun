@@ -3,10 +3,15 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppBar, crumbsFor } from '../state/appBar'
 import { registry } from '../chain/revm'
 import { LIVE_WARN } from '../chain/registry'
+import { provenanceText } from '../chain/chainFile'
 import { filterChains, rowHeight, type ChainTab } from '../chain/filter'
 import type { ChainInfo } from '../chain/handle'
 import { useApp } from '../state'
 import { NewChainDialog } from '../components/NewChainDialog'
+import { SnapshotsDialog, TakeSnapshotDialog, type Flash } from '../components/SnapshotsDialog'
+import { ImportButton } from '../components/ImportButton'
+import { exportChain } from '../components/exportFile'
+import { NO_FUNDS } from '../chain/snapshotUi'
 import { Explorer } from './Explorer'
 import { useBlockWindow } from '../explorer/useBlockWindow'
 import { Button } from '../ui/button'
@@ -15,7 +20,7 @@ import { Card } from '../ui/card'
 import { Input, Select } from '../ui/input'
 import { Notice } from '../ui/notice'
 import { Segmented } from '../ui/segmented'
-import { PlusIcon, RefreshIcon } from '../ui/icons'
+import { CameraIcon, DownloadIcon, HistoryIcon, PlusIcon, RefreshIcon, UploadIcon } from '../ui/icons'
 
 const tabs: { value: ChainTab; content: string }[] = [
   { value: 'all', content: 'All' },
@@ -56,10 +61,22 @@ export function Chains() {
   const [tab, setTab] = useState<ChainTab>('all')
   const dialog = useRef<HTMLDialogElement>(null)
   const win = useBlockWindow(chain)
+  const takeRef = useRef<HTMLDialogElement>(null)
+  const listRef = useRef<HTMLDialogElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [takeTick, setTakeTick] = useState(0)
+  const [listTick, setListTick] = useState(0)
+  const [flash, setFlash] = useState<Flash>()
+  const [noFunds, setNoFunds] = useState<string>() // id of the imported chain with no funded account, checked once at import
+  const none = chain ? undefined : 'Select a chain first'
   useAppBar({
     title: 'Chains',
     crumbs: crumbsFor(pathname, chain?.info.name),
     actions: [
+      { kind: 'button', id: 'snapshot', label: 'Snapshot', icon: <CameraIcon />, title: none ?? 'Take a snapshot', disabled: !chain, onClick: () => { setTakeTick(t => t + 1); takeRef.current?.showModal() } },
+      { kind: 'button', id: 'snapshots', label: 'Snapshots', icon: <HistoryIcon />, title: none ?? 'Snapshots of this chain', disabled: !chain, onClick: () => { setListTick(t => t + 1); listRef.current?.showModal() } },
+      { kind: 'button', id: 'export', label: 'Export', icon: <DownloadIcon />, title: none ?? 'Export this chain to a file', disabled: !chain, onClick: () => { exportChain(chain!).catch(e => setFlash({ tone: 'warn', text: `Export failed: ${e instanceof Error ? e.message : String(e)}` })) } },
+      { kind: 'button', id: 'import', label: 'Import', icon: <UploadIcon />, title: 'Import a chain file as a new chain', onClick: () => fileRef.current?.click() },
       { kind: 'button', id: 'refresh', label: 'Refresh', icon: <RefreshIcon />, onClick: win.refresh, disabled: !chain },
     ],
   })
@@ -85,7 +102,11 @@ export function Chains() {
     <div className="space-y-4">
       {error && <Notice>{error}</Notice>}
       {registry.liveCount() >= LIVE_WARN && <Notice>{`${registry.liveCount()} chains are running in this tab — this uses memory and CPU. Delete chains you don't need, or reload to stop them.`}</Notice>}
+      {flash && <Notice tone={flash.tone} onDismiss={() => setFlash(undefined)}>{flash.text}</Notice>}
       <NewChainDialog dialogRef={dialog} />
+      <TakeSnapshotDialog dialogRef={takeRef} chain={chain} openTick={takeTick} onFlash={setFlash} />
+      <SnapshotsDialog dialogRef={listRef} chain={chain} openTick={listTick} onFlash={setFlash} />
+      <ImportButton inputRef={fileRef} onFlash={setFlash} onImported={(id, funded) => setNoFunds(funded ? undefined : id)} />
       <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
         {!wide && <div className="space-y-3">
           <div className="flex items-center gap-2">
@@ -140,6 +161,8 @@ export function Chains() {
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
                   <Badge>{chain.info.type}</Badge>{chain.info.ephemeral && <Badge variant="warn">benchmark (not saved)</Badge>}<span>{chain.info.createdAt}</span>
                 </div>
+                {provenanceText(chain.info.source) && <div className="mt-1 text-xs text-muted">{provenanceText(chain.info.source)}</div>}
+                {noFunds === chain.info.id && <div className="mt-2"><Notice onDismiss={() => setNoFunds(undefined)}>{NO_FUNDS}</Notice></div>}
               </div>
               <Button variant="danger" size="sm" onClick={() => remove(chain.info)}>Delete</Button>
             </Card>

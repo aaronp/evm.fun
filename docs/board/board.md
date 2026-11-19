@@ -63,13 +63,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
-### snapshots: snapshot, restore, import and export UI
-- id: t-52
-- owner:
-- tags: web, plan6
-- history:
-  - To Do @ 2026-11-19T18:21:54Z
-
 ### snapshots: README, ADR and the browser checklist
 - id: t-53
 - owner:
@@ -79,8 +72,16 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 ## Doing
 
-
 ## Done
+
+### snapshots: snapshot, restore, import and export UI
+- id: t-52
+- owner: Claude
+- tags: web, plan6
+- history:
+  - To Do @ 2026-11-19T18:21:54Z
+  - Doing @ 2026-11-19T18:46:56Z by Claude
+  - Done @ 2026-11-19T18:55:14Z by Claude
 
 ### snapshots: snapshot store and registry createFrom / restoreTo
 - id: t-51

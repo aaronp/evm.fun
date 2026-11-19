@@ -5,6 +5,7 @@ import plain from '@evmb/approach-01-webevm-baseline'
 import { createChainRegistry } from './registry'
 import { createChainPersistence, deleteChainDb, type ClosablePersistence } from './idb'
 import { kv } from '../store/kv'
+import { createSnapshotStore } from './snapshots'
 
 // One IndexedDB database per chain, so removing a chain is deleteDatabase.
 const dbName = (id: string) => `evmb-chain-${id}`
@@ -28,3 +29,5 @@ export async function purge(chainId: string) {
 }
 
 export const registry = createChainRegistry({ kv, host, purge })
+
+export const snapshots = createSnapshotStore(kv)

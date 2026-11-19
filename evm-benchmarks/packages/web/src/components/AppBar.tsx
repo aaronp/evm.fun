@@ -26,9 +26,11 @@ export function AppBar() {
       {!!c.actions?.length && (
         <div className="flex flex-wrap items-center gap-2">
           {c.actions.map(a => a.kind === 'button' ? (
-            <Button key={a.id} variant="ghost" size="sm" title={a.label} disabled={a.disabled} onClick={a.onClick}>
-              {a.icon}<span className="sr-only">{a.label}</span>
-            </Button>
+            <span key={a.id} title={a.title ?? a.label} className="inline-flex">{/* a disabled button shows no tooltip itself */}
+              <Button variant="ghost" size="sm" title={a.title ?? a.label} disabled={a.disabled} onClick={a.onClick}>
+                {a.icon}<span className="sr-only">{a.label}</span>
+              </Button>
+            </span>
           ) : (
             <Segmented key={a.id} label={a.label} name={a.id} value={a.value} onChange={a.onChange} className="flex gap-0.5" itemClassName="flex p-1.5"
               options={a.options.map(o => ({ value: o.value, title: o.label, content: <>{o.icon}<span className="sr-only">{o.label}</span></> }))} />

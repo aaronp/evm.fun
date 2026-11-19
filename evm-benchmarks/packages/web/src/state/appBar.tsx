@@ -1,7 +1,7 @@
 import { createContext, useContext, useLayoutEffect, useState, type ReactNode } from 'react'
 
 export type AppBarAction =
-  | { kind: 'button'; id: string; label: string; icon: ReactNode; onClick: () => void; disabled?: boolean }
+  | { kind: 'button'; id: string; label: string; icon: ReactNode; onClick: () => void; disabled?: boolean; /** tooltip; defaults to label (use it for the reason when disabled) */ title?: string }
   | { kind: 'toggle'; id: string; label: string; value: string; options: { value: string; label: string; icon: ReactNode }[]; onChange: (v: string) => void }
 export interface AppBarConfig { title: string; crumbs?: { label: string; to?: string }[]; actions?: AppBarAction[] }
 
