@@ -50,10 +50,10 @@ export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="w-28 font-medium">{fn.name}</span>
       {fn.inputs.map((p, i) => (
-        <input key={i} aria-label={p.name || `arg${i}`} placeholder={`${p.name || `arg${i}`} (${p.type})`} className={`${input} w-48`} list={p.type === 'address' ? ADDRESS_LIST : undefined}
+        <input key={i} aria-label={p.name || `arg${i}`} placeholder={`${p.name || `arg${i}`} (${p.type})`} className={`${input} w-full sm:w-48`} list={p.type === 'address' ? ADDRESS_LIST : undefined}
           value={raw[i] ?? ''} onChange={e => setRaw(r => Object.assign([...r], { [i]: e.target.value }))} />
       ))}
-      {fn.stateMutability === 'payable' && <input aria-label="value" placeholder="value (wei)" className={`${input} w-32`} value={value} onChange={e => setValue(e.target.value)} />}
+      {fn.stateMutability === 'payable' && <input aria-label="value" placeholder="value (wei)" className={`${input} w-full sm:w-32`} value={value} onChange={e => setValue(e.target.value)} />}
       <Button variant={read ? 'outline' : 'default'} onClick={run} disabled={busy}>{read ? 'Call' : 'Send'}</Button>
       {out && <span role="status" className={`whitespace-pre-wrap font-mono text-xs ${out.ok ? 'text-green-700' : 'text-red-700'}`}>{out.text}</span>}
     </div>

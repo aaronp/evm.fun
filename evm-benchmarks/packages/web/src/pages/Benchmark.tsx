@@ -95,7 +95,7 @@ export function Benchmark() {
       {last && <ResultCard r={last} />}
       {last && <Button variant="outline" onClick={() => open(last)}>Open in Explorer</Button>}
       {runs.length > 0 && (
-        <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto"><table className="w-full text-left text-sm">
           <thead><tr><th>run</th><th>TPS</th><th>p50</th><th>p99</th><th>verified</th><th /></tr></thead>
           <tbody>
             {runs.map(r => (
@@ -109,7 +109,7 @@ export function Benchmark() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </div>
   )

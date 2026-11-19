@@ -36,12 +36,12 @@ export function Accounts() {
           bump(n => n + 1)
         }}
       >
-        <input className="rounded-md border border-slate-300 px-2 py-1 text-sm" placeholder="Label" value={label} onChange={e => setLabel(e.target.value)} />
+        <input className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm sm:flex-none" placeholder="Label" value={label} onChange={e => setLabel(e.target.value)} />
         <Button type="submit">Create account</Button>
       </form>
       {list.length === 0 && <p className="text-sm text-slate-500">No accounts yet.</p>}
       {list.map(a => (
-        <Card key={a.address} className="flex items-center justify-between gap-4">
+        <Card key={a.address} className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="font-medium">
               {a.label} {a.address === account && <span className="text-xs text-slate-500">(selected)</span>}

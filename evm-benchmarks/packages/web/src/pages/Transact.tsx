@@ -51,7 +51,7 @@ export function Transact() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Transact</h1>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <select aria-label="Account" className={input} value={account ?? ''} onChange={e => selectAccount(e.target.value || undefined)}>
           <option value="">Account…</option>
           {list.map(a => <option key={a.address} value={a.address}>{a.label} ({a.address.slice(0, 8)}…)</option>)}
@@ -63,8 +63,8 @@ export function Transact() {
       </div>
       {target === ETH && (
         <Card className="flex flex-wrap items-center gap-2 text-sm">
-          <input aria-label="Recipient" placeholder="to (address)" list={ADDRESS_LIST} className={`${input} w-96`} value={eth.to} onChange={e => setEth({ ...eth, to: e.target.value })} />
-          <input aria-label="Amount" placeholder="amount (wei)" className={`${input} w-40`} value={eth.amount} onChange={e => setEth({ ...eth, amount: e.target.value })} />
+          <input aria-label="Recipient" placeholder="to (address)" list={ADDRESS_LIST} className={`${input} w-full sm:w-96`} value={eth.to} onChange={e => setEth({ ...eth, to: e.target.value })} />
+          <input aria-label="Amount" placeholder="amount (wei)" className={`${input} w-full sm:w-40`} value={eth.amount} onChange={e => setEth({ ...eth, amount: e.target.value })} />
           <Button onClick={sendEth}>Send</Button>
           {ethErr && <span role="alert" className="text-red-700">{ethErr}</span>}
         </Card>

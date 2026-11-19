@@ -1,1 +1,4 @@
 @import "tailwindcss";
+
+/* long hashes/addresses wrap instead of widening the page at phone width */
+.font-mono { overflow-wrap: anywhere; }

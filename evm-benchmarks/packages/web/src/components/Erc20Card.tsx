@@ -36,13 +36,13 @@ export function Erc20Card({ chain, to, abi, account, refresh, onReceipt }: {
   return (
     <Card className="space-y-2 text-sm">
       <h2 className="font-semibold">{info.name} ({info.symbol}) · supply {fmt(info.supply)}</h2>
-      <table className="text-xs">
+      <div className="overflow-x-auto"><table className="text-xs">
         <tbody>
           {info.balances.map(([a, b]) => (
             <tr key={a.address}><td className="pr-3">{a.label}</td><td className="pr-3 font-mono">{a.address}</td><td className="font-mono">{fmt(b)}</td></tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       <p className="text-xs text-slate-500">Amounts in the forms below are raw units ({info.decimals} decimals).</p>
       {transfer && <FunctionForm fn={transfer} abi={abi} to={to} chain={chain} account={account} onReceipt={onReceipt} />}
       {mint && isOwner && <FunctionForm fn={mint} abi={abi} to={to} chain={chain} account={account} onReceipt={onReceipt} />}

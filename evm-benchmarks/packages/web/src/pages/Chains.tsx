@@ -62,7 +62,7 @@ export function Chains() {
       </Card>
       {chains.length === 0 && <p className="text-sm text-slate-500">No chains yet.</p>}
       {chains.map(c => (
-        <Card key={c.id} className="flex items-center justify-between">
+        <Card key={c.id} className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="font-medium">
               {c.name} {c.id === chain?.info.id && <span className="text-xs text-slate-500">(selected)</span>}

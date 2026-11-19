@@ -47,7 +47,7 @@ function Latest({ chain }: { chain: ChainHandle }) {
     <Card className="space-y-2">
       <h2 className="font-medium">Latest blocks</h2>
       {rows === undefined ? <p className="text-sm">Loading…</p> : rows.length === 0 ? <p className="text-sm">No blocks.</p> : (
-        <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto"><table className="w-full text-left text-sm">
           <thead><tr><th>Block</th><th>Hash</th><th>Time</th><th>Txs</th></tr></thead>
           <tbody>
             {rows.map(b => (
@@ -59,7 +59,7 @@ function Latest({ chain }: { chain: ChainHandle }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
       <Pager page={page} set={setPage} more={rows?.length === 20} />
     </Card>
@@ -85,7 +85,7 @@ function Block({ chain, names }: { chain: ChainHandle; names: Names }) {
         <dt>Transactions</dt><dd>{b.txTotal}</dd>
       </dl>
       {/* webevm reports gasUsed 0 and zero roots in headers, so they are omitted; see receipts for gas. */}
-      <table className="w-full text-left text-sm">
+      <div className="overflow-x-auto"><table className="w-full text-left text-sm">
         <thead><tr><th>Hash</th><th>From</th><th>To</th><th>Value (wei)</th></tr></thead>
         <tbody>
           {b.txs.map(t => (
@@ -97,7 +97,7 @@ function Block({ chain, names }: { chain: ChainHandle; names: Names }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       <Pager page={page} set={setPage} more={(page + 1) * 50 < b.txTotal} />
     </Card>
   )
@@ -181,8 +181,8 @@ export function Explorer() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Explorer</h1>
-      <form className="flex gap-2" onSubmit={e => { e.preventDefault(); search() }}>
-        <input aria-label="Search" className={`${input} flex-1`} placeholder="Block number, tx hash or address" value={q} onChange={e => { setQ(e.target.value); setMiss(false) }} />
+      <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); search() }}>
+        <input aria-label="Search" className={`${input} min-w-0 flex-1`} placeholder="Block number, tx hash or address" value={q} onChange={e => { setQ(e.target.value); setMiss(false) }} />
         <Button type="submit">Search</Button>
       </form>
       {miss && <NotFound what={q} />}

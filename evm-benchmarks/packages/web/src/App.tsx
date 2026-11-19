@@ -19,9 +19,9 @@ export function App() {
   return (
     <AppState>
     <HashRouter>
-      <div className="flex min-h-screen bg-slate-50 text-slate-900">
-        <nav className="w-44 shrink-0 border-r border-slate-200 bg-white p-3">
-          <div className="mb-4 font-bold">EVM Playground</div>
+      <div className="flex min-h-screen flex-col bg-slate-50 text-slate-900 sm:flex-row">
+        <nav className="flex shrink-0 flex-wrap items-center gap-1 border-b border-slate-200 bg-white p-3 sm:block sm:w-44 sm:border-r sm:border-b-0">
+          <div className="mr-2 font-bold sm:mb-4">EVM Playground</div>
           {pages.map(p => (
             <NavLink
               key={p}
@@ -34,7 +34,7 @@ export function App() {
             </NavLink>
           ))}
         </nav>
-        <main className="flex-1 space-y-4 p-6">
+        <main className="min-w-0 flex-1 space-y-4 p-3 sm:p-6">
           <StorageNotice />
           <AddressList />
           <Routes>

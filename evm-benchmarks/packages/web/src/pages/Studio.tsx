@@ -103,7 +103,7 @@ export function Studio() {
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Studio</h1>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <select
           aria-label="Template"
           className={input}
@@ -162,7 +162,7 @@ export function Studio() {
             {ctor.map((p: { name: string; type: string }, i: number) => (
               <label key={i} className="block text-sm">
                 {p.name || `arg${i}`} <span className="text-slate-500">({p.type})</span>
-                <input className={`${input} ml-2 w-80`} list={p.type === 'address' ? ADDRESS_LIST : undefined} value={args[i] ?? ''} onChange={e => setArgs(a => Object.assign([...a], { [i]: e.target.value }))} />
+                <input className={`${input} w-full sm:ml-2 sm:w-80`} list={p.type === 'address' ? ADDRESS_LIST : undefined} value={args[i] ?? ''} onChange={e => setArgs(a => Object.assign([...a], { [i]: e.target.value }))} />
               </label>
             ))}
             <div>
@@ -179,7 +179,7 @@ export function Studio() {
         <Card className="space-y-1 text-sm">
           <h2 className="font-semibold">Deployed on this chain</h2>
           {deployed.map(c => (
-            <div key={c.address} className="flex gap-2">
+            <div key={c.address} className="flex flex-wrap gap-2">
               <span>{c.name}</span>
               <span className="font-mono text-xs">{c.address}</span>
               <Link className="underline" to={`/transact?contract=${c.address}`}>Open in Transact</Link>
