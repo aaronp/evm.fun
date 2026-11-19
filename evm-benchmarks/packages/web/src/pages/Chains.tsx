@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CHAIN_TYPE_BLURB, ChainTypeHelp } from '../components/ChainTypeHelp'
+import { ChainTypeHelp, ChainTypePicker } from '../components/ChainTypeHelp'
 import { accounts } from '../store/accounts'
 import { registry } from '../chain/revm'
 import type { ChainType } from '../chain/registry'
@@ -41,15 +41,7 @@ export function Chains() {
       <Card className="space-y-3">
         <Input className="w-full sm:w-72" placeholder="Chain name" value={name} onChange={e => setName(e.target.value)} />
         <div className="space-y-2 text-sm">
-          <div className="grid gap-2 sm:grid-cols-2">
-            {(['plain', 'sequencer'] as const).map(t => (
-              <label key={t} className={`block cursor-pointer rounded-lg border p-3 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${type === t ? 'border-accent bg-accent-soft' : 'border-line-strong bg-surface hover:bg-surface-hover'}`}>
-                <input className="mr-2 accent-accent" type="radio" name="type" checked={type === t} onChange={() => setType(t)} />
-                <b>{t}</b>
-                <span className="mt-1 block text-muted">{CHAIN_TYPE_BLURB[t]}</span>
-              </label>
-            ))}
-          </div>
+          <ChainTypePicker type={type} onChange={setType} />
           <ChainTypeHelp />
         </div>
         <div className="text-sm">
