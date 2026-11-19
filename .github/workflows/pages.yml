@@ -7,7 +7,7 @@ name: Playground → GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths: ['evm-benchmarks/**', '.github/workflows/pages.yml']
   workflow_dispatch:
 
