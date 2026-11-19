@@ -12,6 +12,7 @@
     "@codemirror/view": "^6.38.0",
     "@evmb/approach-01-webevm-baseline": "workspace:*",
     "@evmb/approach-02-seq-memory": "workspace:*",
+    "@evmb/assets": "workspace:*",
     "@evmb/contracts": "workspace:*",
     "@evmb/core": "workspace:*",
     "@lezer/highlight": "^1.2.1",

@@ -19,7 +19,7 @@ export function ImportButton({ inputRef, onFlash, onImported }: {
       const r = decodeChainFile(await file.text(), { engine: ENGINE, crossEngineOk: CROSS_ENGINE_OK })
       if (!r.ok) return onFlash({ tone: 'warn', text: `Import failed: ${r.error}` })
       const f = r.file
-      const h = await registry.createFrom(f.dump, { name: f.chain.name, type: f.chain.type, contracts: f.contracts, source: importSource(file.name, f.dump) })
+      const h = await registry.createFrom(f.dump, { name: f.chain.name, type: f.chain.type, contracts: f.contracts, assets: f.assets, source: importSource(file.name, f.dump) })
       await refresh()
       await selectChain(h.info.id)
       nav('/chains')

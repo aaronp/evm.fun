@@ -1,18 +1,21 @@
 import type { Kv } from '../store/kv'
+import type { Asset } from '@evmb/assets'
 import { createContractsRegistry } from '../contracts/registry'
+import { createWebAssets } from '../assets/registry'
 import { defaultSnapshotName, type ContractRecord } from './chainFile'
 import type { ChainHandle } from './handle'
 import { sizeKb } from './snapshotUi'
 
 export interface Snapshot {
   id: string; chainId: string; name: string; height: number; createdAt: string
-  dump: unknown; contracts: ContractRecord[]; bytes: number
+  dump: unknown; contracts: ContractRecord[]; assets: Asset[]; bytes: number
 }
 
 const STORE = 'snapshots'
 
 export function createSnapshotStore(kv: Kv) {
   const contracts = createContractsRegistry(kv)
+  const assets = createWebAssets(kv)
   return {
     async list(chainId: string): Promise<Snapshot[]> {
       const all = await kv.list<Snapshot>(STORE)
@@ -22,10 +25,11 @@ export function createSnapshotStore(kv: Kv) {
       const dump = await handle.approach.snapshot!()
       const height = Number(BigInt((await handle.request('eth_blockNumber', [])) as string))
       const recs = await contracts.list(handle.info.id)
+      const held = (await assets.list(handle.info.id)).filter(a => a.kind === 'erc20')
       const snap: Snapshot = {
         id: crypto.randomUUID(), chainId: handle.info.id, name: name || defaultSnapshotName(handle.info.name, height),
-        height, createdAt: new Date().toISOString(), dump, contracts: recs,
-        bytes: new TextEncoder().encode(JSON.stringify({ dump, contracts: recs }, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).length,
+        height, createdAt: new Date().toISOString(), dump, contracts: recs, assets: held,
+        bytes: new TextEncoder().encode(JSON.stringify({ dump, contracts: recs, assets: held }, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).length,
       }
       // strict: a snapshot too big for the quota must not switch the whole app to memory
       try {

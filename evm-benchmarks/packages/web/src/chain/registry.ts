@@ -1,9 +1,11 @@
 import type { Address, ApproachHost } from '@evmb/core'
 import plain from '@evmb/approach-01-webevm-baseline'
 import sequencer from '@evmb/approach-02-seq-memory'
+import { rebase, type Asset } from '@evmb/assets'
 import type { Kv } from '../store/kv'
 import { createContractsRegistry } from '../contracts/registry'
 import type { ChainSource, ContractRecord } from './chainFile'
+import { createWebAssets } from '../assets/registry'
 import { createSnapshotStore, type Snapshot } from './snapshots'
 import { makeHandle, type ChainHandle, type ChainInfo, type ChainType } from './handle'
 
@@ -30,6 +32,7 @@ export function createChainRegistry(deps: {
   }
   const snapshots = createSnapshotStore(deps.kv)
   const contracts = createContractsRegistry(deps.kv)
+  const assets = createWebAssets(deps.kv)
   const track = (h: ChainHandle) => (live.set(h.info.id, h), h)
 
   const self = {
@@ -63,7 +66,7 @@ export function createChainRegistry(deps: {
      * `source` is trusted as given, so an import caller must build it from the real file name and height,
      * never from a `source` inside the file.
      */
-    async createFrom(dump: unknown, o: { name: string; type: ChainType; contracts: ContractRecord[]; source: ChainSource }): Promise<ChainHandle> {
+    async createFrom(dump: unknown, o: { name: string; type: ChainType; contracts: ContractRecord[]; assets?: Asset[]; source: ChainSource }): Promise<ChainHandle> {
       assertRoom()
       const info: ChainInfo = { id: crypto.randomUUID(), name: o.name, type: o.type, createdAt: new Date().toISOString(), source: o.source }
       const h = build(info)
@@ -71,11 +74,13 @@ export function createChainRegistry(deps: {
         await h.approach.setup({ prefund: {}, dump })
         info.lastHeight = Number(BigInt((await h.request('eth_blockNumber', [])) as string))
         await contracts.replace(info.id, o.contracts)
+        await assets.replace(info.id, (o.assets ?? []).map(a => rebase(a, info.id)))
         await deps.kv.set(STORE, info.id, info)
       } catch (e) {
         await h.dispose().catch(() => {})
         await deps.kv.del(STORE, info.id).catch(() => {})
         await contracts.replace(info.id, []).catch(() => {})
+        await assets.removeChain(info.id).catch(() => {})
         await deps.purge?.(info.id).catch(() => {})
         throw e
       }
@@ -90,6 +95,7 @@ export function createChainRegistry(deps: {
       const saved = o.saveFirst ? await snapshots.take(h) : undefined
       await h.approach.restore!(snap.dump)
       await contracts.replace(id, snap.contracts)
+      await assets.replace(id, snap.assets ?? [])
       await self.recordHeight(id)
       return { saved }
     },
@@ -119,6 +125,8 @@ export function createChainRegistry(deps: {
       await live.get(id)?.dispose()
       live.delete(id)
       await deps.kv.del(STORE, id)
+      await contracts.replace(id, [])
+      await assets.removeChain(id)
       await snapshots.removeForChain(id)
       await deps.purge?.(id)
     },

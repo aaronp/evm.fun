@@ -1,4 +1,5 @@
 import type { DeployedContract as ContractRecord } from '../contracts/registry'
+import type { Asset } from '@evmb/assets'
 import type { ChainType } from './handle'
 
 export type { ContractRecord }
@@ -9,7 +10,7 @@ export type ChainSource =
 
 export interface ChainFile {
   format: 'evm.fun/chain'; version: 1; exportedAt: string; chainId: number; engine: string
-  chain: { name: string; type: ChainType }; dump: unknown; contracts: ContractRecord[]; source?: ChainSource
+  chain: { name: string; type: ChainType }; dump: unknown; contracts: ContractRecord[]; assets?: Asset[]; source?: ChainSource
 }
 
 // ADR "Chain snapshots via webevm dumpState/loadState": dumps load across engines (both ways).
@@ -45,6 +46,24 @@ function contractError(c: any, i: number): string | null {
   return null
 }
 
+const ORIGINS = ['launched', 'imported', 'deployed']
+
+function assetError(a: any, i: number): string | null {
+  const at = `assets[${i}]`
+  if (!isObj(a)) return `${at} is not an object`
+  if (!str(a.id) || !str(a.chainId)) return `${at}.id and chainId must be strings of at most ${MAX} characters`
+  if (a.kind !== 'erc20') return `${at}.kind must be "erc20" (got ${show(a.kind)})`
+  if (!isAddr(a.address)) return `${at}.address is not an address`
+  if (!str(a.symbol)) return `${at}.symbol is not a string of at most ${MAX} characters`
+  if (!str(a.name)) return `${at}.name is not a string of at most ${MAX} characters`
+  if (!Number.isInteger(a.decimals) || a.decimals < 0 || a.decimals > 36) return `${at}.decimals is not an integer from 0 to 36`
+  if (!ORIGINS.includes(a.origin)) return `${at}.origin is not one of ${ORIGINS.join(', ')}`
+  if (typeof a.mintable !== 'boolean') return `${at}.mintable is not a boolean`
+  if (!isStr(a.addedAt)) return `${at}.addedAt is not a string`
+  if (a.issuer !== undefined && !isAddr(a.issuer)) return `${at}.issuer is not an address`
+  return null
+}
+
 type Decoded = { ok: true; file: ChainFile } | { ok: false; error: string }
 export function decodeChainFile(text: string, opts: { engine: string; crossEngineOk: boolean }): Decoded {
   try { return decode(text, opts) } catch { return { ok: false, error: 'Invalid file' } }
@@ -75,6 +94,13 @@ function decode(text: string, opts: { engine: string; crossEngineOk: boolean }):
   for (let i = 0; i < f.contracts.length; i++) {
     const e = contractError(f.contracts[i], i)
     if (e) return bad(e)
+  }
+  if (f.assets !== undefined) {
+    if (!Array.isArray(f.assets)) return bad('Missing or invalid assets')
+    for (let i = 0; i < f.assets.length; i++) {
+      const e = assetError(f.assets[i], i)
+      if (e) return bad(e)
+    }
   }
   const d = f.dump
   if (!isObj(d)) return bad('Missing or invalid dump: expected an object')

@@ -83,7 +83,7 @@ export function SnapshotsDialog({ dialogRef, chain, openTick, onFlash }: {
   const fork = (s: Snapshot) => run(async () => {
     if (!chain!.approach.snapshot) throw new Error(NO_SNAPSHOT)
     const h = await registry.createFrom(s.dump, {
-      name: forkName(s.name), type: chain!.info.type, contracts: s.contracts,
+      name: forkName(s.name), type: chain!.info.type, contracts: s.contracts, assets: s.assets,
       source: { kind: 'snapshot', snapshotName: s.name, fromChainName: chain!.info.name, height: s.height },
     })
     await refresh()

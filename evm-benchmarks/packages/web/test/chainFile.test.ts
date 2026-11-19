@@ -132,3 +132,26 @@ test('hostile values never make decode throw', () => {
   expect(err(dec({ ...b, chainId: evil }))).toMatch(/chainId/)
   expect(err(dec({ ...b, dump: { ...b.dump, chainId: evil } }))).toMatch(/chainId/)
 })
+
+const goodA = { id: 'c:0x00000000000000000000000000000000000000aa', chainId: 'c', kind: 'erc20', address: '0x00000000000000000000000000000000000000aa',
+  symbol: 'GBP', name: 'Pound', decimals: 6, origin: 'launched', mintable: true, addedAt: 't' }
+const rawFile = () => JSON.parse(encodeChainFile(file))
+
+test('assets round-trip; a file without assets decodes with assets undefined', () => {
+  const r = dec(encodeChainFile({ ...file, assets: [goodA as any] }))
+  expect(r.ok && r.file.assets).toEqual([goodA])
+  const r2 = dec(encodeChainFile(file))
+  expect(r2.ok && r2.file.assets).toBeUndefined()
+})
+
+test('bad asset entries are rejected without throwing', () => {
+  const evil = { toString: 1 }
+  const bads: any[] = [
+    { ...goodA, kind: 'native' }, { ...goodA, address: '0x12' }, { ...goodA, decimals: 99 }, { ...goodA, symbol: 'x'.repeat(201) },
+    { ...goodA, decimals: 1.5 }, { ...goodA, origin: 'nope' }, { ...goodA, mintable: 'yes' }, { ...goodA, issuer: 'bad' },
+    { ...goodA, id: 5 }, { ...goodA, addedAt: 1 }, evil, [], null, { ...goodA, symbol: evil }, { ...goodA, name: evil },
+  ]
+  for (const b of bads) expect(err(dec({ ...rawFile(), assets: [goodA, b] }))).toMatch(/assets\[1\]/)
+  expect(err(dec({ ...rawFile(), assets: 'no' }))).toMatch(/assets/)
+  expect(err(dec({ ...rawFile(), assets: evil }))).toMatch(/assets/)
+})

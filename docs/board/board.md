@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### assets: travel with snapshots, forks and files
-- id: t-57
-- owner: Claude
-- tags: web, plan7
-- history:
-  - To Do @ 2026-11-19T22:03:42Z
-
 ### assets: Assets page list, header, balances, Send
 - id: t-58
 - owner: Claude
@@ -94,6 +87,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### assets: travel with snapshots, forks and files
+- id: t-57
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+  - Doing @ 2026-11-19T22:22:54Z by Claude
+  - Done @ 2026-11-19T22:25:39Z by Claude
 
 ### assets: live reads (token info, balances, allowances)
 - id: t-56
