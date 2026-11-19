@@ -2,5 +2,11 @@
   "name": "@evmb/core",
   "private": true,
   "type": "module",
-  "main": "src/index.ts"
+  "main": "src/index.ts",
+  "dependencies": {
+    "@evmb/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@evmb/approach-01-webevm-baseline": "workspace:*"
+  }
 }

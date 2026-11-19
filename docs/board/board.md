@@ -6,16 +6,6 @@ theme: paper
 
 ## To Do
 
-### core: five scenarios (generator + verifier each)
-- id: t-05
-- owner:
-- tags: core
-- history:
-  - To Do @ 2026-11-19T09:38:00Z
-
-```md
-eth-transfer, erc20-disjoint, erc20-hot, erc20-mint, atomic-swap
-```
 
 ### cli: bench command writing results JSON
 - id: t-06
@@ -124,6 +114,19 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
   - Doing @ 2026-11-19T10:05:40Z by Claude
 
 ## Done
+
+### core: five scenarios (generator + verifier each)
+- id: t-05
+- owner: Claude
+- tags: core
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Doing @ 2026-11-19T10:25:00Z by Claude
+  - Done @ 2026-11-19T10:26:00Z by Claude
+
+```md
+eth-transfer, erc20-disjoint, erc20-hot, erc20-mint, atomic-swap
+```
 
 ### Approach 01: webevm-baseline
 - id: t-07

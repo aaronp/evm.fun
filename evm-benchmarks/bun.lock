@@ -27,6 +27,12 @@
     },
     "packages/core": {
       "name": "@evmb/core",
+      "dependencies": {
+        "@evmb/contracts": "workspace:*",
+      },
+      "devDependencies": {
+        "@evmb/approach-01-webevm-baseline": "workspace:*",
+      },
     },
   },
   "packages": {
