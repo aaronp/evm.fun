@@ -154,7 +154,8 @@ export function Studio() {
           t => assetRegistry.add({
             id: assetId(chain.info.id, r.contractAddress!), chainId: chain.info.id, kind: 'erc20', address: r.contractAddress,
             symbol: t.symbol.slice(0, MAX_NAME), name: t.name.slice(0, MAX_NAME), decimals: t.decimals, origin: 'deployed', issuer: from.address, mintable: isMintable(contract.abi), addedAt: new Date().toISOString(),
-          }), () => {})
+          }),
+        ).catch(() => {})
       }
       setDeployed(await contractsRegistry.list(chain.info.id))
       setStatus({ ok: true, text: `Deployed ${contract.name} at ${r.contractAddress}` })

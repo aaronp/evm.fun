@@ -147,11 +147,16 @@ test('assets round-trip; a file without assets decodes with assets undefined', (
 test('bad asset entries are rejected without throwing', () => {
   const evil = { toString: 1 }
   const bads: any[] = [
-    { ...goodA, kind: 'native' }, { ...goodA, address: '0x12' }, { ...goodA, decimals: 99 }, { ...goodA, symbol: 'x'.repeat(201) },
+    { ...goodA, kind: 'native' }, { ...goodA, address: '0x12' }, { ...goodA, decimals: 256 }, { ...goodA, decimals: -1 }, { ...goodA, symbol: 'x'.repeat(201) },
     { ...goodA, decimals: 1.5 }, { ...goodA, origin: 'nope' }, { ...goodA, mintable: 'yes' }, { ...goodA, issuer: 'bad' },
     { ...goodA, id: 5 }, { ...goodA, addedAt: 1 }, evil, [], null, { ...goodA, symbol: evil }, { ...goodA, name: evil },
   ]
   for (const b of bads) expect(err(dec({ ...rawFile(), assets: [goodA, b] }))).toMatch(/assets\[1\]/)
   expect(err(dec({ ...rawFile(), assets: 'no' }))).toMatch(/assets/)
   expect(err(dec({ ...rawFile(), assets: evil }))).toMatch(/assets/)
+})
+
+test('an asset with 50 decimals (valid for readTokenInfo) round-trips', () => {
+  const r = dec(encodeChainFile({ ...file, assets: [{ ...goodA, decimals: 50 } as any, { ...goodA, decimals: 99, id: 'c:0x00000000000000000000000000000000000000bb', address: '0x00000000000000000000000000000000000000bb' } as any] }))
+  expect(r.ok).toBe(true)
 })

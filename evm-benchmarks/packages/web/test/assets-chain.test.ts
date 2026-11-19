@@ -85,3 +85,15 @@ test('createFrom rollback leaves no assets rows', async () => {
   expect(seen.length).toBe(1)
   for (const ns of seen) expect(await e.kv.list(ns)).toEqual([])
 })
+
+test('snapshot bytes count the assets', async () => {
+  const e = env()
+  const reg = createChainRegistry(e.deps())
+  const h = await reg.create('orig', 'plain', [])
+  const snaps = createSnapshotStore(e.kv)
+  const without = await snaps.take(h)
+  await e.assets.add(tok(h.info.id))
+  const withTok = await snaps.take(h)
+  expect(withTok.bytes).toBeGreaterThan(without.bytes + 100)
+  await h.dispose()
+})

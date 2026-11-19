@@ -56,7 +56,7 @@ function assetError(a: any, i: number): string | null {
   if (!isAddr(a.address)) return `${at}.address is not an address`
   if (!str(a.symbol)) return `${at}.symbol is not a string of at most ${MAX} characters`
   if (!str(a.name)) return `${at}.name is not a string of at most ${MAX} characters`
-  if (!Number.isInteger(a.decimals) || a.decimals < 0 || a.decimals > 36) return `${at}.decimals is not an integer from 0 to 36`
+  if (!Number.isInteger(a.decimals) || a.decimals < 0 || a.decimals > 255) return `${at}.decimals is not an integer from 0 to 255`
   if (!ORIGINS.includes(a.origin)) return `${at}.origin is not one of ${ORIGINS.join(', ')}`
   if (typeof a.mintable !== 'boolean') return `${at}.mintable is not a boolean`
   if (!isStr(a.addedAt)) return `${at}.addedAt is not a string`
