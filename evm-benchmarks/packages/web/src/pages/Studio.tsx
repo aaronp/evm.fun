@@ -41,6 +41,7 @@ function Editor({ value, onChange, viewRef }: { value: string; onChange(v: strin
 export function Studio() {
   const { chain, account } = useApp()
   const [source, setSource] = useState(templates[0]!.source)
+  const [fileName, setFileName] = useState(templates[0]!.name) // unit name feeds the metadata hash
   const view = useRef<EditorView>()
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<CompileResult>()
@@ -62,7 +63,7 @@ export function Studio() {
   const compile = async () => {
     setBusy(true)
     setStatus(undefined)
-    const r = await compileInWorker(source)
+    const r = await compileInWorker(source, fileName)
     setBusy(false)
     setResult(r)
     setPick(0)
@@ -101,7 +102,10 @@ export function Studio() {
           aria-label="Template"
           className={input}
           defaultValue=""
-          onChange={e => e.target.value && setSource(templates.find(t => t.name === e.target.value)!.source)}
+          onChange={e => {
+            const t = templates.find(t => t.name === e.target.value)
+            if (t) { setSource(t.source); setFileName(t.name) }
+          }}
         >
           <option value="">Load template…</option>
           {templates.map(t => <option key={t.name}>{t.name}</option>)}

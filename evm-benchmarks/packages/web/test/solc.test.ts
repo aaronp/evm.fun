@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import solc from 'solc'
 import { MintableToken } from '@evmb/contracts'
-import { compile } from '../src/solc/compile'
+import { compile, compileFile } from '../src/solc/compile'
 
 const oz = dirname(dirname(dirname(Bun.resolveSync('@openzeppelin/contracts/package.json', import.meta.dir))))
 const readImport = async (p: string) => {
@@ -17,6 +17,14 @@ describe('compile', () => {
     const r = await run(mintable, 'MintableToken.sol')
     expect(r.errors.filter(e => e.severity === 'error')).toEqual([])
     expect(r.contracts.find(c => c.name === 'MintableToken')!.bytecode).toBe(MintableToken.bytecode)
+  }, 60_000)
+
+  test('worker path (compileFile + template file name) matches @evmb/contracts bytecode', async () => {
+    const r = await compileFile(solc, 'MintableToken.sol', mintable, readImport)
+    expect(r.contracts.find(c => c.name === 'MintableToken')!.bytecode).toBe(MintableToken.bytecode)
+    // a different unit name changes the metadata hash: why Studio must pass the template's name
+    const other = await compileFile(solc, 'Contract.sol', mintable, readImport)
+    expect(other.contracts.find(c => c.name === 'MintableToken')!.bytecode).not.toBe(MintableToken.bytecode)
   }, 60_000)
 
   test('syntax error has line', async () => {

@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 // Module worker: loads soljson lazily on the first compile, resolves OpenZeppelin imports over fetch.
-import { compile, type Solc } from './compile'
+import { compileFile, type Solc } from './compile'
 
 let solc: Promise<Solc> | undefined
 
@@ -26,11 +26,11 @@ async function readImport(base: string, path: string) {
   return res.text()
 }
 
-self.onmessage = async (e: MessageEvent<{ id: number; base: string; source: string }>) => {
-  const { id, base, source } = e.data
+self.onmessage = async (e: MessageEvent<{ id: number; base: string; source: string; fileName: string }>) => {
+  const { id, base, source, fileName } = e.data
   try {
     const s = await load(base)
-    postMessage({ id, result: await compile(s, { 'Contract.sol': source }, p => readImport(base, p)) })
+    postMessage({ id, result: await compileFile(s, fileName, source, p => readImport(base, p)) })
   } catch (err) {
     postMessage({ id, result: { contracts: [], errors: [{ severity: 'error', message: err instanceof Error ? err.message : String(err) }] } })
   }

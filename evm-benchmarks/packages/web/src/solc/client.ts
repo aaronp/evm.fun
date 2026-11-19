@@ -20,11 +20,11 @@ function start() {
   return w
 }
 
-export function compileInWorker(source: string): Promise<CompileResult> {
+export function compileInWorker(source: string, fileName = 'Contract.sol'): Promise<CompileResult> {
   const w = (worker ??= start())
   return new Promise(res => {
     const id = nextId++
     pending.set(id, res)
-    w.postMessage({ id, source, base: document.baseURI })
+    w.postMessage({ id, source, fileName, base: document.baseURI })
   })
 }

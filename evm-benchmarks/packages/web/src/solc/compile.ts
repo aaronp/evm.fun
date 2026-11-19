@@ -19,6 +19,10 @@ function resolve(from: string, p: string) {
   return out.join('/')
 }
 
+/** What the worker calls: one user file, named so bytecode metadata matches a build of the same file. */
+export const compileFile = (solc: Solc, fileName: string, source: string, readImport: (p: string) => Promise<string | null>) =>
+  compile(solc, { [fileName]: source }, readImport)
+
 export async function compile(
   solc: Solc,
   sources: Record<string, string>,
