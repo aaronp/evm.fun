@@ -434,3 +434,49 @@ Give the playground three themes (Dark, Light, Paper) without hard-coding colour
 
 ## Decision
 Tokens. Colours live only in `packages/web/src/theme/tokens.css`, one `:root[data-theme=…]` block per theme; Tailwind utilities (`bg-surface`, `text-muted`, …) read them through `@theme inline`. A pre-paint script in `index.html` sets `data-theme` from `localStorage['evmb.theme']` or `prefers-color-scheme`. Two tests guard it: WCAG contrast for every token pair in every theme, and a grep that fails on raw colours outside the tokens file.
+
+---
+title: Explorer views on a linear chain; fork views deferred to real fork data
+status: accepted
+date: 2026-11-19
+tags: architecture, web
+decision: linear
+---
+
+## Goal
+Add richer block-explorer views to the Chains page without showing data the chains do not have.
+
+## People
+- Claude — author
+- Aaron — decider
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| honest | Shows only real data | 5 | Higher = nothing invented. |
+| value | Useful today | 3 | Higher = more insight into current chains. |
+| effort | Low effort | 2 | Higher = less to build and maintain. |
+
+## Solution: linear — Build only the four views that work on a linear chain (Table, Chain, Timeline, Fisheye)
+| criterion | score |
+| --- | --- |
+| honest | 5 |
+| value | 4 |
+| effort | 3 |
+
+## Solution: all — Build all six mockup views, with invented fork data
+| criterion | score |
+| --- | --- |
+| honest | 1 |
+| value | 3 |
+| effort | 1 |
+
+## Solution: none — Skip the new views
+| criterion | score |
+| --- | --- |
+| honest | 5 |
+| value | 1 |
+| effort | 5 |
+
+## Decision
+Linear. Playground and benchmark chains are linear: one block per height, no forks, no finality. The two fork views in the mockups need fork data these chains do not produce, and would have needed invented fork rules and placeholder values. Fork views come back with snapshots, export/import and restore (explorer spec steps 2-3), when real fork data exists.

@@ -64,16 +64,18 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
-### web: explorer phone-width and browser check
-- id: t-44
-- owner:
-- tags: web, plan5
-- history:
-  - To Do @ 2026-11-19T16:41:07Z
-
 ## Doing
 
 ## Done
+
+### web: explorer phone-width and browser check
+- id: t-44
+- owner: Claude
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T16:41:07Z
+  - Doing @ 2026-11-19T17:18:38Z by Claude
+  - Done @ 2026-11-19T17:22:11Z by Claude
 
 ### web: explorer fisheye view
 - id: t-43
