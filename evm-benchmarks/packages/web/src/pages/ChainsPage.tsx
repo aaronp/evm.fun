@@ -77,7 +77,7 @@ export function Chains() {
       { kind: 'button', id: 'snapshots', label: 'Snapshots', icon: <HistoryIcon />, title: none ?? 'Snapshots of this chain', disabled: !chain, onClick: () => { setListTick(t => t + 1); listRef.current?.showModal() } },
       { kind: 'button', id: 'export', label: 'Export', icon: <DownloadIcon />, title: none ?? 'Export this chain to a file', disabled: !chain, onClick: () => { exportChain(chain!).catch(e => setFlash({ tone: 'warn', text: `Export failed: ${e instanceof Error ? e.message : String(e)}` })) } },
       { kind: 'button', id: 'import', label: 'Import', icon: <UploadIcon />, title: 'Import a chain file as a new chain', onClick: () => fileRef.current?.click() },
-      { kind: 'button', id: 'refresh', label: 'Refresh', icon: <RefreshIcon />, onClick: win.refresh, disabled: !chain },
+      { kind: 'button', id: 'refresh', label: 'Refresh', icon: <RefreshIcon />, title: none ?? 'Refresh', onClick: win.refresh, disabled: !chain },
     ],
   })
   const shown = filterChains(chains, q, tab)

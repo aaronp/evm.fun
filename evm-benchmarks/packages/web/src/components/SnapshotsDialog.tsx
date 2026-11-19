@@ -4,7 +4,7 @@ import { registry, snapshots } from '../chain/revm'
 import { defaultSnapshotName } from '../chain/chainFile'
 import type { ChainHandle } from '../chain/handle'
 import type { Snapshot } from '../chain/snapshots'
-import { sizeKb, WARN_BYTES } from '../chain/snapshotUi'
+import { NO_SNAPSHOT, sizeKb, WARN_BYTES } from '../chain/snapshotUi'
 import { useApp } from '../state'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
@@ -36,6 +36,7 @@ export function TakeSnapshotDialog({ dialogRef, chain, openTick, onFlash }: {
     setBusy(true)
     setErr(undefined)
     try {
+      if (!chain.approach.snapshot) throw new Error(NO_SNAPSHOT)
       const s = await snapshots.take(chain, name.trim() || undefined)
       dialogRef.current?.close()
       onFlash({ tone: 'success', text: `Snapshot "${s.name}" saved at block #${s.height}.` })
@@ -80,6 +81,7 @@ export function SnapshotsDialog({ dialogRef, chain, openTick, onFlash }: {
     try { await f() } catch (e) { setErr(msg(e)) }
   }
   const fork = (s: Snapshot) => run(async () => {
+    if (!chain!.approach.snapshot) throw new Error(NO_SNAPSHOT)
     const h = await registry.createFrom(s.dump, {
       name: `${s.name} (fork)`, type: chain!.info.type, contracts: s.contracts,
       source: { kind: 'snapshot', snapshotName: s.name, fromChainName: chain!.info.name, height: s.height },
@@ -103,6 +105,7 @@ export function SnapshotsDialog({ dialogRef, chain, openTick, onFlash }: {
   }
 
   return (
+    <>
     <dialog ref={dialogRef} onClose={() => { setList(undefined); setErr(undefined) }} aria-labelledby="snapshots-title" className={`${dialogCls} w-[min(44rem,calc(100vw-2rem))]`}>
       <div className="space-y-3">
         <h2 id="snapshots-title" className="font-display text-base font-semibold">Snapshots{chain ? ` of ${chain.info.name}` : ''}</h2>
@@ -131,7 +134,8 @@ export function SnapshotsDialog({ dialogRef, chain, openTick, onFlash }: {
         </ul>
         <div className="flex justify-end"><Button type="button" variant="ghost" onClick={() => dialogRef.current?.close()}>Close</Button></div>
       </div>
-      {chain && <RestoreDialog dialogRef={restoreRef} chain={chain} snap={target} onClose={() => setTarget(undefined)} onRestored={restored} />}
     </dialog>
+    {chain && <RestoreDialog dialogRef={restoreRef} chain={chain} snap={target} onClose={() => setTarget(undefined)} onRestored={restored} />}
+    </>
   )
 }

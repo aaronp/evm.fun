@@ -3,6 +3,8 @@ import type { ChainSource } from './chainFile'
 export const WARN_BYTES = 20 * 1024 * 1024
 export const NO_FUNDS = 'None of your accounts has funds on this imported chain — create an account and fund it to send transactions.'
 
+export const NO_SNAPSHOT = "This chain type can't be snapshotted"
+
 export const restoreBlockedReason = (pending?: number): string | null =>
   pending && pending > 0 ? `Wait for ${pending} pending transactions to settle` : null
 

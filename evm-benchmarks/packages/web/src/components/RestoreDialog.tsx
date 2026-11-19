@@ -1,4 +1,4 @@
-import { useState, type RefObject } from 'react'
+import { useEffect, useState, type RefObject, type SyntheticEvent } from 'react'
 import { registry } from '../chain/revm'
 import type { ChainHandle } from '../chain/handle'
 import type { Snapshot } from '../chain/snapshots'
@@ -13,8 +13,17 @@ export function RestoreDialog({ dialogRef, chain, snap, onClose, onRestored }: {
   const [save, setSave] = useState(true)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
-  const blocked = restoreBlockedReason(chain.approach.pending?.()) // read at render: the dialog re-renders on every open
-  const reset = () => { setSave(true); setErr(undefined); onClose() }
+  const [pending, setPending] = useState(0)
+  // While open (a snapshot is targeted) keep the pending count current so Restore re-enables when it settles.
+  useEffect(() => {
+    if (!snap) return
+    const read = () => setPending(chain.approach.pending?.() ?? 0)
+    read()
+    const t = setInterval(read, 500)
+    return () => clearInterval(t)
+  }, [snap, chain])
+  const blocked = restoreBlockedReason(pending)
+  const reset = (e: SyntheticEvent) => { e.stopPropagation(); setSave(true); setErr(undefined); setPending(0); onClose() }
 
   async function restore() {
     if (!snap) return

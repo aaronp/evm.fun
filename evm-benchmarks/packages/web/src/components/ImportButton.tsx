@@ -23,8 +23,9 @@ export function ImportButton({ inputRef, onFlash, onImported }: {
       await refresh()
       await selectChain(h.info.id)
       nav('/chains')
-      const bals = await Promise.all(accounts.list().map(a => h.request('eth_getBalance', [a.address, 'latest'])))
-      onImported(h.info.id, bals.some(b => BigInt(b as string) > 0n))
+      // The chain exists now: a failed funds check must not read as a failed import, so treat it as unfunded.
+      const funded = await Promise.all(accounts.list().map(a => h.request('eth_getBalance', [a.address, 'latest']))).then(b => b.some(x => BigInt(x as string) > 0n), () => false)
+      onImported(h.info.id, funded)
       onFlash({ tone: 'success', text: `Imported "${f.chain.name}" from ${file.name}.` })
     } catch (e) {
       onFlash({ tone: 'warn', text: `Import failed: ${e instanceof Error ? e.message : String(e)}` })
