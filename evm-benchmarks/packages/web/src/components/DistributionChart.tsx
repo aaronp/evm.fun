@@ -21,9 +21,9 @@ export function DistributionChart({ series }: { series: Series[] }) {
   const h = view === 'histogram' ? histogram(series) : undefined
   const c = view === 'cumulative' ? cumulative(series) : undefined
   const xs = h ? h.edges : c!.xs
-  const x0 = xs[0]!, x1 = xs[xs.length - 1]!
+  const x0 = xs[0]!, x1 = xs[xs.length - 1]! > x0 ? xs[xs.length - 1]! : x0 + 1 // all-equal samples: widen like histogram
   const ymax = h ? niceMax(Math.max(...h.shares.flat())) : 100
-  const X = (v: number) => L + ((v - x0) / (x1 - x0 || 1)) * PW
+  const X = (v: number) => L + ((v - x0) / (x1 - x0)) * PW
   const Y = (v: number) => T + PH - (v / ymax) * PH
   const xTicks = Array.from({ length: 5 }, (_, i) => x0 + ((x1 - x0) * i) / 4)
   const yTicks = Array.from({ length: 5 }, (_, i) => (ymax * i) / 4)
@@ -34,7 +34,7 @@ export function DistributionChart({ series }: { series: Series[] }) {
 
   const lines = series.map((_, i) => {
     if (h) {
-      // step outline: top edge of each bin, closed to the baseline at both ends
+      // step outline along the top of each bin (the fill below is closed to the baseline)
       const sh = h.shares[i]!
       const d = sh.map((v, b) => `${b ? 'L' : 'M'}${X(h.edges[b]!)} ${Y(v)}L${X(h.edges[b + 1]!)} ${Y(v)}`).join('')
       return { d, fill: `${d}L${X(x1)} ${Y(0)}L${X(x0)} ${Y(0)}Z` }
@@ -48,21 +48,21 @@ export function DistributionChart({ series }: { series: Series[] }) {
         <legend className="sr-only">View</legend>
         <span className="text-xs font-medium text-muted" aria-hidden="true">View:</span>
         {(['histogram', 'cumulative'] as const).map(v => (
-          <label key={v} className={`cursor-pointer rounded-md border px-2.5 py-1 text-xs font-medium has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${view === v ? 'border-line-strong bg-selected text-text' : 'border-transparent text-muted hover:text-text'}`}>
+          <label key={v} className={`cursor-pointer rounded-md border px-2.5 py-1 text-xs font-medium has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${view === v ? 'border-accent bg-selected text-text' : 'border-transparent text-muted hover:text-text'}`}>
             <input type="radio" name="dist-view" value={v} checked={view === v} onChange={() => setView(v)} className="sr-only" />
             {v === 'histogram' ? 'Histogram' : 'Cumulative'}
           </label>
         ))}
       </fieldset>
-      <svg role="img" aria-label={label} viewBox={`0 0 ${W} ${H}`} className="w-full">
+      <div className="overflow-x-auto"><svg role="img" aria-label={label} viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[480px]">
         {yTicks.map(t => (
           <g key={t}>
             <line x1={L} x2={W - R} y1={Y(t)} y2={Y(t)} className="stroke-line" strokeWidth={1} />
             <text x={L - 6} y={Y(t)} textAnchor="end" dominantBaseline="middle" className="fill-muted text-[10px]">{fmt(t)}</text>
           </g>
         ))}
-        {xTicks.map(t => (
-          <text key={t} x={X(t)} y={H - B + 14} textAnchor="middle" className="fill-muted text-[10px]">{fmt(t)}</text>
+        {xTicks.map((t, i) => (
+          <text key={i} x={X(t)} y={H - B + 14} textAnchor="middle" className="fill-muted text-[10px]">{fmt(t)}</text>
         ))}
         <line x1={L} x2={W - R} y1={Y(0)} y2={Y(0)} className="stroke-line-strong" strokeWidth={1} />
         <text x={L + PW / 2} y={H - 4} textAnchor="middle" className="fill-muted text-[10px]">latency (ms)</text>
@@ -73,7 +73,7 @@ export function DistributionChart({ series }: { series: Series[] }) {
             <path d={l.d} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
           </g>
         ))}
-      </svg>
+      </svg></div>
       <ul className="space-y-1 text-sm">
         {series.map((s, i) => (
           <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
