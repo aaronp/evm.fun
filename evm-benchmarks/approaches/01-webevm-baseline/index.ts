@@ -1,10 +1,14 @@
-import {createNode} from 'webevm';
+import {createNode, type PersistenceAdapter} from 'webevm';
 import {keccak256} from 'viem';
 import type {Address, Approach, ApproachFactory, Hex, Receipt} from '@evmb/core';
 
 type Node = Awaited<ReturnType<typeof createNode>>;
 
-const factory: ApproachFactory = () => {
+/** setup() resets: the node starts empty but still saves into the host's persistence. */
+const fresh = (p: PersistenceAdapter): PersistenceAdapter => ({load: async () => null, save: (s) => p.save(s)});
+
+const factory: ApproachFactory = (_opts, host = {}) => {
+  const persistence = host.persistence as PersistenceAdapter | undefined;
   let node: Node | undefined;
   let receipts = new Map<Hex, Receipt>();
   let waiters: (() => void)[] = [];
@@ -17,21 +21,40 @@ const factory: ApproachFactory = () => {
     w.forEach((f) => f());
   };
 
+  async function start(p: PersistenceAdapter | undefined, initialBalances?: Record<Address, bigint>) {
+    await node?.dispose();
+    receipts = new Map();
+    waiters = [];
+    submitMs = 0;
+    node = await createNode({
+      chainId: 31337,
+      miningConfig: {type: 'auto'},
+      initialBalances,
+      ...(host.createEngine && {engine: (await host.createEngine()) as any}),
+      ...(p && {persistence: p}),
+    });
+  }
+
   const approach: Approach = {
     meta: {
       id: '01-webevm-baseline',
       title: 'webevm baseline (stock node, one tx per block)',
       runsIn: ['bun', 'browser'],
-      engine: 'webevm@0.9.1',
+      engine: host.createEngine ? 'webevm@0.9.1+revm' : 'webevm@0.9.1',
       tradeoffs: {evm: true, stateRoot: 'none', log: 'memory', sigVerify: 'inline', execution: 'serial', notes: 'one tx per block'},
     },
 
     async setup({prefund}) {
-      await node?.dispose();
-      receipts = new Map();
-      waiters = [];
-      submitMs = 0;
-      node = await createNode({chainId: 31337, miningConfig: {type: 'auto'}, initialBalances: prefund});
+      await start(persistence && fresh(persistence), prefund);
+    },
+
+    async open() {
+      if (!persistence || !(await persistence.load())) throw new Error('01-webevm-baseline: nothing persisted to open');
+      await start(persistence);
+    },
+
+    async request(method, params = []) {
+      return node!.request({method, params});
     },
 
     async submit(rawTxs) {

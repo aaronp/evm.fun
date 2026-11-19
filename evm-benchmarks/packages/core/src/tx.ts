@@ -17,6 +17,12 @@ export async function signTx(
   });
 }
 
+/** Wrap signing promises so `cb(done)` fires as each one resolves (no-op without cb). */
+export function counted<T>(cb: ((done: number) => void) | undefined, ps: Promise<T>[]): Promise<T[]> {
+  let done = 0;
+  return Promise.all(cb ? ps.map((p) => p.then((v) => (cb(++done), v))) : ps);
+}
+
 /** Per-address nonce counter. */
 export function nonces() {
   const m = new Map<Address, number>();

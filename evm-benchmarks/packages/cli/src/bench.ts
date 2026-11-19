@@ -1,8 +1,9 @@
-import {mkdirSync, writeFileSync} from 'node:fs';
+import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {cpus} from 'node:os';
 import {join} from 'node:path';
 import {parseArgs} from 'node:util';
-import {percentile, runBenchmark, scenarios} from '@evmb/core';
+import {createRevmEngine} from 'webevm/revm';
+import {percentile, runBenchmark, scenarios, type ApproachHost} from '@evmb/core';
 import {loadApproaches, ROOT} from './approaches.ts';
 
 const median = (a: number[]) => percentile([...a].sort((x, y) => x - y), 50);
@@ -26,6 +27,9 @@ export async function bench(argv: string[]) {
   const [n, senders, batch, runs, warmup] = [v.n!, v.senders!, v.batch!, v.runs!, v.warmup!].map(Number) as [number, number, number, number, number];
   const opts = Object.fromEntries(v.opt!.map((s) => [s.slice(0, s.indexOf('=')), s.slice(s.indexOf('=') + 1)]));
 
+  if (opts.engine && opts.engine !== 'revm') throw new Error(`unknown engine ${opts.engine}; have: revm`);
+  const host: ApproachHost = opts.engine === 'revm' ? {createEngine: () => createRevmEngine({wasm: readFileSync(require.resolve('revm-wasm/revm.wasm'))})} : {};
+
   const all = await loadApproaches();
   const aIds = v.approach === 'all' ? Object.keys(all) : [v.approach];
   const sIds = v.scenario === 'all' ? Object.keys(scenarios) : [v.scenario];
@@ -45,7 +49,7 @@ export async function bench(argv: string[]) {
       const p99: number[] = [];
       let verified = true;
       for (let k = -warmup; k < runs; k++) {
-        const approach = all[a]!(opts);
+        const approach = all[a]!(opts, host);
         try {
           // distinct seed per run so RPC targets never reuse accounts
           const r = await runBenchmark({approach, scenario: scenarios[s]!(), n, senders, batch, seed: `${v.seed}-r${k < 0 ? `w${-k}` : k + 1}`});

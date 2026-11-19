@@ -16,7 +16,7 @@ export interface Scenario {
   /** untimed: deploys/mints/approves; throws if any receipt is not success */
   setup(approach: Approach, p: ScenarioParams): Promise<void>;
   /** the N timed txs */
-  generate(p: ScenarioParams): Promise<Hex[]>;
+  generate(p: ScenarioParams, onSigned?: (done: number) => void): Promise<Hex[]>;
   verify(approach: Approach, p: ScenarioParams): Promise<{ok: boolean; detail: string}>;
 }
 

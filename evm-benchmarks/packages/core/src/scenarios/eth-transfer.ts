@@ -1,5 +1,5 @@
 import {deriveAccounts} from '../accounts.ts';
-import {nonces, signTx} from '../tx.ts';
+import {counted, nonces, signTx} from '../tx.ts';
 import type {Scenario} from './index.ts';
 
 export const FUND = 10n ** 24n;
@@ -8,11 +8,12 @@ export const ethTransfer = (): Scenario => ({
   id: 'eth-transfer',
   prefund: (p) => Object.fromEntries(deriveAccounts(p.seed, p.senders).map((a) => [a.address, FUND])),
   async setup() {},
-  async generate(p) {
+  async generate(p, onSigned) {
     const from = deriveAccounts(p.seed, p.senders);
     const rx = deriveAccounts(p.seed + ':rx', p.n);
     const next = nonces();
-    return Promise.all(
+    return counted(
+      onSigned,
       rx.map((r, i) => {
         const a = from[i % p.senders]!;
         return signTx(a, next(a.address), {to: r.address, value: 1n, gas: 21_000n});

@@ -39,7 +39,19 @@ export interface Approach {
   getBalance(addr: Address): Promise<bigint>;
   /** ms per phase since setup */
   phases?(): Record<string, number>;
+  /** load the persisted chain (needs host.persistence); no reset; throws if nothing persisted */
+  open?(): Promise<void>;
+  /** EIP-1193 read pass-through to the node */
+  request?(method: string, params?: unknown[]): Promise<unknown>;
   dispose(): Promise<void>;
 }
 
-export type ApproachFactory = (opts?: Record<string, string>) => Approach;
+/** Host-supplied pieces; typed loosely so core stays free of webevm types. */
+export interface ApproachHost {
+  /** e.g. () => createRevmEngine({wasm}) */
+  createEngine?: () => Promise<unknown>;
+  /** webevm PersistenceAdapter */
+  persistence?: unknown;
+}
+
+export type ApproachFactory = (opts?: Record<string, string>, host?: ApproachHost) => Approach;

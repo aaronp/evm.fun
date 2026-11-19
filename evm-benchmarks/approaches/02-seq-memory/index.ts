@@ -1,13 +1,17 @@
-import {createNode} from 'webevm';
+import {createNode, type PersistenceAdapter} from 'webevm';
 import type {Address, Approach, ApproachFactory, Hex, Receipt} from '@evmb/core';
 import {RingBuffer} from './ring.ts';
 import {Sequencer, type Sequenced} from './sequencer.ts';
 
 type Node = Awaited<ReturnType<typeof createNode>>;
 
+/** setup() resets: the node starts empty but still saves into the host's persistence. */
+const fresh = (p: PersistenceAdapter): PersistenceAdapter => ({load: async () => null, save: (s) => p.save(s)});
+
 const MAX_TX_GAS = 3_000_000n; // largest fixed gas limit in the benchmark (deploy)
 
-const factory: ApproachFactory = (opts = {}) => {
+const factory: ApproachFactory = (opts = {}, host = {}) => {
+  const persistence = host.persistence as PersistenceAdapter | undefined;
   const cores = (globalThis as any).navigator?.hardwareConcurrency ?? 2;
   const posInt = (k: string, d: number) => {
     const v = Number(opts[k] ?? d);
@@ -86,44 +90,59 @@ const factory: ApproachFactory = (opts = {}) => {
     run = undefined;
   }
 
+  async function start(p: PersistenceAdapter | undefined, initialBalances?: Record<Address, bigint>) {
+    await teardown();
+    receipts = new Map();
+    waiters = [];
+    fatal = undefined;
+    executeMs = mineMs = 0;
+    const node = await createNode({
+      chainId: 31337,
+      senderMode: 'trusted',
+      miningConfig: {type: 'manual'},
+      blockGasLimit: BigInt(block) * MAX_TX_GAS, // a full block of the heaviest tx always fits
+      initialBalances,
+      ...(host.createEngine && {engine: (await host.createEngine()) as any}),
+      ...(p && {persistence: p}),
+    });
+    // ponytail: 4 blocks of headroom; more only matters if verify bursts outrun the executor for long
+    const ring = new RingBuffer<Sequenced>(block * 4);
+    const r: NonNullable<typeof run> = {
+      node,
+      ring,
+      stop: false,
+      seq: new Sequencer(workers, chunk, ring, {
+        pushed: () => r.wake?.(),
+        rejected: (v) => record({hash: v.hash, status: 'rejected', settledAt: performance.now(), error: v.error}),
+        fatal: fail,
+      }),
+    };
+    run = r;
+    execute(r).catch((e) => {
+      if (run === r) fail(e instanceof Error ? e : new Error(String(e)));
+    });
+  }
+
   const approach: Approach = {
     meta: {
       id: '02-seq-memory',
       title: 'Sequencer + ring buffer, parallel sig pre-verify, batched blocks',
       runsIn: ['bun', 'browser'],
-      engine: 'webevm@0.9.1',
+      engine: host.createEngine ? 'webevm@0.9.1+revm' : 'webevm@0.9.1',
       tradeoffs: {evm: true, stateRoot: 'none', log: 'memory', sigVerify: 'parallel-pre', execution: 'serial'},
     },
 
     async setup({prefund}) {
-      await teardown();
-      receipts = new Map();
-      waiters = [];
-      fatal = undefined;
-      executeMs = mineMs = 0;
-      const node = await createNode({
-        chainId: 31337,
-        senderMode: 'trusted',
-        miningConfig: {type: 'manual'},
-        blockGasLimit: BigInt(block) * MAX_TX_GAS, // a full block of the heaviest tx always fits
-        initialBalances: prefund,
-      });
-      // ponytail: 4 blocks of headroom; more only matters if verify bursts outrun the executor for long
-      const ring = new RingBuffer<Sequenced>(block * 4);
-      const r: NonNullable<typeof run> = {
-        node,
-        ring,
-        stop: false,
-        seq: new Sequencer(workers, chunk, ring, {
-          pushed: () => r.wake?.(),
-          rejected: (v) => record({hash: v.hash, status: 'rejected', settledAt: performance.now(), error: v.error}),
-          fatal: fail,
-        }),
-      };
-      run = r;
-      execute(r).catch((e) => {
-        if (run === r) fail(e instanceof Error ? e : new Error(String(e)));
-      });
+      await start(persistence && fresh(persistence), prefund);
+    },
+
+    async open() {
+      if (!persistence || !(await persistence.load())) throw new Error('02-seq-memory: nothing persisted to open');
+      await start(persistence);
+    },
+
+    async request(method, params = []) {
+      return run!.node.request({method, params});
     },
 
     async submit(rawTxs) {

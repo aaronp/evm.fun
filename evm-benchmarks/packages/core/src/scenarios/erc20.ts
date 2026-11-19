@@ -2,7 +2,7 @@ import {decodeFunctionResult, encodeDeployData, encodeFunctionData, getContractA
 import {MintableToken} from '@evmb/contracts';
 import type {Approach} from '../types.ts';
 import {deriveAccounts} from '../accounts.ts';
-import {nonces, settleSetup, signTx} from '../tx.ts';
+import {counted, nonces, settleSetup, signTx} from '../tx.ts';
 import {FUND} from './eth-transfer.ts';
 import type {Scenario, ScenarioParams} from './index.ts';
 
@@ -55,10 +55,11 @@ function make(kind: Kind): () => Scenario {
         }
         await settleSetup(approach, raws);
       },
-      async generate(p) {
+      async generate(p, onSigned) {
         const rx = receivers(p);
         const from = kind === 'mint' ? [deployer(p)] : deriveAccounts(p.seed, p.senders);
-        return Promise.all(
+        return counted(
+          onSigned,
           Array.from({length: p.n}, (_, i) => {
             const a = from[i % from.length]!;
             const to = rx[rxIndex(i)]!.address;

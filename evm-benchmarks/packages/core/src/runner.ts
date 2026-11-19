@@ -11,6 +11,8 @@ export interface RunOptions {
   /** txs per submit call (default 1000) */
   batch?: number;
   seed: string;
+  /** fires at each phase start/end; during signing at least every 100 txs */
+  onProgress?(phase: 'setup' | 'signing' | 'running' | 'verifying', done: number, total: number): void;
 }
 
 export interface RunResult {
@@ -48,15 +50,23 @@ export async function runBenchmark(o: RunOptions): Promise<RunResult> {
   const p = {n, senders, seed};
   const env = envInfo(approach.meta.engine);
 
+  const progress = o.onProgress ?? (() => {});
+
+  progress('setup', 0, 1);
   await approach.setup({prefund: scenario.prefund(p)});
   await scenario.setup(approach, p);
+  progress('setup', 1, 1);
 
+  progress('signing', 0, n);
   const s0 = performance.now();
-  const raws = await scenario.generate(p);
+  const raws = await scenario.generate(p, (done) => {
+    if (done % 100 === 0 || done === n) progress('signing', done, n);
+  });
   const signingMs = performance.now() - s0;
   const hashes = raws.map((r) => keccak256(r));
 
   const submittedAt: number[] = [];
+  progress('running', 0, n);
   const t0 = performance.now();
   for (let i = 0; i < raws.length; i += batch) {
     const t = performance.now();
@@ -64,13 +74,16 @@ export async function runBenchmark(o: RunOptions): Promise<RunResult> {
     for (let j = i; j < Math.min(i + batch, raws.length); j++) submittedAt[j] = t;
   }
   const receipts = await approach.awaitSettled(hashes);
+  progress('running', n, n);
 
   const durationMs = Math.max(...receipts.map((r) => r.settledAt)) - t0;
   const lat = receipts.map((r, i) => r.settledAt - submittedAt[i]!).sort((a, b) => a - b);
   const statuses = {success: 0, reverted: 0, rejected: 0};
   for (const r of receipts) statuses[r.status]++;
 
+  progress('verifying', 0, 1);
   const v = await scenario.verify(approach, p);
+  progress('verifying', 1, 1);
   const ok = v.ok && statuses.success === n && receipts.length === n;
   return {
     approach: approach.meta,

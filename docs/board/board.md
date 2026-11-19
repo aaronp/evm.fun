@@ -78,12 +78,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
-### Playground core and approach extensions
-- id: t-20
-- owner:
-- tags: web, plan3
-- history:
-  - To Do @ 2026-11-19T12:33:12Z
 
 ### web: scaffold and stores
 - id: t-21
@@ -136,7 +130,17 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 ## Doing
 
+
 ## Done
+
+### Playground core and approach extensions
+- id: t-20
+- owner: Claude
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+  - Doing @ 2026-11-19T12:35:51Z by Claude
+  - Done @ 2026-11-19T12:37:23Z by Claude
 
 ### Playground spike: persistence and revm
 - id: t-19

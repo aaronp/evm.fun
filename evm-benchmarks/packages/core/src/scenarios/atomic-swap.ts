@@ -1,7 +1,7 @@
 import {encodeDeployData, encodeFunctionData, getContractAddress, maxUint256, type Address, type Hex} from 'viem';
 import {AtomicSwap, MintableToken} from '@evmb/contracts';
 import {deriveAccounts} from '../accounts.ts';
-import {nonces, settleSetup, signTx} from '../tx.ts';
+import {counted, nonces, settleSetup, signTx} from '../tx.ts';
 import {FUND} from './eth-transfer.ts';
 import {balanceOf, txCount} from './erc20.ts';
 import type {Scenario} from './index.ts';
@@ -45,10 +45,11 @@ export const atomicSwap = (): Scenario => {
       }
       await settleSetup(approach, setup);
     },
-    async generate(p) {
+    async generate(p, onSigned) {
       const a = aParties(p.seed, p.senders);
       const b = bParties(p.seed, p.senders);
-      return Promise.all(
+      return counted(
+        onSigned,
         Array.from({length: p.n}, (_, i) => {
           const j = i % p.senders;
           const data = encodeFunctionData({

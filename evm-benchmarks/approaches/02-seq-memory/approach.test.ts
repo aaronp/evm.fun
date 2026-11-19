@@ -2,6 +2,8 @@ import {afterEach, beforeEach, expect, test} from 'bun:test';
 import {keccak256} from 'viem';
 import {privateKeyToAccount} from 'viem/accounts';
 import {runBenchmark, scenarios, type Hex, type Scenario} from '@evmb/core';
+import {readFileSync} from 'node:fs';
+import {createRevmEngine} from 'webevm/revm';
 import create from './index.ts';
 
 const opts = {workers: '2', block: '10', chunk: '4'};
@@ -97,4 +99,48 @@ test('rejects non-positive or non-integer options', () => {
   for (const [k, v] of [['chunk', '0'], ['block', '-5'], ['workers', '1.5'], ['block', 'abc']])
     expect(() => create({[k!]: v!})).toThrow(`02-seq-memory: ${k} must be a positive integer, got ${v}`);
   expect(() => create({workers: '2', block: '10', chunk: '5'})).not.toThrow();
+});
+
+const memoryPersistence = () => {
+  let saved: any = null;
+  return {load: async () => saved, save: async (s: any) => void (saved = structuredClone(s))};
+};
+const rpc = (ap: ReturnType<typeof create>, m: string, p: unknown[] = []) => ap.request!(m, p) as Promise<any>;
+
+test('request passes reads through to the node', async () => {
+  const ap = create(opts);
+  await ap.setup({prefund: {[a.address]: 10n ** 24n}});
+  await ap.submit([await sign(0)]);
+  await ap.awaitSettled([keccak256(await sign(0))]);
+  expect(await rpc(ap, 'eth_blockNumber')).toBe('0x1');
+  await ap.dispose();
+});
+
+test('revm engine + persistence: open() restores history and balances', async () => {
+  const wasm = readFileSync(require.resolve('revm-wasm/revm.wasm'));
+  const host = {createEngine: () => createRevmEngine({wasm}), persistence: memoryPersistence()};
+  const one = create(opts, host);
+  expect(one.meta.engine).toBe('webevm@0.9.1+revm');
+  await one.setup({prefund: {[a.address]: 10n ** 21n}});
+  const raws = [await sign(0), await sign(1)];
+  await one.submit(raws);
+  const rs = await one.awaitSettled(raws.map((r) => keccak256(r)));
+  expect(rs.map((r) => r.status)).toEqual(['success', 'success']);
+  const bal = await Promise.all([a.address, B].map((x) => one.getBalance(x)));
+  const receipt = await rpc(one, 'eth_getTransactionReceipt', [keccak256(raws[1]!)]);
+  const head = await rpc(one, 'eth_blockNumber');
+  await one.dispose();
+
+  const two = create(opts, host);
+  await two.open!();
+  expect(await Promise.all([a.address, B].map((x) => two.getBalance(x)))).toEqual(bal);
+  expect(await rpc(two, 'eth_getTransactionReceipt', [keccak256(raws[1]!)])).toEqual(receipt);
+  expect(await rpc(two, 'eth_blockNumber')).toBe(head);
+  await two.dispose();
+});
+
+test('open() throws when nothing was persisted', async () => {
+  const ap = create(opts, {persistence: memoryPersistence()});
+  await expect(ap.open!()).rejects.toThrow(/nothing persisted/);
+  await ap.dispose();
 });
