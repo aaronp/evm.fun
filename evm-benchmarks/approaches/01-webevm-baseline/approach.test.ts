@@ -94,3 +94,20 @@ test('open() throws when nothing was persisted', async () => {
   await expect(ap.open!()).rejects.toThrow(/nothing persisted/);
   await ap.dispose();
 });
+
+test('setup() makes the reset durable before any tx', async () => {
+  const host = {persistence: memoryPersistence()};
+  const one = create({}, host);
+  await one.setup({prefund: {[a.address]: 10n ** 21n}});
+  await one.submit([await sign(0)]);
+  await one.awaitSettled([keccak256(await sign(0))]);
+  await one.dispose();
+  const two = create({}, host);
+  await two.setup({prefund: {[a.address]: 7n}});
+  await two.dispose();
+  const three = create({}, host);
+  await three.open!();
+  expect(await three.getBalance(a.address)).toBe(7n);
+  expect(await rpc(three, 'eth_blockNumber')).toBe('0x0');
+  await three.dispose();
+});

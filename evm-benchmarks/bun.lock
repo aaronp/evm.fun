@@ -17,18 +17,26 @@
       "name": "@evmb/approach-01-webevm-baseline",
       "dependencies": {
         "@evmb/core": "workspace:*",
+        "revm-wasm": "0.3.1",
+        "viem": "^2.58.1",
+        "webevm": "0.9.1",
       },
     },
     "approaches/02-seq-memory": {
       "name": "@evmb/approach-02-seq-memory",
       "dependencies": {
         "@evmb/core": "workspace:*",
+        "revm-wasm": "0.3.1",
+        "viem": "^2.58.1",
+        "webevm": "0.9.1",
       },
     },
     "packages/cli": {
       "name": "@evmb/cli",
       "dependencies": {
         "@evmb/core": "workspace:*",
+        "revm-wasm": "0.3.1",
+        "webevm": "0.9.1",
       },
     },
     "packages/contracts": {
@@ -36,12 +44,14 @@
       "dependencies": {
         "@openzeppelin/contracts": "5.6.1",
         "solc": "0.8.38",
+        "viem": "^2.58.1",
       },
     },
     "packages/core": {
       "name": "@evmb/core",
       "dependencies": {
         "@evmb/contracts": "workspace:*",
+        "viem": "^2.58.1",
       },
       "devDependencies": {
         "@evmb/approach-01-webevm-baseline": "workspace:*",

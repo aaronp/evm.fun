@@ -4,7 +4,8 @@
   "type": "module",
   "main": "src/index.ts",
   "dependencies": {
-    "@evmb/contracts": "workspace:*"
+    "@evmb/contracts": "workspace:*",
+    "viem": "^2.58.1"
   },
   "devDependencies": {
     "@evmb/approach-01-webevm-baseline": "workspace:*"

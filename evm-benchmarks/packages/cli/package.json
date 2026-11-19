@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@evmb/core": "workspace:*"
+    "@evmb/core": "workspace:*",
+    "webevm": "0.9.1",
+    "revm-wasm": "0.3.1"
   }
 }

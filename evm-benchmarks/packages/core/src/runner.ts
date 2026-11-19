@@ -59,9 +59,12 @@ export async function runBenchmark(o: RunOptions): Promise<RunResult> {
 
   progress('signing', 0, n);
   const s0 = performance.now();
-  const raws = await scenario.generate(p, (done) => {
-    if (done % 100 === 0 || done === n) progress('signing', done, n);
-  });
+  const raws = await scenario.generate(
+    p,
+    o.onProgress && ((done) => {
+      if (done % 100 === 0 || done === n) progress('signing', done, n);
+    }),
+  );
   const signingMs = performance.now() - s0;
   const hashes = raws.map((r) => keccak256(r));
 

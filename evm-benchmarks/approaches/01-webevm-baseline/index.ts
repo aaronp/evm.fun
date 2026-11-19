@@ -33,6 +33,8 @@ const factory: ApproachFactory = (_opts, host = {}) => {
       ...(host.createEngine && {engine: (await host.createEngine()) as any}),
       ...(p && {persistence: p}),
     });
+    // webevm only saves after a mine/auto send; make the reset durable now
+    if (initialBalances && persistence) await persistence.save(await node!.dumpState());
   }
 
   const approach: Approach = {

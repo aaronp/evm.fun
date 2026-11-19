@@ -105,6 +105,8 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
       ...(host.createEngine && {engine: (await host.createEngine()) as any}),
       ...(p && {persistence: p}),
     });
+    // webevm only saves after a mine/auto send; make the reset durable now
+    if (initialBalances && persistence) await persistence.save(await node.dumpState());
     // ponytail: 4 blocks of headroom; more only matters if verify bursts outrun the executor for long
     const ring = new RingBuffer<Sequenced>(block * 4);
     const r: NonNullable<typeof run> = {
