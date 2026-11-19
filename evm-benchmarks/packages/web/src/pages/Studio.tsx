@@ -1,3 +1,4 @@
+import { useAppBar } from '../state/appBar'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { basicSetup, EditorView } from 'codemirror'
@@ -86,6 +87,7 @@ function Editor({ value, onChange, viewRef }: { value: string; onChange(v: strin
 }
 
 export function Studio() {
+  useAppBar({ title: 'Studio' })
   const { chain, account, bumpBalance } = useApp()
   const [source, setSource] = useState(templates[0]!.source)
   const [fileName, setFileName] = useState(templates[0]!.name) // unit name feeds the metadata hash
@@ -157,7 +159,6 @@ export function Studio() {
 
   return (
     <div className="space-y-4">
-      <h1 className="font-display text-xl font-semibold">Studio</h1>
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-4">
           <div className="overflow-hidden rounded-xl border border-line-strong bg-panel">

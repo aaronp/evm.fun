@@ -1,3 +1,4 @@
+import { useAppBar } from '../state/appBar'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import type { Abi } from 'viem'
@@ -205,6 +206,7 @@ function Address({ chain, names }: { chain: ChainHandle; names: Names }) {
 }
 
 export function Explorer() {
+  useAppBar({ title: 'Explorer' })
   const { chain } = useApp()
   const nav = useNavigate()
   const [q, setQ] = useState('')
@@ -218,7 +220,7 @@ export function Explorer() {
     )
   }, [chain])
 
-  if (!chain) return <div className="space-y-4"><h1 className="font-display text-xl font-semibold">Explorer</h1><p className={muted}>Select a chain first.</p></div>
+  if (!chain) return <div className="space-y-4"><p className={muted}>Select a chain first.</p></div>
 
   const search = () => {
     const s = q.trim()
@@ -228,7 +230,6 @@ export function Explorer() {
   }
   return (
     <div className="space-y-4">
-      <h1 className="font-display text-xl font-semibold">Explorer</h1>
       <form className="flex gap-2" onSubmit={e => { e.preventDefault(); search() }}>
         <div className="relative min-w-0 flex-1">
           <ExplorerIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />

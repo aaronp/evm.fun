@@ -1,3 +1,4 @@
+import { useAppBar } from '../state/appBar'
 import { useState } from 'react'
 import { ChainTypeHelp, ChainTypePicker } from '../components/ChainTypeHelp'
 import { useNavigate } from 'react-router-dom'
@@ -75,6 +76,7 @@ function ResultView({ r }: { r: Run }) {
 }
 
 export function Benchmark() {
+  useAppBar({ title: 'Benchmark' })
   const { refresh, selectChain } = useApp()
   const nav = useNavigate()
   const [type, setType] = useState<ChainType>('plain')
@@ -117,7 +119,6 @@ export function Benchmark() {
 
   return (
     <div className="space-y-4">
-      <h1 className="font-display text-xl font-semibold">Benchmark</h1>
       {err && <Notice>{err}</Notice>}
       <Card className="space-y-4 text-sm">
         <h2 className="font-display text-sm font-semibold">New run</h2>

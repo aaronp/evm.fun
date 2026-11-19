@@ -1,3 +1,4 @@
+import { useAppBar } from '../state/appBar'
 import { useState } from 'react'
 import { accounts } from '../store/accounts'
 import { useApp } from '../state'
@@ -17,13 +18,13 @@ function Balance({ address }: { address: `0x${string}` }) {
 }
 
 export function Accounts() {
+  useAppBar({ title: 'Accounts' })
   const { account, selectAccount } = useApp()
   const [, bump] = useState(0)
   const [label, setLabel] = useState('')
   const list = accounts.list()
   return (
     <div className="space-y-4">
-      <h1 className="font-display text-xl font-semibold">Accounts</h1>
       <Notice>{KEYS_WARNING}</Notice>
       <form
         className="flex gap-2"

@@ -64,11 +64,60 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
+### web: combined Chains page and /chains routes
+- id: t-39
+- owner:
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T16:41:07Z
 
+### web: explorer table view, filter and block panel
+- id: t-40
+- owner:
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T16:41:07Z
+
+### web: explorer chain view
+- id: t-41
+- owner:
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T16:41:07Z
+
+### web: explorer timeline view
+- id: t-42
+- owner:
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T16:41:07Z
+
+### web: explorer fisheye view
+- id: t-43
+- owner:
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T16:41:07Z
+
+### web: explorer phone-width and browser check
+- id: t-44
+- owner:
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T16:41:07Z
 
 ## Doing
 
 ## Done
+
+### web: app bar with per-page actions and breadcrumbs
+- id: t-38
+- owner: Claude
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T16:41:07Z
+  - Doing @ 2026-11-19T16:41:07Z by Claude
+  - Done @ 2026-11-19T16:42:36Z by Claude
 
 ### web: latency distribution chart
 - id: t-36

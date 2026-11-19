@@ -1,3 +1,4 @@
+import { useAppBar } from '../state/appBar'
 import { useState } from 'react'
 import { ChainTypeHelp, ChainTypePicker } from '../components/ChainTypeHelp'
 import { accounts } from '../store/accounts'
@@ -11,6 +12,7 @@ import { Input } from '../ui/input'
 import { Notice } from '../ui/notice'
 
 export function Chains() {
+  useAppBar({ title: 'Chains' })
   const { chains, chain, error, selectChain, refresh } = useApp()
   const list = accounts.list()
   const [name, setName] = useState('')
@@ -36,7 +38,6 @@ export function Chains() {
 
   return (
     <div className="space-y-4">
-      <h1 className="font-display text-xl font-semibold">Chains</h1>
       {(err || error) && <Notice>{err ?? error!}</Notice>}
       <Card className="space-y-3">
         <Input className="w-full sm:w-72" placeholder="Chain name" value={name} onChange={e => setName(e.target.value)} />

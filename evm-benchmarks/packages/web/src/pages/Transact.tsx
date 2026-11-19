@@ -1,3 +1,4 @@
+import { useAppBar } from '../state/appBar'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import type { Abi, AbiFunction } from 'viem'
@@ -20,6 +21,7 @@ const ETH = 'eth'
 const NONE = ''
 
 export function Transact() {
+  useAppBar({ title: 'Transact' })
   const { chain, account, selectAccount, bumpBalance } = useApp()
   const [params] = useSearchParams()
   const [contracts, setContracts] = useState<DeployedContract[]>([])
@@ -41,7 +43,7 @@ export function Transact() {
     else setContracts([])
   }, [chain])
 
-  if (!chain) return <div className="space-y-4"><h1 className="font-display text-xl font-semibold">Transact</h1><p className="text-sm text-muted">Select a chain first.</p></div>
+  if (!chain) return <div className="space-y-4"><p className="text-sm text-muted">Select a chain first.</p></div>
 
   const record = (r: Receipt, abi?: Abi) => { setLast({ r, abi }); setTick(t => t + 1) }
   const sendEth = async () => {
@@ -84,7 +86,6 @@ export function Transact() {
 
   return (
     <div className="space-y-4">
-      <h1 className="font-display text-xl font-semibold">Transact</h1>
       <div className="flex flex-wrap gap-2">
         <Select aria-label="Account" value={account ?? ''} onChange={e => selectAccount(e.target.value || undefined)}>
           <option value="">Account…</option>

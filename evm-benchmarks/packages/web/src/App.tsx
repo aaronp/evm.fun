@@ -2,6 +2,8 @@ import type { ReactElement } from 'react'
 import { HashRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { StorageNotice } from './ui/notice'
 import { AppState } from './state'
+import { AppBarProvider } from './state/appBar'
+import { AppBar } from './components/AppBar'
 import { Accounts } from './pages/Accounts'
 import { Chains } from './pages/Chains'
 import { Studio } from './pages/Studio'
@@ -26,6 +28,7 @@ const Stub = ({ name }: { name: string }) => <h1 className="text-xl font-semibol
 export function App() {
   return (
     <AppState>
+    <AppBarProvider>
     <HashRouter>
       <div className="flex min-h-screen flex-col bg-bg text-text sm:flex-row">
         <aside className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-panel p-3 sm:sticky sm:top-0 sm:h-screen sm:w-60 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-5 sm:overflow-y-auto sm:border-r sm:border-b-0 sm:p-4">
@@ -60,6 +63,7 @@ export function App() {
           <div className="w-full sm:hidden"><ContextStrip /></div>
         </aside>
         <main className="min-w-0 flex-1 space-y-4 p-3 sm:p-6">
+          <AppBar />
           <StorageNotice />
           <AddressList />
           <Routes>
@@ -71,6 +75,7 @@ export function App() {
         </main>
       </div>
     </HashRouter>
+    </AppBarProvider>
     </AppState>
   )
 }
