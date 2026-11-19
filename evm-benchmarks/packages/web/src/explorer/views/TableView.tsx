@@ -21,7 +21,7 @@ export function TableView({ chain, q, headers, total, loading }: { chain: ChainH
   const filtering = q.trim() !== ''
   const all = useLoad(() => (filtering ? Promise.resolve(null) : latestBlocks(chain, page, PAGE)), [chain, page, filtering, total])
   const matches = filtering ? headers.filter(b => blockMatches(b, q)) : []
-  const rows = filtering ? (loading ? undefined : matches.slice(page * PAGE, (page + 1) * PAGE)) : all
+  const rows = filtering ? (loading && headers.length === 0 ? undefined : matches.slice(page * PAGE, (page + 1) * PAGE)) : all
   const more = filtering ? (page + 1) * PAGE < matches.length : rows?.length === PAGE
   return (
     <Panel title="Latest blocks" badge={filtering ? <span className="text-xs text-muted">Filtering the latest 500 blocks</span> : undefined}>
