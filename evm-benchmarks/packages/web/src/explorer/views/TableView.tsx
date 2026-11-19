@@ -4,8 +4,6 @@ import type { ChainHandle } from '../../chain/handle'
 import { latestBlocks } from '../data'
 import { useLoad } from '../useLoad'
 import { blockMatches, type Header } from '../window'
-import { Panel } from '../../ui/panel'
-import { ViewToggle } from '../ViewToggle'
 import { Pager } from '../../ui/pager'
 import { Table, td, th } from '../../ui/table'
 
@@ -25,7 +23,8 @@ export function TableView({ chain, q, headers, total, loading, selected }: { cha
   const rows = filtering ? (loading && headers.length === 0 ? undefined : matches.slice(page * PAGE, (page + 1) * PAGE)) : all
   const more = filtering ? (page + 1) * PAGE < matches.length : rows?.length === PAGE
   return (
-    <Panel title="Latest blocks" actions={<ViewToggle />} badge={filtering ? <span className="text-xs text-muted">Filtering the latest 500 blocks</span> : undefined}>
+    <>
+      {filtering && <p className="border-b border-line px-4 py-2 text-xs text-muted">Filtering the latest 500 blocks</p>}
       {rows === undefined ? <p className={muted}>Loading…</p> : !rows || rows.length === 0 ? <p className={muted}>{filtering ? 'No matching blocks.' : 'No blocks.'}</p> : (
         <Table>
           <table className="w-full text-sm">
@@ -44,6 +43,6 @@ export function TableView({ chain, q, headers, total, loading, selected }: { cha
         </Table>
       )}
       <Pager page={page} set={setPage} more={more} />
-    </Panel>
+    </>
   )
 }

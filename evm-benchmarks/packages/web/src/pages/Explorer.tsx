@@ -10,7 +10,7 @@ import { ChainView } from '../explorer/views/ChainView'
 import { TableView } from '../explorer/views/TableView'
 import { TimelineView } from '../explorer/views/TimelineView'
 import { FisheyeView } from '../explorer/views/FisheyeView'
-import { ViewCtx, readView, type ExplorerView } from '../explorer/ViewToggle'
+import { ViewCtx, ViewToggle, readView, viewTitle, type ExplorerView } from '../explorer/ViewToggle'
 import type { Header } from '../explorer/window'
 import { Pager } from '../ui/pager'
 import { isErc20 } from '../components/Erc20Card'
@@ -162,8 +162,6 @@ function Address({ chain, names }: { chain: ChainHandle; names: Names }) {
   )
 }
 
-export type { ExplorerView }
-
 function ActiveView({ view, chain, q, win, sel }: { view: ExplorerView; chain: ChainHandle; q: string; win: Win; sel?: number }) {
   if (view === 'table') return <TableView chain={chain} q={q} headers={win.headers} total={win.total} loading={win.loading} selected={sel} />
   if (view === 'chain') return <ChainView chain={chain} q={q} selected={sel} total={win.total} loading={win.loading} />
@@ -178,7 +176,10 @@ function Browse({ chain, view, q, win }: { chain: ChainHandle; view: ExplorerVie
   const sel = n !== undefined && /^\d+$/.test(n) ? Number(n) : undefined
   return (
     <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="min-w-0"><ActiveView view={view} chain={chain} q={q} win={win} sel={sel} /></div>
+      <div className="min-w-0">
+        {/* One Panel for every view: same element type and position, so the toggle's focused radio is never remounted. */}
+        <Panel title={viewTitle[view]} actions={<ViewToggle />}><ActiveView view={view} chain={chain} q={q} win={win} sel={sel} /></Panel>
+      </div>
       <SelectedBlock chain={chain} n={sel} tip={win.headers[0]?.number} loading={win.loading} />
     </div>
   )
@@ -209,24 +210,24 @@ export function Explorer({ win }: { win: Win }) {
   }
   return (
     <ViewCtx.Provider value={{ view, set: setView }}>
-    <div className="space-y-4">
-      <form className="flex gap-2" onSubmit={e => { e.preventDefault(); search() }}>
-        <div className="relative min-w-0 flex-1">
-          <ExplorerIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <Input aria-label="Search or filter" className="min-h-11 w-full pl-9" placeholder="Filter by block number or hash prefix; Enter to open a block, tx or address" value={q} onChange={e => { setQ(e.target.value); setMiss(false) }} />
-        </div>
-        <Button type="submit">Search</Button>
-      </form>
-      {miss && <NotFound what={q} />}
-      <Routes>
-        <Route index element={<Browse chain={chain} view={view} q={q} win={win} />} />
-        <Route path="block/:n" element={<Browse chain={chain} view={view} q={q} win={win} />} />
-        <Route path="block/:n/txs" element={<Block chain={chain} names={names} />} />
-        <Route path="tx/:hash" element={<Tx chain={chain} names={names} />} />
-        <Route path="address/:addr" element={<Address chain={chain} names={names} />} />
-        <Route path="*" element={<NotFound what="page" />} />
-      </Routes>
-    </div>
+      <div className="space-y-4">
+        <form className="flex gap-2" onSubmit={e => { e.preventDefault(); search() }}>
+          <div className="relative min-w-0 flex-1">
+            <ExplorerIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <Input aria-label="Search or filter" className="min-h-11 w-full pl-9" placeholder="Filter by block number or hash prefix; Enter to open a block, tx or address" value={q} onChange={e => { setQ(e.target.value); setMiss(false) }} />
+          </div>
+          <Button type="submit">Search</Button>
+        </form>
+        {miss && <NotFound what={q} />}
+        <Routes>
+          <Route index element={<Browse chain={chain} view={view} q={q} win={win} />} />
+          <Route path="block/:n" element={<Browse chain={chain} view={view} q={q} win={win} />} />
+          <Route path="block/:n/txs" element={<Block chain={chain} names={names} />} />
+          <Route path="tx/:hash" element={<Tx chain={chain} names={names} />} />
+          <Route path="address/:addr" element={<Address chain={chain} names={names} />} />
+          <Route path="*" element={<NotFound what="page" />} />
+        </Routes>
+      </div>
     </ViewCtx.Provider>
   )
 }

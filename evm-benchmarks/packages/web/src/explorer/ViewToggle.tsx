@@ -11,7 +11,9 @@ export const readView = (): ExplorerView => {
   return 'table'
 }
 
-/** Set by Explorer; every view's Panel header renders <ViewToggle /> in the same spot, so focus survives a switch. */
+export const viewTitle: Record<ExplorerView, string> = { table: 'Table', chain: 'Chain', timeline: 'Timeline', fisheye: 'Fisheye' }
+
+/** Set by Explorer. Browse renders one Panel (stable type/position) holding <ViewToggle />, so focus survives a switch. */
 export const ViewCtx = createContext<{ view: ExplorerView; set(v: ExplorerView): void }>({ view: 'table', set() {} })
 
 export function ViewToggle() {

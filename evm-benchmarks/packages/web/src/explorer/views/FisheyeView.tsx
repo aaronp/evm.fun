@@ -2,8 +2,6 @@ import { useEffect, useState, type KeyboardEvent, type PointerEvent } from 'reac
 import { useNavigate } from 'react-router-dom'
 import { LENS_MAG, LENS_SPREAD, lensFocus, lensSizes, lensWindow, tileStyle } from '../lens'
 import { blockMatches, windowContains, type Header } from '../window'
-import { Panel } from '../../ui/panel'
-import { ViewToggle } from '../ViewToggle'
 import { Segmented } from '../../ui/segmented'
 import { Button } from '../../ui/button'
 
@@ -130,7 +128,7 @@ export function FisheyeView({ q, headers, selected, loading }: { q: string; head
   const max = Math.max(0, ...sizes)
   const keys = H ? 'left and right' : 'up and down'
   return (
-    <Panel title="Fisheye" actions={<ViewToggle />}>
+    <>
       <div className="space-y-2.5 border-b border-line px-4 py-3">
         <p className="text-xs text-muted">
           Move the pointer along the lens to sweep through history{w > 0 && <>; magnified at <strong className="text-text">#{lens[fi]!.number}</strong></>}.
@@ -178,6 +176,6 @@ export function FisheyeView({ q, headers, selected, loading }: { q: string; head
           </div>
         </div>
       </div>
-    </Panel>
+    </>
   )
 }
