@@ -7,10 +7,11 @@ import { Chains } from './pages/Chains'
 import { Studio } from './pages/Studio'
 import { Transact } from './pages/Transact'
 import { Explorer } from './pages/Explorer'
+import { Benchmark } from './pages/Benchmark'
 
 const pages = ['Accounts', 'Chains', 'Studio', 'Transact', 'Explorer', 'Benchmark']
 
-const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Explorer: <Explorer /> }
+const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Explorer: <Explorer />, Benchmark: <Benchmark /> }
 const Stub = ({ name }: { name: string }) => <h1 className="text-xl font-semibold">{name}</h1>
 
 export function App() {

@@ -44,13 +44,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
   - To Do @ 2026-11-19T09:38:00Z
 
 
-### web: in-browser Benchmark
-- id: t-15
-- owner:
-- tags: web
-- history:
-  - To Do @ 2026-11-19T09:38:00Z
-
 ### web: static deploy (GitHub Pages)
 - id: t-16
 - owner:
@@ -74,13 +67,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 
 
-### web: Benchmark page
-- id: t-26
-- owner:
-- tags: web, plan3
-- history:
-  - To Do @ 2026-11-19T12:33:12Z
-
 ### web: browser smoke test and docs
 - id: t-27
 - owner:
@@ -91,6 +77,24 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### web: in-browser Benchmark
+- id: t-15
+- owner: Claude
+- tags: web
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Doing @ 2026-11-19T13:40:22Z by Claude
+  - Done @ 2026-11-19T13:40:22Z by Claude
+
+### web: Benchmark page
+- id: t-26
+- owner: Claude
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+  - Doing @ 2026-11-19T13:40:22Z by Claude
+  - Done @ 2026-11-19T13:40:22Z by Claude
 
 ### web: Explorer page
 - id: t-25

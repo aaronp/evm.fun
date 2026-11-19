@@ -57,7 +57,7 @@ export const atomicSwap = (): Scenario => {
             functionName: 'swap',
             args: [tokenA, 1n, b[j]!.address, tokenB, 1n],
           });
-          return signTx(a[j]!, next(a[j]!.address), {to: swap, data, gas: 200_000n});
+          return () => signTx(a[j]!, next(a[j]!.address), {to: swap, data, gas: 200_000n});
         }),
       );
     },

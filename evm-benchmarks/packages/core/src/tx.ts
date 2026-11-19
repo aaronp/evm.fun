@@ -17,10 +17,19 @@ export async function signTx(
   });
 }
 
-/** Wrap signing promises so `cb(done)` fires as each one resolves (no-op without cb). */
-export function counted<T>(cb: ((done: number) => void) | undefined, ps: Promise<T>[]): Promise<T[]> {
-  let done = 0;
-  return Promise.all(cb ? ps.map((p) => p.then((v) => (cb(++done), v))) : ps);
+/**
+ * Run the signing thunks. Without `cb` this is a plain Promise.all. With `cb`, thunks run in
+ * chunks of 100: `cb(done)` fires per chunk, then a macrotask yield lets a browser repaint.
+ */
+export async function counted<T>(cb: ((done: number) => void) | undefined, thunks: (() => Promise<T>)[]): Promise<T[]> {
+  if (!cb) return Promise.all(thunks.map((t) => t()));
+  const out: T[] = [];
+  for (let i = 0; i < thunks.length; i += 100) {
+    out.push(...(await Promise.all(thunks.slice(i, i + 100).map((t) => t()))));
+    cb(out.length);
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  return out;
 }
 
 /** Per-address nonce counter. */

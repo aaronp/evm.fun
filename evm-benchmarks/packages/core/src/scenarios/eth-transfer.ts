@@ -16,7 +16,7 @@ export const ethTransfer = (): Scenario => ({
       onSigned,
       rx.map((r, i) => {
         const a = from[i % p.senders]!;
-        return signTx(a, next(a.address), {to: r.address, value: 1n, gas: 21_000n});
+        return () => signTx(a, next(a.address), {to: r.address, value: 1n, gas: 21_000n});
       }),
     );
   },

@@ -67,7 +67,7 @@ function make(kind: Kind): () => Scenario {
               kind === 'mint'
                 ? encodeFunctionData({abi, functionName: 'mint', args: [to, 1n]})
                 : encodeFunctionData({abi, functionName: 'transfer', args: [to, 1n]});
-            return signTx(a, next(a.address), {to: token, data, gas: 100_000n});
+            return () => signTx(a, next(a.address), {to: token, data, gas: 100_000n});
           }),
         );
       },
