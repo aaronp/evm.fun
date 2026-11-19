@@ -215,3 +215,20 @@ Observed (plan 3): persistence re-serialises the whole chain on every change. Th
 | Every test disposes its chains (instrumented run: 129/129 workers terminated) | Preventive | Partial |
 | Re-run on a crash; a panic with all tests passed is not a test failure | Corrective | Partial |
 | Upgrade Bun when a release fixes worker teardown | Corrective | Partial |
+
+## R12 · Google Fonts third-party fetch in the playground
+- impact: 1
+- likelihood: 3
+- target: 1x2
+- appetite: 4
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+The playground loads Inter, Space Grotesk and JetBrains Mono from Google Fonts through a `<link>` in `index.html`. Each page load sends the visitor's IP and user agent to a third party (privacy), and offline or blocked-network use gets no web fonts.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| System fallback font stacks, so the UI stays fully usable without the fetch | Corrective | Strong |
+| Self-host the fonts if privacy or offline use becomes a requirement | Preventive | Partial |
