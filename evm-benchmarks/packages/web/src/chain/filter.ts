@@ -7,3 +7,9 @@ export function filterChains(chains: ChainInfo[], q: string, tab: ChainTab): Cha
   const s = q.trim().toLowerCase()
   return chains.filter(c => c.name.toLowerCase().includes(s) && (tab === 'all' || !!c.ephemeral === (tab === 'bench')))
 }
+
+/** Row height text: live height if the chain is running, else the last saved one, else a dash. */
+export function rowHeight(info: ChainInfo, liveHeight?: number): string {
+  const n = liveHeight ?? info.lastHeight
+  return n === undefined ? '—' : `#${n}`
+}

@@ -97,6 +97,7 @@ export function Benchmark() {
     if ('error' in size) return
     setBusy(true); setErr(undefined)
     try {
+      registry.assertRoom() // before booting a run's chain
       const { result, handle } = await runInBrowser(
         { type, scenario, ...size, host: benchHost },
         (p, d, t) => setProgress([p, d, t]),

@@ -12,3 +12,13 @@ describe('filterChains', () => {
   test('bench tab keeps only ephemeral', () => expect(filterChains(all, '', 'bench').map(x => x.id)).toEqual(['2']))
   test('tab and query combine', () => expect(filterChains(all, 'other', 'bench')).toEqual([]))
 })
+
+import { rowHeight } from '../src/chain/filter'
+describe('rowHeight', () => {
+  test('live beats saved, saved beats dash', () => {
+    expect(rowHeight({ ...all[0]!, lastHeight: 3 }, 7)).toBe('#7')
+    expect(rowHeight({ ...all[0]!, lastHeight: 3 })).toBe('#3')
+    expect(rowHeight(all[0]!)).toBe('—')
+    expect(rowHeight(all[0]!, 0)).toBe('#0')
+  })
+})

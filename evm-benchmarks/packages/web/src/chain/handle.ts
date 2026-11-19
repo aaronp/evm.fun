@@ -2,7 +2,7 @@ import { keccak256 } from 'viem'
 import type { Approach, Hex, Receipt } from '@evmb/core'
 
 export type ChainType = 'plain' | 'sequencer' // plain -> approach 01, sequencer -> approach 02
-export interface ChainInfo { id: string; name: string; type: ChainType; createdAt: string; ephemeral?: boolean }
+export interface ChainInfo { id: string; name: string; type: ChainType; createdAt: string; ephemeral?: boolean; lastHeight?: number }
 export interface ChainHandle {
   info: ChainInfo
   send(raw: Hex): Promise<Receipt>

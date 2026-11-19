@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test'
 import { privateKeyToAccount } from 'viem/accounts'
 import { createKv } from '../src/store/kv'
-import { createChainRegistry, type ChainType } from '../src/chain/registry'
+import { createChainRegistry, LIVE_MAX, LIVE_WARN, type ChainType } from '../src/chain/registry'
 import { createChainPersistence, deleteChainDb } from '../src/chain/idb'
 
 const a = privateKeyToAccount(`0x${'11'.repeat(32)}`)
@@ -127,5 +127,36 @@ describe('browser persistence', () => {
     req.onsuccess()
     await p
     expect(log).toEqual(['close', 'delete'])
+  })
+})
+
+describe('live chain cap', () => {
+  const spyEnv = () => {
+    const e = env(), kv = createKv(), built: string[] = []
+    const mk = () => { const d = e.deps(kv); return { ...d, host: (id: string) => (built.push(id), d.host(id)) } }
+    return { kv, built, mk }
+  }
+  test('list and peek never construct an approach', async () => {
+    const { built, mk } = spyEnv()
+    const a = createChainRegistry(mk())
+    const h = await a.create('c', 'plain', [])
+    built.length = 0
+    const b = createChainRegistry(mk()) // fresh registry over the same kv: nothing live
+    expect((await b.list()).length).toBe(1)
+    expect(b.peek(h.info.id)).toBeUndefined()
+    expect(a.peek(h.info.id)).toBe(h)
+    expect(built).toEqual([])
+  })
+  test('warn at LIVE_WARN, throw at LIVE_MAX without constructing', async () => {
+    const { built, mk } = spyEnv()
+    const reg = createChainRegistry(mk())
+    for (let i = 0; i < LIVE_WARN + 1; i++) await reg.create(`c${i}`, 'plain', [])
+    expect(reg.liveCount()).toBeGreaterThanOrEqual(LIVE_WARN)
+    for (let i = reg.liveCount(); i < LIVE_MAX; i++) await reg.create(`c${i}`, 'plain', [])
+    const n = built.length
+    await expect(reg.create('x', 'plain', [])).rejects.toThrow('8 chains are already running in this tab — delete one or reload the page')
+    const id = (await reg.list())[0]!.id
+    await reg.remove(id); await reg.create('y', 'plain', []) // room again after delete
+    expect(built.length).toBe(n + 1)
   })
 })

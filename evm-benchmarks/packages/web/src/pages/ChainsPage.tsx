@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppBar, crumbsFor } from '../state/appBar'
 import { registry } from '../chain/revm'
-import { filterChains, type ChainTab } from '../chain/filter'
+import { LIVE_WARN } from '../chain/registry'
+import { filterChains, rowHeight, type ChainTab } from '../chain/filter'
 import type { ChainInfo } from '../chain/handle'
 import { useApp } from '../state'
 import { NewChainDialog } from '../components/NewChainDialog'
@@ -21,20 +22,33 @@ const tabs: { value: ChainTab; content: string }[] = [
   { value: 'bench', content: 'Benchmark runs' },
 ]
 
-/** Block height via eth_blockNumber; "—" until it loads or if the node can't answer. */
-function Height({ id }: { id: string }) {
-  const [h, setH] = useState<string>()
+/** Live height if the chain is already running (never opens one), else the last saved height. */
+function Height({ info, tick }: { info: ChainInfo; tick: number }) {
+  const [live, setLive] = useState<number>()
   useEffect(() => {
-    let live = true
-    registry.open(id).then(c => c.request('eth_blockNumber', []), () => undefined)
-      .then(x => live && typeof x === 'string' && setH(String(parseInt(x, 16))), () => {})
-    return () => { live = false }
-  }, [id])
-  return <span className="font-mono text-xs text-text-2" title="Block height">#{h ?? '—'}</span>
+    let on = true
+    const h = registry.peek(info.id)
+    if (h) Promise.resolve(h.request('eth_blockNumber', [])).then(x => on && typeof x === 'string' && setLive(parseInt(x, 16)), () => {})
+    return () => { on = false }
+  }, [info.id, tick])
+  return <span className="font-mono text-xs text-text-2" title="Block height">{rowHeight(info, live)}</span>
+}
+
+function useWide() {
+  const q = '(min-width: 1024px)'
+  const [wide, set] = useState(() => matchMedia(q).matches)
+  useEffect(() => {
+    const m = matchMedia(q), f = () => set(m.matches)
+    m.addEventListener('change', f)
+    return () => m.removeEventListener('change', f)
+  }, [])
+  return wide
 }
 
 export function Chains() {
-  const { chains, chain, error, selectChain, refresh } = useApp()
+  const { chains, chain, error, selectChain, refresh, balanceTick } = useApp()
+  const nav = useNavigate()
+  const wide = useWide()
   const { pathname } = useLocation()
   const [q, setQ] = useState('')
   const [tab, setTab] = useState<ChainTab>('all')
@@ -52,14 +66,16 @@ export function Chains() {
     if (c.id === chain?.info.id) await selectChain(undefined)
     await registry.remove(c.id)
     await refresh()
+    nav('/chains')
   }
 
   return (
     <div className="space-y-4">
       {error && <Notice>{error}</Notice>}
-      <NewChainDialog ref={dialog} />
+      {registry.liveCount() >= LIVE_WARN && <Notice>{`${registry.liveCount()} chains are running in this tab — this uses memory and CPU. Delete chains you don't need, or reload to stop them.`}</Notice>}
+      <NewChainDialog dialogRef={dialog} />
       <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
-        <div className="space-y-3 lg:hidden">
+        {!wide && <div className="space-y-3">
           <div className="flex items-center gap-2">
             <Select aria-label="Chain" className="min-w-0 flex-1" value={chain?.info.id ?? ''} onChange={e => selectChain(e.target.value || undefined)}>
               <option value="">Select a chain</option>
@@ -67,8 +83,8 @@ export function Chains() {
             </Select>
             {add}
           </div>
-        </div>
-        <aside className="hidden space-y-3 lg:block">
+        </div>}
+        {wide && <aside className="space-y-3">
           <div className="flex items-center gap-2">
             <Input aria-label="Filter chains" className="min-w-0 flex-1" placeholder="Filter chains" value={q} onChange={e => setQ(e.target.value)} />
             {add}
@@ -88,11 +104,12 @@ export function Chains() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="min-w-0 truncate font-medium">{c.name}</span>
-                      <Height id={c.id} />
+                      <Height info={c} tick={balanceTick} />
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <Badge>{c.type}</Badge>
                       {c.ephemeral && <Badge variant="warn">benchmark</Badge>}
+                      {registry.peek(c.id) && <Badge>running</Badge>}
                       {sel && <Badge variant="accent">selected</Badge>}
                     </div>
                   </button>
@@ -100,7 +117,7 @@ export function Chains() {
               )
             })}
           </ul>
-        </aside>
+        </aside>}
         <section className="min-w-0 space-y-4 lg:col-start-2 lg:row-start-1">
           {chains.length === 0 ? (
             <Card className="text-sm text-muted">No chains yet. Use the round + button to create one.</Card>

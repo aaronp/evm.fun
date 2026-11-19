@@ -1,4 +1,4 @@
-import { forwardRef, useState } from 'react'
+import { useState, type RefObject } from 'react'
 import { ChainTypeHelp, ChainTypePicker } from './ChainTypeHelp'
 import { accounts } from '../store/accounts'
 import { registry } from '../chain/revm'
@@ -9,7 +9,7 @@ import { Input } from '../ui/input'
 import { Notice } from '../ui/notice'
 
 /** Native modal; the parent opens it with ref.current.showModal(). Esc/Cancel close it, and the browser restores focus to the opener. */
-export const NewChainDialog = forwardRef<HTMLDialogElement>(function NewChainDialog(_, ref) {
+export function NewChainDialog({ dialogRef }: { dialogRef: RefObject<HTMLDialogElement | null> }) {
   const { chains, refresh, selectChain } = useApp()
   const list = accounts.list()
   const [name, setName] = useState('')
@@ -17,18 +17,16 @@ export const NewChainDialog = forwardRef<HTMLDialogElement>(function NewChainDia
   const [off, setOff] = useState<Set<string>>(new Set()) // unchecked; default is all accounts
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
-  const close = (e: { currentTarget: HTMLElement }) => (e.currentTarget.closest('dialog') as HTMLDialogElement).close()
+  const reset = () => { setName(''); setOff(new Set()); setErr(undefined) }
 
-  async function create(e: React.MouseEvent<HTMLButtonElement>) {
-    const d = e.currentTarget.closest('dialog') as HTMLDialogElement
+  async function create() {
     setBusy(true)
     setErr(undefined)
     try {
       const h = await registry.create(name.trim() || `Chain ${chains.length + 1}`, type, list.map(a => a.address).filter(a => !off.has(a)))
       await refresh()
       await selectChain(h.info.id)
-      setName('')
-      d.close()
+      dialogRef.current?.close()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -37,8 +35,8 @@ export const NewChainDialog = forwardRef<HTMLDialogElement>(function NewChainDia
   }
 
   return (
-    <dialog ref={ref} aria-labelledby="new-chain-title" className="m-auto w-[min(36rem,calc(100vw-2rem))] rounded-xl border border-line bg-panel p-5 text-text backdrop:bg-bg/70">
-      <div className="space-y-3">
+    <dialog ref={dialogRef} onClose={reset} aria-labelledby="new-chain-title" className="m-auto w-[min(36rem,calc(100vw-2rem))] rounded-xl border border-line bg-panel p-5 text-text backdrop:bg-bg/70">
+      <form method="dialog" className="space-y-3" onSubmit={e => { e.preventDefault(); create() }}>
         <h2 id="new-chain-title" className="font-display text-base font-semibold">New chain</h2>
         {err && <Notice>{err}</Notice>}
         <Input aria-label="Chain name" className="w-full" placeholder="Chain name" value={name} onChange={e => setName(e.target.value)} />
@@ -62,10 +60,10 @@ export const NewChainDialog = forwardRef<HTMLDialogElement>(function NewChainDia
           ))}
         </div>
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={close}>Cancel</Button>
-          <Button disabled={busy} onClick={create}>{busy ? 'Creating…' : 'Create chain'}</Button>
+          <Button type="button" variant="ghost" onClick={() => dialogRef.current?.close()}>Cancel</Button>
+          <Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create chain'}</Button>
         </div>
-      </div>
+      </form>
     </dialog>
   )
-})
+}

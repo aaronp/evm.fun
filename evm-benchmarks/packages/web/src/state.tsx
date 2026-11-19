@@ -44,6 +44,9 @@ export function AppState({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // keep the persisted height of the selected chain current (after each send, via balanceTick)
+  useEffect(() => { if (chain) registry.recordHeight(chain.info.id).catch(() => {}) }, [chain, balanceTick])
+
   useEffect(() => {
     refresh().then(async () => {
       const id = read()
