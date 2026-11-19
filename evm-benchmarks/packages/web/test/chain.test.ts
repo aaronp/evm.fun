@@ -59,6 +59,26 @@ for (const type of ['plain', 'sequencer'] as ChainType[]) {
       await two.dispose()
     })
 
+    test('concurrent open builds one node', async () => {
+      const e = env()
+      const kv = createKv()
+      const one = await createChainRegistry(e.deps(kv)).create('c', type, [a.address])
+      await one.dispose()
+      let built = 0
+      const d = e.deps(kv)
+      const reg = createChainRegistry({ ...d, host: id => (built++, d.host(id)) })
+      const [x, y] = await Promise.all([reg.open(one.info.id), reg.open(one.info.id)])
+      expect(x).toBe(y)
+      expect(built).toBe(1)
+      await x.dispose()
+    })
+
+    test('failed open is not cached', async () => {
+      const reg = createChainRegistry(env().deps())
+      await expect(reg.open('nope')).rejects.toThrow('unknown chain')
+      await expect(reg.open('nope')).rejects.toThrow('unknown chain')
+    })
+
     test('remove deletes persisted data', async () => {
       const e = env()
       const reg = createChainRegistry(e.deps())

@@ -17,6 +17,7 @@ export function createChainRegistry(deps: {
   purge?: (chainId: string) => Promise<void>
 }) {
   const live = new Map<string, ChainHandle>()
+  const opening = new Map<string, Promise<ChainHandle>>() // concurrent open(id) shares one node
   const build = (info: ChainInfo) => makeHandle(info, factories[info.type]({}, deps.host(info.id)))
   const track = (h: ChainHandle) => (live.set(h.info.id, h), h)
 
@@ -33,14 +34,26 @@ export function createChainRegistry(deps: {
       await deps.kv.set(STORE, info.id, info)
       return track(h)
     },
-    async open(id: string): Promise<ChainHandle> {
+    open(id: string): Promise<ChainHandle> {
       const cached = live.get(id)
-      if (cached) return cached
-      const info = await deps.kv.get<ChainInfo>(STORE, id)
-      if (!info) throw new Error(`unknown chain ${id}`)
-      const h = build(info)
-      await h.approach.open!()
-      return track(h)
+      if (cached) return Promise.resolve(cached)
+      let p = opening.get(id)
+      if (!p) {
+        p = (async () => {
+          const info = await deps.kv.get<ChainInfo>(STORE, id)
+          if (!info) throw new Error(`unknown chain ${id}`)
+          const h = build(info)
+          try {
+            await h.approach.open!()
+          } catch (e) {
+            await h.dispose().catch(() => {})
+            throw e
+          }
+          return track(h)
+        })().finally(() => opening.delete(id))
+        opening.set(id, p)
+      }
+      return p
     },
     async remove(id: string) {
       await live.get(id)?.dispose()
