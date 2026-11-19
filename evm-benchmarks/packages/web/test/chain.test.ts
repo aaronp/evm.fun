@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test'
 import { privateKeyToAccount } from 'viem/accounts'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry, type ChainType } from '../src/chain/registry'
+import { createChainPersistence, deleteChainDb } from '../src/chain/idb'
 
 const a = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 const B = '0x000000000000000000000000000000000000dEaD' as const
@@ -76,3 +77,35 @@ for (const type of ['plain', 'sequencer'] as ChainType[]) {
     })
   })
 }
+
+describe('browser persistence', () => {
+  test('chain works when IndexedDB is unavailable (memory fallback)', async () => {
+    const p = createChainPersistence(undefined, 'x')
+    const reg = createChainRegistry({ kv: createKv(), host: () => ({ persistence: p }) })
+    const h = await reg.create('c', 'plain', [a.address])
+    expect((await h.send(await sign(0))).status).toBe('success')
+    await h.dispose()
+  })
+
+  test('chain works when the IndexedDB open fails', async () => {
+    const idb = { open: () => { const r: any = {}; setTimeout(() => r.onerror?.(), 0); return r } } as any
+    const reg = createChainRegistry({ kv: createKv(), host: () => ({ persistence: createChainPersistence(idb, 'x') }) })
+    const h = await reg.create('c', 'plain', [a.address])
+    expect((await h.send(await sign(0))).status).toBe('success')
+    await h.dispose()
+  })
+
+  test('purge closes before deleting and waits past onblocked', async () => {
+    const log: string[] = []
+    const req: any = {}
+    const idb = { deleteDatabase: () => (log.push('delete'), req) } as any
+    let done = false
+    const p = deleteChainDb(idb, 'x', { close: () => void log.push('close') }).then(() => (done = true))
+    req.onblocked?.()
+    await Promise.resolve()
+    expect(done).toBe(false)
+    req.onsuccess()
+    await p
+    expect(log).toEqual(['close', 'delete'])
+  })
+})
