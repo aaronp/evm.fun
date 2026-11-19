@@ -53,3 +53,61 @@ test('names and provenance', () => {
   expect(provenanceText({ kind: 'import', fileName: 'x.evmfun.json', height: 42 })).toBe('imported from x.evmfun.json @ #42')
   expect(provenanceText(undefined)).toBeNull()
 })
+
+const base = () => JSON.parse(encodeChainFile(file))
+const A = '0x' + 'a'.repeat(40), H = '0x' + 'b'.repeat(64)
+const goodC = { address: A, deployer: A, txHash: H, name: 'C', abi: [{ type: 'function' }] }
+
+test('malformed $bigint is a named error, never a throw', () => {
+  for (const v of ['abc', '0x10', '']) {
+    const r = dec(JSON.stringify({ ...base(), exportedAt: 'x', extra: { $bigint: v } }))
+    expect(err(r)).toBe('Invalid $bigint value')
+  }
+  expect(err(dec(JSON.stringify({ ...base(), extra: { $bigint: 5 } })))).toBe('Invalid $bigint value')
+})
+
+test('version must be exactly 1', () => {
+  for (const v of [0, 1.5, 2, '1', undefined]) expect(dec({ ...base(), version: v }).ok).toBe(false)
+  expect(err(dec({ ...base(), version: 2 }))).toMatch(/newer version/)
+})
+
+test('contract entries are validated', () => {
+  expect(dec({ ...base(), contracts: [goodC] }).ok).toBe(true)
+  const t = (i: number, c: any, re: RegExp) => expect(err(dec({ ...base(), contracts: [goodC, goodC, ...Array(i - 2).fill(goodC), c] }))).toMatch(re)
+  t(2, { ...goodC, address: '0x12' }, /contracts\[2\]\.address is not an address/)
+  t(2, { ...goodC, deployer: 'x' }, /deployer/)
+  t(2, { ...goodC, txHash: A }, /txHash/)
+  t(2, { ...goodC, name: 'n'.repeat(201) }, /name/)
+  t(2, { ...goodC, abi: [1] }, /abi/)
+  t(2, { ...goodC, abi: 'x' }, /abi/)
+  t(2, null, /not an object/)
+})
+
+test('dump field types are validated', () => {
+  const d = (patch: object) => err(dec({ ...base(), dump: { ...base().dump, ...patch } }))
+  expect(d({ accounts: [] })).toMatch(/accounts is not an object/)
+  expect(d({ code: 'x' })).toMatch(/code/)
+  expect(d({ storage: null })).toMatch(/storage/)
+  expect(d({ blocks: {} })).toMatch(/blocks is not an array/)
+  expect(d({ receipts: 1 })).toMatch(/receipts/)
+  expect(d({ transactions: {} })).toMatch(/transactions/)
+  expect(d({ chainId: 1 })).toMatch(/chainId/)
+})
+
+test('source and name limits', () => {
+  const s = (source: any) => dec({ ...base(), source }).ok
+  expect(s({ kind: 'import', fileName: 'x', height: -1 })).toBe(false)
+  expect(s({ kind: 'import', fileName: 'x', height: 1.5 })).toBe(false)
+  expect(s({ kind: 'import', fileName: 5, height: 1 })).toBe(false)
+  expect(s({ kind: 'import', fileName: 'f'.repeat(201), height: 1 })).toBe(false)
+  expect(s({ kind: 'snapshot', snapshotName: 's'.repeat(201), fromChainName: 'c', height: 1 })).toBe(false)
+  expect(s({ kind: 'snapshot', snapshotName: 's', fromChainName: 'c', height: 0 })).toBe(true)
+  expect(err(dec({ ...base(), chain: { name: 'n'.repeat(201), type: 'plain' } }))).toMatch(/chain/)
+})
+
+test('fileNameFor caps long names under 120 characters', () => {
+  const n = fileNameFor('x'.repeat(500), 123456)
+  expect(n.length).toBeLessThan(120)
+  expect(n.endsWith('-123456.evmfun.json')).toBe(true)
+  expect(fileNameFor('a-'.repeat(100), 1)).not.toContain('--')
+})
