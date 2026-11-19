@@ -64,13 +64,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
-### web: explorer table view, filter and block panel
-- id: t-40
-- owner:
-- tags: web, plan5
-- history:
-  - To Do @ 2026-11-19T16:41:07Z
-
 ### web: explorer chain view
 - id: t-41
 - owner:
@@ -102,6 +95,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### web: explorer table view, filter and block panel
+- id: t-40
+- owner: Claude
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T16:41:07Z
+  - Doing @ 2026-11-19T16:53:48Z by Claude
+  - Done @ 2026-11-19T16:57:28Z by Claude
 
 ### web: combined Chains page and /chains routes
 - id: t-39

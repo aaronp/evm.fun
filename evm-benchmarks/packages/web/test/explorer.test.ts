@@ -79,7 +79,7 @@ describe('tolerance and decoding', () => {
     expect(b!.txs).toEqual([{ hash: '0xaa', from: '0xbb', to: null, value: 0n }])
     expect(await block(stub('garbage'), 1, 0)).toBeNull()
     const l = await latestBlocks({ request: async (m: string) => (m === 'eth_blockNumber' ? '0x0' : { hash: '0x1' }) } as any, 0)
-    expect(l).toEqual([{ number: 0, hash: '0x1', timestamp: 0, txCount: 0 }])
+    expect(l).toEqual([{ number: 0, hash: '0x1', parentHash: '0x', timestamp: 0, txCount: 0 }])
     expect(await tx(stub({ input: 5, logs: 'x' }), `0x${'ab'.repeat(32)}`, [])).toMatchObject({ decodedLogs: [] })
     expect(await address(stub('zz'), `0x${'ab'.repeat(20)}`, [])).toMatchObject({ balance: 0n, nonce: 0, isContract: true })
   })

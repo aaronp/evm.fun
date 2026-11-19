@@ -42,6 +42,7 @@ export function createChainRegistry(deps: {
       const h = live.get(id)
       if (!h || h.info.ephemeral) return
       const n = Number(BigInt((await h.request('eth_blockNumber', [])) as string))
+      if (!live.has(id)) return // deleted while the request was in flight: don't resurrect it in kv
       if (h.info.lastHeight !== n) { h.info.lastHeight = n; await deps.kv.set(STORE, id, h.info) }
     },
     async create(name: string, type: ChainType, prefund: Address[]): Promise<ChainHandle> {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAppBar, crumbsFor } from '../state/appBar'
 import { registry } from '../chain/revm'
@@ -7,14 +7,15 @@ import { filterChains, rowHeight, type ChainTab } from '../chain/filter'
 import type { ChainInfo } from '../chain/handle'
 import { useApp } from '../state'
 import { NewChainDialog } from '../components/NewChainDialog'
-import { Explorer } from './Explorer'
+import { Explorer, type ExplorerView } from './Explorer'
+import { useBlockWindow } from '../explorer/useBlockWindow'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
 import { Card } from '../ui/card'
 import { Input, Select } from '../ui/input'
 import { Notice } from '../ui/notice'
 import { Segmented } from '../ui/segmented'
-import { PlusIcon } from '../ui/icons'
+import { ChainLinkIcon, LensIcon, PlusIcon, RefreshIcon, TableIcon, TimelineIcon } from '../ui/icons'
 
 const tabs: { value: ChainTab; content: string }[] = [
   { value: 'all', content: 'All' },
@@ -45,6 +46,14 @@ function useWide() {
   return wide
 }
 
+const VIEWS: ExplorerView[] = ['table', 'chain', 'timeline', 'fisheye']
+const viewIcons: Record<ExplorerView, ReactNode> = { table: <TableIcon />, chain: <ChainLinkIcon />, timeline: <TimelineIcon />, fisheye: <LensIcon /> }
+const VIEW_KEY = 'evmb.explorerView'
+const readView = (): ExplorerView => {
+  try { const v = localStorage.getItem(VIEW_KEY); if (VIEWS.includes(v as ExplorerView)) return v as ExplorerView } catch {}
+  return 'table'
+}
+
 export function Chains() {
   const { chains, chain, error, selectChain, refresh, balanceTick } = useApp()
   const nav = useNavigate()
@@ -53,7 +62,16 @@ export function Chains() {
   const [q, setQ] = useState('')
   const [tab, setTab] = useState<ChainTab>('all')
   const dialog = useRef<HTMLDialogElement>(null)
-  useAppBar({ title: 'Chains', crumbs: crumbsFor(pathname, chain?.info.name) })
+  const [view, setView] = useState<ExplorerView>(readView)
+  const win = useBlockWindow(chain)
+  useAppBar({
+    title: 'Chains',
+    crumbs: crumbsFor(pathname, chain?.info.name),
+    actions: [
+      { kind: 'toggle', id: 'view', label: 'View', value: view, onChange: v => { setView(v as ExplorerView); try { localStorage.setItem(VIEW_KEY, v) } catch {} }, options: VIEWS.map(v => ({ value: v, label: v[0]!.toUpperCase() + v.slice(1), icon: viewIcons[v] })) },
+      { kind: 'button', id: 'refresh', label: 'Refresh', icon: <RefreshIcon />, onClick: win.refresh, disabled: !chain },
+    ],
+  })
   const shown = filterChains(chains, q, tab)
   const add = (
     <Button className="!size-9 !rounded-full !p-0" aria-label="New chain" title="New chain" onClick={() => dialog.current?.showModal()}>
@@ -132,7 +150,7 @@ export function Chains() {
               <Button variant="danger" size="sm" onClick={() => remove(chain.info)}>Delete</Button>
             </Card>
           )}
-          {chains.length > 0 && <Explorer />}
+          {chains.length > 0 && <Explorer view={view} win={win} />}
         </section>
       </div>
     </div>

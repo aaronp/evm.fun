@@ -31,7 +31,7 @@ export async function latestBlocks(h: ChainHandle, page: number, size = 20) {
   const top = (await head(h)) - page * size
   const nums = Array.from({ length: Math.max(0, Math.min(size, top + 1)) }, (_, i) => top - i)
   const out = await Promise.all(nums.map(n => get<RawBlock>(h, 'eth_getBlockByNumber', [hex(n), false])))
-  return out.flatMap(b => (b && typeof b === 'object' ? [{ number: Number(big(b.number)), hash: b.hash, timestamp: Number(big(b.timestamp)), txCount: Array.isArray(b.transactions) ? b.transactions.length : 0 }] : []))
+  return out.flatMap(b => (b && typeof b === 'object' ? [{ number: Number(big(b.number)), hash: b.hash, parentHash: String(b.parentHash ?? '0x') as Hex, timestamp: Number(big(b.timestamp)), txCount: Array.isArray(b.transactions) ? b.transactions.length : 0 }] : []))
 }
 
 export async function block(h: ChainHandle, n: number, txPage: number, size = 50) {

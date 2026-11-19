@@ -3,7 +3,12 @@ import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import type { Abi } from 'viem'
 import { useApp } from '../state'
 import { contractsRegistry, type DeployedContract } from '../contracts/registry'
-import { address, big, block, classify, latestBlocks, tx } from '../explorer/data'
+import { address, big, block, classify, tx } from '../explorer/data'
+import { useLoad } from '../explorer/useLoad'
+import { SelectedBlock } from '../explorer/SelectedBlock'
+import { TableView } from '../explorer/views/TableView'
+import type { Header } from '../explorer/window'
+import { Pager } from '../ui/pager'
 import { isErc20 } from '../components/Erc20Card'
 import { show } from '../components/ReceiptView'
 import { Button } from '../ui/button'
@@ -22,59 +27,8 @@ type Names = Map<string, DeployedContract>
 const muted = 'text-sm text-muted'
 const link = 'text-accent hover:underline'
 
-/** Run `f` when deps change; `undefined` = loading, `null` = not found. Rejections read as not found. */
-function useLoad<T>(f: () => Promise<T | null>, deps: unknown[]) {
-  const [v, setV] = useState<T | null | undefined>()
-  useEffect(() => {
-    let live = true
-    setV(undefined)
-    f().then(x => live && setV(x), () => live && setV(null))
-    return () => { live = false }
-  }, deps) // eslint-disable-line react-hooks/exhaustive-deps
-  return v
-}
-
 const Addr = ({ a, names }: { a: string | null; names: Names }) =>
   a ? <Link title={a} className={`font-mono ${link}`} to={`/chains/address/${a}`}>{names.get(a.toLowerCase())?.name ?? short(a)}</Link> : <span className="text-muted">(create)</span>
-
-function Pager({ page, set, more }: { page: number; set(p: number): void; more: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-2 border-t border-line px-4 py-3 text-sm text-muted">
-      <span>Page {page + 1}</span>
-      <span className="flex gap-2">
-        <Button variant="ghost" size="sm" disabled={page === 0} onClick={() => set(page - 1)}>Prev</Button>
-        <Button variant="ghost" size="sm" disabled={!more} onClick={() => set(page + 1)}>Next</Button>
-      </span>
-    </div>
-  )
-}
-
-function Latest({ chain }: { chain: ChainHandle }) {
-  const [page, setPage] = useState(0)
-  const rows = useLoad(() => latestBlocks(chain, page), [chain, page])
-  return (
-    <Panel title="Latest blocks">
-      {rows === undefined ? <p className={`${muted} p-4`}>Loading…</p> : rows.length === 0 ? <p className={`${muted} p-4`}>No blocks.</p> : (
-        <Table>
-          <table className="w-full text-sm">
-            <thead><tr><th className={th}>Block</th><th className={th}>Hash</th><th className={th}>Time</th><th className={`${th} text-right`}>Txs</th></tr></thead>
-            <tbody>
-              {rows.map(b => (
-                <tr key={b.number} className="border-t border-line hover:bg-surface-hover">
-                  <td className={td}><Link className={`font-mono ${link}`} to={`/chains/block/${b.number}`}>{b.number}</Link></td>
-                  <td className={`${td} font-mono text-xs`} title={b.hash}>{short(b.hash)}</td>
-                  <td className={`${td} whitespace-nowrap text-text-2`}>{new Date(b.timestamp * 1000).toISOString()}</td>
-                  <td className={`${td} text-right font-mono`}>{b.txCount}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Table>
-      )}
-      <Pager page={page} set={setPage} more={rows?.length === 20} />
-    </Panel>
-  )
-}
 
 function Block({ chain, names }: { chain: ChainHandle; names: Names }) {
   const { n = '' } = useParams()
@@ -204,7 +158,28 @@ function Address({ chain, names }: { chain: ChainHandle; names: Names }) {
   )
 }
 
-export function Explorer() {
+export type ExplorerView = 'table' | 'chain' | 'timeline' | 'fisheye'
+
+/** Table is built; the other views arrive in later tasks. */
+function ActiveView({ view, chain, q, win }: { view: ExplorerView; chain: ChainHandle; q: string; win: Win }) {
+  if (view === 'table') return <TableView chain={chain} q={q} headers={win.headers} total={win.total} />
+  return <Panel title={view[0]!.toUpperCase() + view.slice(1)}><p className={`${muted} p-4`}>Coming in this plan</p></Panel>
+}
+type Win = { headers: Header[]; total: number; loading: boolean }
+
+/** The view plus the selected-block panel (beside it at lg, below on narrower screens). */
+function Browse({ chain, view, q, win }: { chain: ChainHandle; view: ExplorerView; q: string; win: Win }) {
+  const { n } = useParams()
+  const sel = n !== undefined && /^\d+$/.test(n) ? Number(n) : undefined
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="min-w-0"><ActiveView view={view} chain={chain} q={q} win={win} /></div>
+      <SelectedBlock chain={chain} n={sel} tip={win.headers[0]?.number} />
+    </div>
+  )
+}
+
+export function Explorer({ view, win }: { view: ExplorerView; win: Win }) {
   const { chain } = useApp()
   const nav = useNavigate()
   const [q, setQ] = useState('')
@@ -231,14 +206,14 @@ export function Explorer() {
       <form className="flex gap-2" onSubmit={e => { e.preventDefault(); search() }}>
         <div className="relative min-w-0 flex-1">
           <ExplorerIcon className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <Input aria-label="Search" className="min-h-11 w-full pl-9" placeholder="Block number, tx hash or address" value={q} onChange={e => { setQ(e.target.value); setMiss(false) }} />
+          <Input aria-label="Search or filter" className="min-h-11 w-full pl-9" placeholder="Filter by block number or hash prefix; Enter to open a block, tx or address" value={q} onChange={e => { setQ(e.target.value); setMiss(false) }} />
         </div>
         <Button type="submit">Search</Button>
       </form>
       {miss && <NotFound what={q} />}
       <Routes>
-        <Route index element={<Latest chain={chain} />} />
-        <Route path="block/:n" element={<Block chain={chain} names={names} />} />
+        <Route index element={<Browse chain={chain} view={view} q={q} win={win} />} />
+        <Route path="block/:n" element={<Browse chain={chain} view={view} q={q} win={win} />} />
         <Route path="block/:n/txs" element={<Block chain={chain} names={names} />} />
         <Route path="tx/:hash" element={<Tx chain={chain} names={names} />} />
         <Route path="address/:addr" element={<Address chain={chain} names={names} />} />
