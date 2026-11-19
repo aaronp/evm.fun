@@ -526,3 +526,56 @@ Keep the playground responsive when many chains are open at once: each running c
 
 ## Decision
 Warn and refuse. A notice appears at 4 running chains (`LIVE_WARN`); opening or adding a ninth is refused with an error that tells the user to delete one or reload (`LIVE_MAX` = 8). Nothing is closed automatically, so a chain the user is looking at never disappears. The chain list only peeks at running chains and never opens one.
+
+---
+title: Chain snapshots via webevm dumpState/loadState
+status: accepted
+date: 2026-11-19
+tags: architecture, web
+decision: dump-load
+---
+
+## Goal
+Build chain snapshots, in-place restore and file import/export on webevm's `dumpState`/`loadState`, if they are faithful enough.
+
+## People
+- Aaron — decider
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| exact | Exact state | 5 | Higher = blocks, hashes and receipts come back identical. |
+| effort | Low effort | 3 | Higher = less to build and maintain. |
+| local | Works for every chain | 3 | Higher = also works for ephemeral (benchmark) chains. |
+
+## Solution: dump-load — Use webevm dumpState / loadState
+| criterion | score |
+| --- | --- |
+| exact | 5 |
+| effort | 5 |
+| local | 5 |
+
+## Solution: replay — Replay recorded transactions
+| criterion | score |
+| --- | --- |
+| exact | 3 |
+| effort | 2 |
+| local | 2 |
+
+## Solution: idb-copy — Copy the IndexedDB database
+| criterion | score |
+| --- | --- |
+| exact | 5 |
+| effort | 3 |
+| local | 1 |
+
+## Decision
+Use `dumpState`/`loadState`. Spike: `evm-benchmarks/spike/snapshots.test.ts`, 16 tests, all passing, on webevm 0.9.1 with {auto, manual mining} × {default engine, revm}; ~5 transfers per case. Verdicts:
+
+- **Hash stability: YES.** After `dumpState` then `loadState` into a fresh node, every block's `hash`, `parentHash`, `timestamp` and tx hashes, every receipt, `eth_blockNumber`, balances and the sender nonce are identical (`toEqual`). This held even when the fresh node was created more than a second later, because a loaded dump brings its own block 0. So a fork opened from a snapshot shares real block hashes with the original up to the snapshot height, and explorer step 3 can match shared history by hash. The "match by height plus tx hashes" fallback is not needed.
+- **JSON round trip: YES.** The dump survives `JSON.stringify` with a `$bigint` replacer and `JSON.parse` with the matching reviver, deep-equal to the original, and still loads. In 0.9.1 the dump contains no bigint at all (only strings, numbers, arrays, objects; keys `version, chainId, accounts, code, storage, blocks, receipts, transactions`), so the `$bigint` encoding is a safeguard for the file format, not something this version needs. The chain file's own fields (e.g. balances above 2^53 held in our records) still use it.
+- **Cross-engine loading: YES, both ways.** A dump from the default engine loads into revm and the reverse; blocks, hashes, receipts and balances are identical and the node keeps executing new txs on the new engine. Import therefore accepts any `engine` value; the file still records it for information. No engine-mismatch rejection is needed, and no `test.todo` was left.
+- **Restore into a running node: YES.** Dump at height 3, mine 2 more, `loadState(dump3)`: `eth_blockNumber` is back to 3, the later blocks and their receipts are null, the full observed state equals the height-3 state, and the node accepts new txs afterwards. Works for both mining modes and both engines.
+- **2,000-block chain (1 transfer per block, auto mining): size about 5,665 KB (5.5 MB, about 2.8 KB per block), identical on both engines.** Times (ms): dump 1-3, JSON encode 10-36, decode 15-21, `loadState` into a fresh node 81-85; building the chain took about 450. All round-trip deep-equal. The 20 MB warning corresponds to roughly 7,000 such blocks. Heavier blocks (contract deploys, logs) will be larger; not measured here.
+
+Limits of the spike: only ETH transfers were exercised (no contract deploys, logs or storage), and the sequencer's in-flight queue is outside webevm and so not covered; restore on a sequencer chain is refused while txs are pending (see the design spec).
