@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### core: Approach interface, trade-off schema, metrics
-- id: t-04
-- owner:
-- tags: core
-- history:
-  - To Do @ 2026-11-19T09:38:00Z
-
 ### core: five scenarios (generator + verifier each)
 - id: t-05
 - owner:
@@ -28,13 +21,6 @@ eth-transfer, erc20-disjoint, erc20-hot, erc20-mint, atomic-swap
 - id: t-06
 - owner:
 - tags: cli
-- history:
-  - To Do @ 2026-11-19T09:38:00Z
-
-### Approach 01: webevm-baseline
-- id: t-07
-- owner:
-- tags: approach
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
@@ -129,7 +115,24 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 ## Doing
 
+### core: Approach interface, trade-off schema, metrics
+- id: t-04
+- owner: Claude
+- tags: core
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Doing @ 2026-11-19T10:05:40Z by Claude
+
 ## Done
+
+### Approach 01: webevm-baseline
+- id: t-07
+- owner: Claude
+- tags: approach
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Doing @ 2026-11-19T10:05:40Z by Claude
+  - Done @ 2026-11-19T10:17:06Z by Claude
 
 ### contracts: MintableToken + AtomicSwap compiled with solc-js
 - id: t-03

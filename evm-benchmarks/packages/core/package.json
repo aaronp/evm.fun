@@ -1,0 +1,6 @@
+{
+  "name": "@evmb/core",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts"
+}

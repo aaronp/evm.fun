@@ -1,0 +1,9 @@
+{
+  "name": "@evmb/approach-01-webevm-baseline",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "@evmb/core": "workspace:*"
+  }
+}
