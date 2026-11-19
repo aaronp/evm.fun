@@ -214,3 +214,21 @@ test('pruneSnapshots drops snapshots of chains that are gone (an unsaved benchma
   expect((await snaps.list(kept.info.id)).map(x => x.id)).toEqual([s1.id])
   expect(await snaps.get(s2.id)).toBeUndefined()
 })
+
+test('take: writes strictly and says why a failed snapshot write failed', async () => {
+  const e = env()
+  const reg = createChainRegistry(e.deps())
+  const h = await reg.create('orig', 'plain', [])
+  let strict: unknown
+  const kv = {
+    ...e.kv,
+    persistent: true,
+    set: async (s: string, k: string, v: unknown, o?: { strict?: boolean }) => {
+      if (s === 'snapshots') { strict = o?.strict; throw Object.assign(new Error('quota'), { name: 'QuotaExceededError' }) }
+      return e.kv.set(s, k, v)
+    },
+  }
+  await expect(createSnapshotStore(kv as any).take(h)).rejects.toThrow(/^Snapshot too large to save \(\d[\d,]* KB\)/)
+  expect(strict).toBe(true)
+  await h.dispose()
+})

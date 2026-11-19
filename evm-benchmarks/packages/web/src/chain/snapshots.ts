@@ -2,6 +2,7 @@ import type { Kv } from '../store/kv'
 import { createContractsRegistry } from '../contracts/registry'
 import { defaultSnapshotName, type ContractRecord } from './chainFile'
 import type { ChainHandle } from './handle'
+import { sizeKb } from './snapshotUi'
 
 export interface Snapshot {
   id: string; chainId: string; name: string; height: number; createdAt: string
@@ -26,7 +27,15 @@ export function createSnapshotStore(kv: Kv) {
         height, createdAt: new Date().toISOString(), dump, contracts: recs,
         bytes: new TextEncoder().encode(JSON.stringify({ dump, contracts: recs }, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).length,
       }
-      await kv.set(STORE, snap.id, snap)
+      // strict: a snapshot too big for the quota must not switch the whole app to memory
+      try {
+        await kv.set(STORE, snap.id, snap, { strict: true })
+      } catch (e) {
+        const why = e instanceof Error ? e.message : String(e)
+        throw new Error((e as Error)?.name === 'QuotaExceededError'
+          ? `Snapshot too large to save (${sizeKb(snap.bytes)}): browser storage is full`
+          : `Snapshot could not be saved: ${why}`)
+      }
       return snap
     },
     get: (id: string) => kv.get<Snapshot>(STORE, id),

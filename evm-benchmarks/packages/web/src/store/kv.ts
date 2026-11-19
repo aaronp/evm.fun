@@ -6,7 +6,8 @@ const SEP = '\0'
 
 export type Kv = {
   get<T>(store: string, key: string): Promise<T | undefined>
-  set(store: string, key: string, value: unknown): Promise<void>
+  /** `strict`: on an IndexedDB failure throw and stay persistent, instead of dropping to memory (for large optional writes). */
+  set(store: string, key: string, value: unknown, opts?: { strict?: boolean }): Promise<void>
   del(store: string, key: string): Promise<void>
   list<T>(store: string): Promise<T[]>
   persistent: boolean
@@ -53,13 +54,14 @@ export function createKv(): Kv {
     usable = false
   }
 
-  // Run against IndexedDB; on any failure drop to memory for good.
-  async function run<T>(idbOp: (os: IDBObjectStore) => Promise<T>, memOp: () => T, write = false): Promise<T> {
+  // Run against IndexedDB; on any failure drop to memory for good (strict: rethrow instead).
+  async function run<T>(idbOp: (os: IDBObjectStore) => Promise<T>, memOp: () => T, write = false, strict = false): Promise<T> {
     if (usable && db) {
       try {
         const d = await db
         return await idbOp(d.transaction(OS, write ? 'readwrite' : 'readonly').objectStore(OS))
-      } catch {
+      } catch (e) {
+        if (strict) throw e
         fail()
       }
     }
@@ -69,8 +71,8 @@ export function createKv(): Kv {
 
   kv.get = <T>(s: string, key: string) =>
     run(os => req(os.get(k(s, key))) as Promise<T | undefined>, () => mem.get(k(s, key)) as T | undefined)
-  kv.set = (s, key, value) =>
-    run(async os => void (await req(os.put(value, k(s, key)))), () => void mem.set(k(s, key), value), true)
+  kv.set = (s, key, value, opts) =>
+    run(async os => void (await req(os.put(value, k(s, key)))), () => void mem.set(k(s, key), value), true, opts?.strict)
   kv.del = (s, key) =>
     run(async os => void (await req(os.delete(k(s, key)))), () => void mem.delete(k(s, key)), true)
   kv.list = <T>(s: string) =>

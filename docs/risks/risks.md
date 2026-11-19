@@ -286,9 +286,13 @@ Closed 2026-11-19: moot. `loadState` also never clears accounts, code or storage
 
 Each snapshot stores a full dump (blocks, receipts, transactions, state) in IndexedDB, and "Save current state first" adds one on every restore. Measured: a 2,000-block chain is about 5.7 MB (5,665 KB), so repeated snapshots of long chains can fill browser storage quota or slow the dialogs. Heavier blocks (deploys, logs) will be larger.
 
+The kv store drops to memory for good after any failed IndexedDB operation (the app then shows it is not persisting). Snapshot writes are the exception: they use a strict write, so a quota or IndexedDB failure on a large snapshot is shown in the dialog ("Snapshot too large to save (N KB): browser storage is full" or the error) and the rest of the app keeps persisting.
+
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
 | The snapshots dialog shows each snapshot's size in KB and a "large" badge above 20 MB | Detective | Partial |
 | Delete a snapshot from the dialog; deleting a chain deletes its snapshots | Corrective | Strong |
 | Save-first is a checkbox, so it can be turned off | Preventive | Partial |
+| Snapshot writes are strict: a failed write shows its error and never switches kv to memory | Corrective | Strong |
+| Startup prunes snapshots whose chain is gone (unsaved benchmark chains) | Corrective | Strong |

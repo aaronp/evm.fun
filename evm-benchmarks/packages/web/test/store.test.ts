@@ -97,3 +97,38 @@ test('kv: persistent is false until the open succeeds', async () => {
     delete g.indexedDB
   }
 })
+
+// A fake IndexedDB that opens and reads fine but whose put throws a quota error for the 'snapshots' store.
+const quotaIdb = () => {
+  const data = new Map<string, unknown>()
+  const ok = (result: unknown) => { const r: any = { result }; setTimeout(() => r.onsuccess?.(), 0); return r }
+  const os = {
+    get: (k: string) => ok(data.get(k)),
+    put: (v: unknown, k: string) => {
+      if (k.startsWith('snapshots\0')) throw Object.assign(new Error('quota exceeded'), { name: 'QuotaExceededError' })
+      data.set(k, v)
+      return ok(k)
+    },
+  }
+  const db = { transaction: () => ({ objectStore: () => os }) }
+  return { open: () => ok(db), data }
+}
+
+test('kv: a strict set that fails throws and leaves kv persistent', async () => {
+  const g = globalThis as any
+  const idb = quotaIdb()
+  g.indexedDB = idb
+  try {
+    const kv = createKv()
+    let fired = 0
+    kv.onPersistenceChange(() => fired++)
+    await kv.ready
+    await expect(kv.set('snapshots', 'x', { big: 1 }, { strict: true })).rejects.toThrow('quota exceeded')
+    expect(kv.persistent).toBe(true)
+    expect(fired).toBe(0)
+    await kv.set('chains', 'c', 1) // later writes still go to IndexedDB
+    expect(idb.data.get('chains\0c')).toBe(1)
+  } finally {
+    delete g.indexedDB
+  }
+})
