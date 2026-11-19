@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### web: Benchmark restyle
-- id: t-34
-- owner:
-- tags: web, plan4
-- history:
-  - To Do @ 2026-11-19T15:16:20Z
-
 ### web: allowlist empty, smoke check, docs
 - id: t-35
 - owner:
@@ -83,6 +76,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### web: Benchmark restyle
+- id: t-34
+- owner: Claude
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
+  - Doing @ 2026-11-19T16:04:00Z by Claude
+  - Done @ 2026-11-19T16:05:57Z by Claude
 
 ### web: Explorer restyle
 - id: t-33
