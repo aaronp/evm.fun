@@ -5,3 +5,4 @@ node_modules/
 evm-benchmarks/results/
 .superpowers/
 .DS_Store
+evm-benchmarks/design/
