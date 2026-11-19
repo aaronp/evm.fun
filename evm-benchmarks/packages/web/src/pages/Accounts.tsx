@@ -1,20 +1,19 @@
-import { useEffect, useState } from 'react'
-import { formatEther } from 'viem'
+import { useState } from 'react'
 import { accounts } from '../store/accounts'
 import { useApp } from '../state'
+import { formatEth, useBalance } from '../chain/useBalance'
+import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
+import { CopyIcon } from '../ui/icons'
+import { Input } from '../ui/input'
 import { KEYS_WARNING, Notice } from '../ui/notice'
 
-function Balance({ address }: { address: string }) {
+function Balance({ address }: { address: `0x${string}` }) {
   const { chain } = useApp()
-  const [bal, setBal] = useState<string>()
-  useEffect(() => {
-    setBal(undefined)
-    chain?.approach.getBalance(address as `0x${string}`).then(b => setBal(formatEther(b)), () => setBal('?'))
-  }, [chain, address])
-  if (!chain) return <span className="text-slate-400">no chain selected</span>
-  return <span>{bal === undefined ? '…' : `${bal} ETH`}</span>
+  const bal = useBalance(chain, address)
+  if (!chain) return <span className="text-muted">no chain selected</span>
+  return <span>{formatEth(bal)}</span>
 }
 
 export function Accounts() {
@@ -24,7 +23,7 @@ export function Accounts() {
   const list = accounts.list()
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Accounts</h1>
+      <h1 className="font-display text-xl font-semibold">Accounts</h1>
       <Notice>{KEYS_WARNING}</Notice>
       <form
         className="flex gap-2"
@@ -36,24 +35,27 @@ export function Accounts() {
           bump(n => n + 1)
         }}
       >
-        <input className="min-w-0 flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm sm:flex-none" placeholder="Label" value={label} onChange={e => setLabel(e.target.value)} />
+        <Input className="min-w-0 flex-1 sm:flex-none" placeholder="Label" value={label} onChange={e => setLabel(e.target.value)} />
         <Button type="submit">Create account</Button>
       </form>
-      {list.length === 0 && <p className="text-sm text-slate-500">No accounts yet.</p>}
+      {list.length === 0 && <p className="text-sm text-muted">No accounts yet.</p>}
       {list.map(a => (
         <Card key={a.address} className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0">
-            <div className="font-medium">
-              {a.label} {a.address === account && <span className="text-xs text-slate-500">(selected)</span>}
+            <div className="flex items-center gap-2 font-medium">
+              {a.label} {a.address === account && <Badge variant="accent">selected</Badge>}
             </div>
-            <div className="truncate font-mono text-xs">{a.address}</div>
+            <div className="break-all font-mono text-xs text-muted">{a.address}</div>
             <div className="text-sm"><Balance address={a.address} /></div>
           </div>
           <div className="flex shrink-0 gap-2">
-            <Button variant="ghost" onClick={() => selectAccount(a.address)}>Select</Button>
-            <Button variant="ghost" onClick={() => navigator.clipboard?.writeText(a.address)}>Copy</Button>
+            <Button variant="ghost" size="sm" onClick={() => selectAccount(a.address)}>Select</Button>
+            <Button variant="ghost" size="sm" onClick={() => navigator.clipboard?.writeText(a.address)}>
+              <CopyIcon className="mr-1" />Copy
+            </Button>
             <Button
               variant="danger"
+              size="sm"
               onClick={() => {
                 accounts.remove(a.address)
                 if (a.address === account) selectAccount(accounts.list()[0]?.address)

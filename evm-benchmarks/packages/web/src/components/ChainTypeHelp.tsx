@@ -5,8 +5,8 @@ export const CHAIN_TYPE_BLURB = {
 
 export function ChainTypeHelp() {
   return (
-    <details className="text-sm">
-      <summary className="cursor-pointer">What's the difference?</summary>
+    <details className="text-sm text-muted">
+      <summary className="cursor-pointer text-text">What's the difference?</summary>
       <ul className="mt-1 list-disc space-y-1 pl-5">
         {(Object.keys(CHAIN_TYPE_BLURB) as (keyof typeof CHAIN_TYPE_BLURB)[]).map(t => <li key={t}><b>{t}</b>: {CHAIN_TYPE_BLURB[t]}</li>)}
         <li>Both are real EVMs running unmodified Solidity bytecode (revm here). Details in the README and REPORT.md.</li>

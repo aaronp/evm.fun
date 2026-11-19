@@ -17,9 +17,9 @@ export function formatEth(wei?: bigint): string {
 export function useBalance(handle?: ChainHandle, address?: Address): bigint | undefined {
   const { balanceTick } = useApp()
   const [bal, setBal] = useState<bigint>()
+  useEffect(() => setBal(undefined), [handle, address]) // a tick refresh keeps the old value until the new one lands
   useEffect(() => {
     let live = true
-    setBal(undefined)
     if (handle && address) {
       handle.request('eth_getBalance', [address, 'latest']).then(
         v => live && setBal(BigInt(v as string)),
