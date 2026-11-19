@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { kv } from '../store/kv'
 import { accounts } from '../store/accounts'
 
@@ -20,6 +20,13 @@ export function Notice({ children, onDismiss }: { children: string; onDismiss?: 
 
 export function StorageNotice() {
   const [dismissed, setDismissed] = useState(false)
+  const [, bump] = useState(0)
+  useEffect(() => {
+    const rerender = () => bump(n => n + 1)
+    const off = [kv.onPersistenceChange(rerender), accounts.onPersistenceChange(rerender)]
+    kv.ready.then(rerender)
+    return () => off.forEach(f => f())
+  }, [])
   if (dismissed || (kv.persistent && accounts.persistent)) return null
   return <Notice onDismiss={() => setDismissed(true)}>{STORAGE_UNAVAILABLE}</Notice>
 }

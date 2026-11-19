@@ -8,6 +8,7 @@ const KEY = 'evmb.accounts'
 export function createAccounts() {
   let items: Account[] = []
   let persistent = false
+  const subs = new Set<() => void>()
   try {
     const raw = localStorage.getItem(KEY)
     items = raw ? JSON.parse(raw) : []
@@ -17,7 +18,10 @@ export function createAccounts() {
   }
   const save = () => {
     if (!persistent) return
-    try { localStorage.setItem(KEY, JSON.stringify(items)) } catch { persistent = false }
+    try { localStorage.setItem(KEY, JSON.stringify(items)) } catch {
+      persistent = false
+      subs.forEach(cb => cb())
+    }
   }
   return {
     list: () => [...items],
@@ -32,6 +36,7 @@ export function createAccounts() {
       items = items.filter(a => a.address.toLowerCase() !== address.toLowerCase())
       save()
     },
+    onPersistenceChange: (cb: () => void) => (subs.add(cb), () => void subs.delete(cb)),
     get persistent() { return persistent },
   }
 }

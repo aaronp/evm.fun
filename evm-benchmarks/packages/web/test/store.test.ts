@@ -42,3 +42,58 @@ test('accounts.create derives address from key', () => {
   accounts.remove(a.address)
   expect(accounts.list()).toEqual([])
 })
+
+test('kv: async open failure flips persistent and notifies', async () => {
+  const g = globalThis as any
+  g.indexedDB = {
+    open() {
+      const r: any = {}
+      setTimeout(() => r.onerror?.(), 0)
+      return r
+    },
+  }
+  try {
+    const kv = createKv()
+    let fired = 0
+    kv.onPersistenceChange(() => fired++)
+    await kv.ready
+    expect(kv.persistent).toBe(false)
+    expect(fired).toBe(1)
+    await kv.set('s', 'k', 1)
+    expect(await kv.get('s', 'k')).toBe(1)
+  } finally {
+    delete g.indexedDB
+  }
+})
+
+test('accounts: later setItem failure flips persistent and notifies', () => {
+  const g = globalThis as any
+  let calls = 0
+  g.localStorage = {
+    getItem: () => null,
+    setItem: () => { if (++calls === 2) throw new Error('quota') },
+  }
+  try {
+    const accounts = createAccounts()
+    let fired = 0
+    accounts.onPersistenceChange(() => fired++)
+    accounts.create('a')
+    expect(accounts.persistent).toBe(true)
+    accounts.create('b')
+    expect(accounts.persistent).toBe(false)
+    expect(fired).toBe(1)
+    expect(accounts.list().length).toBe(2)
+  } finally {
+    delete g.localStorage
+  }
+})
+
+test('kv: persistent is false until the open succeeds', async () => {
+  const g = globalThis as any
+  g.indexedDB = { open: () => ({}) } // never settles
+  try {
+    expect(createKv().persistent).toBe(false)
+  } finally {
+    delete g.indexedDB
+  }
+})
