@@ -76,3 +76,30 @@ test('allowances: spent remainder, zero drops, unlimited, native empty', () =>
     await send(A, 'approve', [B.address, MAX_UINT256])
     expect(await allowances(request, token)).toEqual([{ owner: A.address, spender: B.address, amount: MAX_UINT256 }])
   }), 60_000)
+
+const tokAsset = { id: 'c1:x', chainId: 'c1', kind: 'erc20', address: EOA, symbol: 'X', name: 'X', decimals: 0, origin: 'imported', mintable: false, addedAt: '' } as Asset
+
+test('readTokenInfo: malformed address and RPC failure give "Not an ERC-20"', async () => {
+  const boom: Request = async () => { throw new Error('raw rpc failure') }
+  await expect(readTokenInfo(boom, 'nonsense' as Address)).rejects.toThrow('Not an ERC-20 at nonsense')
+  await expect(readTokenInfo(boom, EOA)).rejects.toThrow(`Not an ERC-20 at ${EOA}`)
+})
+
+test('readTokenInfo: decimals above 255 is not a token', async () => {
+  const word = (n: bigint) => `0x${n.toString(16).padStart(64, '0')}`
+  const str = (s: string) => `0x${'20'.padStart(64, '0')}${s.length.toString(16).padStart(64, '0')}${Buffer.from(s).toString('hex').padEnd(64, '0')}`
+  const fake: Request = async (m, p: any) => {
+    if (m === 'eth_getCode') return '0x60'
+    const sel = p[0].data.slice(0, 10)
+    if (sel === '0x313ce567') return word(256n) // decimals
+    if (sel === '0x95d89b41') return str('X') // symbol
+    return word(1n)
+  }
+  await expect(readTokenInfo(fake, EOA)).rejects.toThrow(`Not an ERC-20 at ${EOA}`)
+})
+
+test('allowances skips Approval-topic logs with fewer than 3 topics', async () => {
+  const topic0 = '0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925'
+  const fake: Request = async () => [{ topics: [topic0] }, { topics: [topic0, '0x' + '00'.repeat(32)] }]
+  expect(await allowances(fake, tokAsset)).toEqual([])
+})

@@ -1,4 +1,4 @@
-import { decodeFunctionResult, encodeFunctionData, erc20Abi, getAbiItem, getAddress, parseAbi, toEventSelector, type Address, type Hex } from 'viem'
+import { decodeFunctionResult, encodeFunctionData, erc20Abi, getAbiItem, getAddress, isAddress, parseAbi, toEventSelector, type Address, type Hex } from 'viem'
 import type { Asset } from './types'
 
 export type Request = (method: string, params: unknown[]) => Promise<unknown>
@@ -17,11 +17,14 @@ const erc20 = (a: Asset): Address => a.address!
 
 export async function readTokenInfo(request: Request, address: Address) {
   const notToken = () => new Error(`Not an ERC-20 at ${address}`)
-  if (((await request('eth_getCode', [address, 'latest'])) as Hex) === '0x') throw notToken()
+  if (!isAddress(address)) throw notToken()
   try {
+    if (((await request('eth_getCode', [address, 'latest'])) as Hex) === '0x') throw notToken()
     const [symbol, decimals, supply] = await Promise.all([
       call(request, address, erc20Abi, 'symbol'), call(request, address, erc20Abi, 'decimals'), call(request, address, erc20Abi, 'totalSupply'),
     ])
+    if (Number(decimals) > 255) throw notToken()
+    // EIP-20 makes name() optional, so fall back to the symbol.
     const name = await call(request, address, erc20Abi, 'name').catch(() => symbol)
     const owner = await call(request, address, ownerAbi, 'owner').catch(() => undefined)
     return { name: name as string, symbol: symbol as string, decimals: Number(decimals), totalSupply: supply as bigint, ...(owner ? { owner: owner as Address } : {}) }
@@ -48,6 +51,7 @@ export async function allowances(request: Request, asset: Asset) {
   const logs = (await request('eth_getLogs', [{ address: erc20(asset), topics: [approvalTopic], fromBlock: '0x0', toBlock: 'latest' }])) as { topics: Hex[] }[]
   const pairs = new Map<string, { owner: Address; spender: Address }>()
   for (const l of logs) {
+    if (l.topics.length < 3) continue
     const owner = word(l.topics[1]), spender = word(l.topics[2])
     pairs.set(`${owner}:${spender}`.toLowerCase(), pairs.get(`${owner}:${spender}`.toLowerCase()) ?? { owner, spender })
   }
