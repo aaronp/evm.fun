@@ -3,7 +3,7 @@ import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import type { Abi } from 'viem'
 import { useApp } from '../state'
 import { contractsRegistry, type DeployedContract } from '../contracts/registry'
-import { address, block, classify, latestBlocks, tx } from '../explorer/data'
+import { address, big, block, classify, latestBlocks, tx } from '../explorer/data'
 import { isErc20 } from '../components/Erc20Card'
 import { show } from '../components/ReceiptView'
 import { Button } from '../ui/button'
@@ -81,7 +81,7 @@ function Block({ chain, names }: { chain: ChainHandle; names: Names }) {
       <dl className="grid grid-cols-[8rem_1fr] gap-1 text-sm">
         <dt>Hash</dt><dd className="font-mono break-all">{h.hash}</dd>
         <dt>Parent</dt><dd className="font-mono break-all">{String(h.parentHash)}</dd>
-        <dt>Time</dt><dd>{new Date(Number(BigInt(h.timestamp)) * 1000).toISOString()}</dd>
+        <dt>Time</dt><dd>{new Date(Number(big(h.timestamp)) * 1000).toISOString()}</dd>
         <dt>Transactions</dt><dd>{b.txTotal}</dd>
       </dl>
       {/* webevm reports gasUsed 0 and zero roots in headers, so they are omitted; see receipts for gas. */}
@@ -112,7 +112,7 @@ function Tx({ chain, names }: { chain: ChainHandle; names: Names }) {
   if (t === undefined) return <p className="text-sm">Loading…</p>
   if (!t) return <NotFound what={`transaction ${hash}`} />
   const { receipt: r } = t
-  const bn = Number(BigInt(r.blockNumber))
+  const bn = Number(big(r.blockNumber))
   return (
     <Card className="space-y-2">
       <h2 className="font-medium">Transaction</h2>
@@ -123,8 +123,8 @@ function Tx({ chain, names }: { chain: ChainHandle; names: Names }) {
         <Row k="From"><Addr a={t.tx.from} names={names} /></Row>
         <Row k="To"><Addr a={t.tx.to} names={names} /></Row>
         {r.contractAddress && <Row k="Created"><Addr a={r.contractAddress} names={names} /></Row>}
-        <Row k="Value (wei)">{BigInt(t.tx.value).toString()}</Row>
-        <Row k="Gas used">{BigInt(r.gasUsed).toString()}</Row>
+        <Row k="Value (wei)">{big(t.tx.value).toString()}</Row>
+        <Row k="Gas used">{big(r.gasUsed).toString()}</Row>
         <Row k="Input"><span className="font-mono">{t.decodedInput ? show(t.decodedInput) : t.tx.input}</span></Row>
       </dl>
       {r.logs.map((l, i) => (

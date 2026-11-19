@@ -17,7 +17,7 @@ const rx = deriveAccounts('explorer:rx', N)
 let firstHash: `0x${string}`
 
 beforeAll(async () => {
-  const ap = approach02Factory({ block: '600' }, {})
+  const ap = approach02Factory({ block: '600', chunk: '600' }, {})
   h = makeHandle({ id: 'x', name: 'x', type: 'sequencer', createdAt: '' }, ap)
   await ap.setup({ prefund: Object.fromEntries(senders.map(a => [a.address, 10n ** 21n])) })
   const raws = await Promise.all(rx.map((r, i) => signTx(senders[i % 100]!, Math.floor(i / 100), { to: r.address, value: 1n, gas: 21_000n })))
@@ -29,18 +29,14 @@ beforeAll(async () => {
 afterAll(() => h.dispose())
 
 describe('explorer data', () => {
-  // The sequencer drains its ring as txs arrive, so how the 600 split into blocks varies run to run
-  // (observed: one block of 600, or 250 + the rest). Assert against what actually landed.
-  test('600 txs land across blocks; the largest pages by 50', async () => {
-    const all = await latestBlocks(h, 0, 100)
-    expect(all.reduce((n, b) => n + b.txCount, 0)).toBe(600)
-    const big = all.reduce((a, b) => (b.txCount > a.txCount ? b : a))
-    const pages = Math.ceil(big.txCount / 50)
-    const counts = await Promise.all(Array.from({ length: pages + 1 }, async (_, p) => (await block(h, big.number, p))!.txs.length))
-    expect(counts).toEqual([...Array(pages - 1).fill(50), big.txCount - 50 * (pages - 1), 0])
-    expect((await block(h, big.number, 0))!.txTotal).toBe(big.txCount)
-    expect((await block(h, big.number, 0))!.txs[0]!.hash).toMatch(/^0x[0-9a-f]{64}$/)
-    expect(await tx(h, firstHash, [])).not.toBeNull()
+  test('600 txs land in block 1, paged by 50', async () => {
+    const b = (await block(h, 1, 0))!
+    expect(b.txTotal).toBe(600)
+    expect(b.txs).toHaveLength(50)
+    expect((await block(h, 1, 11))!.txs).toHaveLength(50)
+    expect((await block(h, 1, 12))!.txs).toHaveLength(0)
+    expect(b.txs[0]!.hash).toBe(firstHash)
+    expect((await latestBlocks(h, 0)).filter(x => x.txCount > 0)).toHaveLength(1)
   })
   test('block out of range is null', async () => {
     expect(await block(h, 999, 0)).toBeNull()

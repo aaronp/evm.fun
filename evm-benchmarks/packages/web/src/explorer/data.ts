@@ -14,7 +14,7 @@ const get = async <T>(h: ChainHandle, m: string, p: unknown[]): Promise<T | null
   try { return ((await h.request(m, p)) as T | null) ?? null } catch { return null }
 }
 /** Malformed or missing node fields read as 0 instead of throwing. */
-const big = (v: unknown): bigint => { try { return BigInt(v as string) } catch { return 0n } }
+export const big = (v: unknown): bigint => { try { return BigInt(v as string) } catch { return 0n } }
 const hex = (n: number) => `0x${n.toString(16)}`
 const head = async (h: ChainHandle) => Number(big(await get<Hex>(h, 'eth_blockNumber', [])))
 
@@ -49,7 +49,7 @@ export async function tx(h: ChainHandle, hash: string, abis: Abi[]) {
   const [t, receipt] = await Promise.all([get<RawTx>(h, 'eth_getTransactionByHash', [hash]), get<RawReceipt>(h, 'eth_getTransactionReceipt', [hash])])
   if (!t || !receipt || typeof t !== 'object' || typeof receipt !== 'object') return null
   const input = typeof t.input === 'string' ? t.input : '0x'
-  const logs = Array.isArray(receipt.logs) ? receipt.logs : []
+  const logs = (Array.isArray(receipt.logs) ? receipt.logs : []).filter(l => !!l && typeof l === 'object').map(l => ({ ...l, topics: Array.isArray(l.topics) ? l.topics : [], data: typeof l.data === 'string' ? l.data : '0x' }))
   let decodedInput: { functionName: string; args?: readonly unknown[] } | undefined
   if (input.length >= 10) for (const abi of abis) {
     try { decodedInput = decodeFunctionData({ abi, data: input }); break } catch {}
@@ -60,7 +60,7 @@ export async function tx(h: ChainHandle, hash: string, abis: Abi[]) {
     }
     return null
   })
-  return { tx: t, receipt, decodedInput, decodedLogs }
+  return { tx: { ...t, input }, receipt: { ...receipt, logs }, decodedInput, decodedLogs }
 }
 
 /** `tokens`: ERC-20 contracts (with their ABI) to read balanceOf from. Failed reads are omitted. */
