@@ -33,7 +33,7 @@ webevm is young (v0.9.x, single maintainer). Trusted sender mode, manual mining 
 
 The single-threaded EVM loop may top out below 1k TPS for contract calls (especially atomic-swap).
 
-Measured by approach 02 (2026-11-19, n=10000, webevm@0.9.1 default engine, M4 Pro): erc20 2.6-3.1k TPS, atomic-swap 1.2k TPS, eth-transfer 318 TPS. eth-transfer misses 1k because webevm `mine()` costs ~3 ms per newly created account (block size makes no difference), so the limit is the engine, not the single executor. Likelihood raised to 4: already realized for one scenario; revm (05) is the next control to measure.
+Measured by approach 02 (2026-11-19, n=10000, webevm@0.9.1 default engine, M4 Pro): erc20 3.2-4.2k TPS, atomic-swap 1.35k TPS, eth-transfer 315 TPS. eth-transfer misses 1k with ~31 s per run in webevm `mine()` for 10,000 fresh recipients, consistent with a per-new-account cost in `mine()` (block 500 vs 2000 gave the same TPS), so the limit looks like the engine, not the single executor. Likelihood raised to 4: already realized for one scenario; revm (05) is the next control to measure.
 
 ### Controls
 | Control | Type | Effectiveness |

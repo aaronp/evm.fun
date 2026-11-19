@@ -45,14 +45,14 @@ Phases (`phases()`, ms, main-thread clock): `verifyMs` wall time with at least o
 
 | scenario | 01 baseline | 02 seq-memory | x |
 | --- | --- | --- | --- |
-| eth-transfer | 280 | 318 | 1.1 |
-| erc20-disjoint | 1300 | 2566 | 2.0 |
-| erc20-hot | 1300 | 2606 | 2.0 |
-| erc20-mint | 1432 | 3135 | 2.2 |
-| atomic-swap | 817 | 1215 | 1.5 |
+| eth-transfer | 273 | 315 | 1.2 |
+| erc20-disjoint | 1319 | 3233 | 2.5 |
+| erc20-hot | 1321 | 3197 | 2.4 |
+| erc20-mint | 1458 | 4238 | 2.9 |
+| atomic-swap | 834 | 1351 | 1.6 |
 
-- 02 beats 01 on every scenario, but by 1.1-2.2x, not the ~10x the spike measured (16.9k tx/s for single-sender transfers to one recipient).
-- `node.mine()` dominates. Per 10k-tx run: erc20 ~1.6-2.3 s mine vs ~1.3 s send+receipts; atomic-swap ~6.8 s mine.
-- eth-transfer sends to 10,000 fresh recipients and mine time is ~30 s, ~3 ms per newly created account. Block size makes no difference (block=500 and block=2000 both ~300 TPS), so the cost is per new account in webevm's mine, not per block. The engine is the bottleneck here, not the pipeline; the revm approach (05) is the test of that.
-- Latency is higher than 01 (p50 2-9 s) because all 10k txs are queued up front and settle in blocks.
+- 02 beats 01 on every scenario, but by 1.2-2.9x, not the ~10x the spike measured (16.9k tx/s for single-sender transfers to one recipient).
+- `node.mine()` dominates. Per 10k-tx run: erc20 ~1.6-2.3 s mine vs ~0.8-0.9 s send+receipts; atomic-swap ~6.7 s mine. (An earlier O(N²) `awaitSettled` added ~0.5-0.8 s per run; fixing it raised erc20 TPS by 24-35%.)
+- eth-transfer sends to 10,000 fresh recipients and mine time is ~31 s. That is consistent with a per-new-account cost in `mine()` (block 500 vs 2000 gave the same TPS, both ~300). The engine is the bottleneck here, not the pipeline; the revm approach (05) is the test of that.
+- Latency is higher than 01 (p50 1.5-9 s) because all 10k txs are queued up front and settle in blocks. That is the offered-load shape: 01's submit blocks per batch, so its later batches get later submit stamps.
 - `sequenceMs` is under 1 ms per run: the sequencer is not a bottleneck.

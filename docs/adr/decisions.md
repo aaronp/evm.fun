@@ -285,7 +285,7 @@ Spike t-01 (`evm-benchmarks/spike/webevm.test.ts`, webevm 0.9.1, Bun 1.3.13), al
 - revm loads in Bun. The option is `engine: await createRevmEngine({wasm})` (an object on `createNode`), not `createEngine` (that is only for `webevm/worker-host` `exposeNode`). `wasm` = bytes of `require.resolve('revm-wasm/revm.wasm')`; `node.engine.id` is `revm-wasm`.
 - Throughput, 2000 single-sender transfers, default engine: recover+auto about 1700 tx/s; trusted+manual(500) about 16900 tx/s (about 10x).
 
-Plan 1 results (n=10000, webevm@0.9.1 default engine, approaches 01 and 02): median 280-3,135 TPS. `mine()` dominates 02, and eth-transfer is about 318 TPS with about 30 s per run spent in `mine()` for 10,000 fresh recipients; block size 500 vs 2000 gave the same TPS, consistent with a per-new-account cost. This points at the engine, not the pipeline, but only revm (approach 05, plan 2) can confirm it. Stays proposed.
+Plan 1 results (n=10000, webevm@0.9.1 default engine, approaches 01 and 02): median 273-4,238 TPS. `mine()` dominates 02, and eth-transfer is about 315 TPS with about 31 s per run spent in `mine()` for 10,000 fresh recipients; block size 500 vs 2000 gave the same TPS, consistent with a per-new-account cost. This points at the engine, not the pipeline, but only revm (approach 05, plan 2) can confirm it. Stays proposed.
 
 ---
 title: State root per block, deferred, or none
@@ -310,4 +310,4 @@ Know what a verifiable state root costs in throughput.
 ## Decision
 Open. Measured by approaches 02 vs 03.
 
-Notes: Plan 1 only has the `none` side (01 and 02, both stateRoot none; 280-3,135 TPS). The per-block and deferred costs come from approach 03 in plan 2. Stays proposed.
+Notes: Plan 1 only has the `none` side (01 and 02, both stateRoot none; 273-4,238 TPS). The per-block and deferred costs come from approach 03 in plan 2. Stays proposed.
