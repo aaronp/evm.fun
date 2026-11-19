@@ -54,7 +54,11 @@ const factory: ApproachFactory = () => {
     },
 
     async awaitSettled(hashes) {
-      while (!hashes.every((h) => receipts.has(h))) await new Promise<void>((res) => waiters.push(res));
+      for (let i = 0; ; ) {
+        while (i < hashes.length && receipts.has(hashes[i]!)) i++;
+        if (i === hashes.length) break;
+        await new Promise<void>((res) => waiters.push(res));
+      }
       return hashes.map((h) => receipts.get(h)!);
     },
 

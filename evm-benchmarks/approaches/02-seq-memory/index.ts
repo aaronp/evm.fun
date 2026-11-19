@@ -126,7 +126,10 @@ const factory: ApproachFactory = (opts = {}) => {
     },
 
     async awaitSettled(hashes) {
-      while (!hashes.every((h) => receipts.has(h))) {
+      // cursor: receipts are only added, so each hash is checked once until it settles (O(N) total)
+      for (let i = 0; ; ) {
+        while (i < hashes.length && receipts.has(hashes[i]!)) i++;
+        if (i === hashes.length) break;
         if (fatal) throw fatal;
         await new Promise<void>((res) => waiters.push(res));
       }
