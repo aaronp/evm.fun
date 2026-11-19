@@ -30,6 +30,12 @@
   --c-danger-soft: #3A1A1E;
   --c-code-keyword: #C792EA;
   --c-code-string: #7FDBCA;
+  --c-series-1: #3987E5;
+  --c-series-2: #D95926;
+  --c-series-3: #199E70;
+  --c-series-4: #C98500;
+  --c-series-5: #D55181;
+  --c-series-6: #9085E9;
 }
 
 :root[data-theme="light"] {
@@ -62,6 +68,12 @@
   --c-danger-soft: #FCE8E6;
   --c-code-keyword: #7C3AED;
   --c-code-string: #0F766E;
+  --c-series-1: #2A78D6;
+  --c-series-2: #D4501F;
+  --c-series-3: #0F8A5F;
+  --c-series-4: #A86F00;
+  --c-series-5: #C93D73;
+  --c-series-6: #6250D6;
 }
 
 :root[data-theme="paper"] {
@@ -94,4 +106,10 @@
   --c-danger-soft: #F6E1DC;
   --c-code-keyword: #7B3FA8;
   --c-code-string: #1E6B63;
+  --c-series-1: #2A78D6;
+  --c-series-2: #D4501F;
+  --c-series-3: #0F8A5F;
+  --c-series-4: #A86F00;
+  --c-series-5: #C93D73;
+  --c-series-6: #6250D6;
 }

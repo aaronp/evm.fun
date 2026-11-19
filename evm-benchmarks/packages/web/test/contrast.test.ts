@@ -28,6 +28,7 @@ for (const [fg, soft] of [['accent', 'accent-soft'], ['success-text', 'success-s
   for (const bg of ['surface', soft]) pairs.push([fg, bg, 4.5])
 pairs.push(['on-accent', 'accent', 4.5])
 for (const bg of ['bg', 'surface']) pairs.push(['accent', bg, 3]) // focus ring
+for (let i = 1; i <= 6; i++) pairs.push([`series-${i}`, 'surface', 3]) // chart graphics
 
 const cssThemes = [...css.matchAll(/:root\[data-theme="(\w+)"\]/g)].map((m) => m[1]!)
 test('tokens.css themes match THEMES', () => {

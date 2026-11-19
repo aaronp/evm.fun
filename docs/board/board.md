@@ -70,6 +70,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 ## Done
 
+### web: latency distribution chart
+- id: t-36
+- owner: Claude
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T16:20:05Z
+  - Doing @ 2026-11-19T16:20:05Z by Claude
+  - Done @ 2026-11-19T16:23:11Z by Claude
+
 ### web: allowlist empty, smoke check, docs
 - id: t-35
 - owner: Claude

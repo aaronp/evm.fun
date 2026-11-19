@@ -189,3 +189,4 @@ The exact Light and Paper values (subject to the contrast test), component APIs,
 - Runs without samples are not plotted.
 
 **Out of scope:** p90/p99.9 tiles, hover tooltips, chart export.
+Theme switcher: icon toggles (user request) — moon=Dark, sun=Light, page=Paper; each keeps an accessible name (sr-only text) and a title tooltip; radio semantics and focus ring unchanged.

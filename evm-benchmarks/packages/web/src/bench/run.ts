@@ -32,7 +32,7 @@ export async function runInBrowser(
   const approach = factories[type]({}, host)
   let result: RunResult
   try {
-    result = await runBenchmark({ approach, scenario: scenarios[scenario](), n, senders, seed: 'playground', onProgress })
+    result = await runBenchmark({ approach, scenario: scenarios[scenario](), n, senders, seed: 'playground', keepSamples: true, onProgress })
   } catch (e) {
     await approach.dispose().catch(() => {}) // don't leak the engine of a failed run
     throw e

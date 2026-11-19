@@ -62,3 +62,19 @@ test('percentile nearest-rank', () => {
   expect(percentile([1, 2, 3, 4], 50)).toBe(2);
   expect(percentile([1, 2, 3, 4], 99)).toBe(4);
 });
+
+test('keepSamples exposes sorted per-tx latencies; absent by default', async () => {
+  const approach = create();
+  try {
+    const o = {approach, scenario: scenarios['eth-transfer'](), n: 20, senders: 4, seed: 'ks'};
+    const r = await runBenchmark({...o, keepSamples: true});
+    const s = r.latencySamplesMs!;
+    expect(s.length).toBe(20);
+    expect([...s].sort((a, b) => a - b)).toEqual(s);
+    expect(s[s.length - 1]).toBe(r.latencyMs.max);
+    const r2 = await runBenchmark({...o, scenario: scenarios['eth-transfer'](), seed: 'ks2'});
+    expect('latencySamplesMs' in r2).toBe(false);
+  } finally {
+    await approach.dispose();
+  }
+}, 60_000);

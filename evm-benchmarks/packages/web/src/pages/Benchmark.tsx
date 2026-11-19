@@ -15,6 +15,7 @@ import { Badge } from '../ui/badge'
 import { Input, Select } from '../ui/input'
 import { Notice } from '../ui/notice'
 import { Table } from '../ui/table'
+import { DistributionChart } from '../components/DistributionChart'
 import { tradeoffChips } from '../bench/view'
 
 // revm only, deliberately NO persistence: re-serialising the chain on every change would distort TPS.
@@ -84,6 +85,8 @@ export function Benchmark() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
   const last = runs.at(-1)
+
+  const sampled = runs.filter(r => r.result.latencySamplesMs?.length)
 
   const size = parseBenchSize(n, senders)
 
@@ -165,6 +168,14 @@ export function Benchmark() {
               </tbody>
             </table>
           </Table>
+        </section>
+      )}
+      {sampled.length > 0 && (
+        <section className="overflow-hidden rounded-xl border border-line-strong bg-surface">
+          <h2 className="border-b border-line px-4 py-3 text-sm font-semibold">Latency distribution</h2>
+          <div className="p-4">
+            <DistributionChart series={sampled.map(r => ({ id: r.handle.info.id, name: r.name, samples: r.result.latencySamplesMs! }))} />
+          </div>
         </section>
       )}
     </div>

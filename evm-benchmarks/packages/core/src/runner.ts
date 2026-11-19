@@ -11,6 +11,8 @@ export interface RunOptions {
   /** txs per submit call (default 1000) */
   batch?: number;
   seed: string;
+  /** keep every tx's latency in RunResult.latencySamplesMs (default false) */
+  keepSamples?: boolean;
   /** fires at each phase start/end; during signing at least every 100 txs */
   onProgress?(phase: 'setup' | 'signing' | 'running' | 'verifying', done: number, total: number): void;
 }
@@ -23,6 +25,8 @@ export interface RunResult {
   durationMs: number;
   tps: number | null;
   latencyMs: {p50: number; p99: number; max: number};
+  /** every tx's latency, ascending; only when RunOptions.keepSamples */
+  latencySamplesMs?: number[];
   statuses: Record<Receipt['status'], number>;
   verified: boolean;
   verifyDetail: string;
@@ -96,6 +100,7 @@ export async function runBenchmark(o: RunOptions): Promise<RunResult> {
     durationMs,
     tps: ok ? n / (durationMs / 1000) : null,
     latencyMs: {p50: percentile(lat, 50), p99: percentile(lat, 99), max: lat[lat.length - 1] ?? 0},
+    ...(o.keepSamples ? {latencySamplesMs: lat} : {}),
     statuses,
     verified: v.ok,
     verifyDetail: v.detail,
