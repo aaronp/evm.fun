@@ -208,6 +208,6 @@ Board: t-53.
   - **Snapshot and restore:** snapshot a chain, then transact. Restore with save-first and confirm the height rewinds, the views update and the contracts are right. Reload and confirm it's still restored.
   - **Fork:** open the saved "future" snapshot as a new chain, so you have two chains.
   - **Export and import:** export, then import the file as a new chain, and check the provenance line. Import a bad file and check the error.
-  - **Sequencer guard:** on a sequencer chain, try to restore mid-benchmark and check that it's refused.
+  - **Sequencer guard:** the pending guard is unit-tested; in the UI it shows only during an in-flight send (benchmark chains are separate and ephemeral, so there is no restore mid-benchmark to try).
   - **Accessibility and themes:** check all three themes, phone width, and keyboard use of the dialogs.
 - [ ] **Step 3:** Commit `docs(web): snapshots and import/export`.
