@@ -68,6 +68,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 ## Done
 
+### web: Fisheye matches mockup
+- id: t-45
+- owner: Claude
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T17:37:08Z
+  - Doing @ 2026-11-19T17:37:08Z by Claude
+  - Done @ 2026-11-19T17:41:25Z by Claude
+
 ### web: explorer phone-width and browser check
 - id: t-44
 - owner: Claude

@@ -176,7 +176,7 @@ function Browse({ chain, view, q, win }: { chain: ChainHandle; view: ExplorerVie
   const { n } = useParams()
   const sel = n !== undefined && /^\d+$/.test(n) ? Number(n) : undefined
   return (
-    <div className="grid gap-4 @4xl:grid-cols-[minmax(0,1fr)_22rem]">
+    <div className="grid gap-4 @3xl:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="min-w-0"><ActiveView view={view} chain={chain} q={q} win={win} sel={sel} /></div>
       <SelectedBlock chain={chain} n={sel} tip={win.headers[0]?.number} loading={win.loading} />
     </div>

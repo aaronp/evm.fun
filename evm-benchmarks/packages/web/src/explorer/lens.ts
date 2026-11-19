@@ -26,3 +26,21 @@ export function lensFocus(n: number, p: number, mag: number, spread: number, len
   }
   return (lo + hi) / 2
 }
+
+/** Tile look from the mockup: cross size 36..150 px by size/max; full and mid label thresholds per orientation; filled from 6 px. */
+export function tileStyle(size: number, maxSize: number, horizontal: boolean) {
+  const full = size >= (horizontal ? 130 : 64)
+  return {
+    cross: Math.round(36 + 114 * (maxSize > 0 ? size / maxSize : 0)),
+    full,
+    mid: !full && size >= (horizontal ? 44 : 22),
+    filled: size >= 6,
+  }
+}
+
+/** A `span`-sized window of indexes [start, end) around `anchor`, clamped to [0, total). */
+export function lensWindow(total: number, anchor: number, span = 36): { start: number; end: number } {
+  const w = Math.min(span, total)
+  const start = Math.max(0, Math.min(total - w, anchor - Math.floor(w / 2)))
+  return { start, end: start + w }
+}
