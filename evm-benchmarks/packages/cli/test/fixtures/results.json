@@ -1,0 +1,237 @@
+[
+ {
+  "approach": {
+   "id": "a-fast",
+   "title": "a-fast",
+   "runsIn": [
+    "bun"
+   ],
+   "engine": "eng@1",
+   "tradeoffs": {
+    "evm": true,
+    "stateRoot": "none",
+    "log": "memory",
+    "sigVerify": "inline",
+    "execution": "serial"
+   }
+  },
+  "scenario": "s1",
+  "params": {
+   "n": 10000,
+   "senders": 100,
+   "batch": 1000,
+   "seed": "x"
+  },
+  "signingMs": 1,
+  "durationMs": 1000,
+  "tps": 900,
+  "latencyMs": {
+   "p50": 10,
+   "p99": 20,
+   "max": 30
+  },
+  "statuses": {
+   "success": 10000,
+   "reverted": 0,
+   "rejected": 0
+  },
+  "verified": true,
+  "verifyDetail": "",
+  "env": {
+   "runtime": "bun@1",
+   "os": "darwin-arm64",
+   "cpu": "Test CPU",
+   "cores": 8,
+   "engine": "eng@1",
+   "startedAt": "2026-11-19T10:00:00Z"
+  }
+ },
+ {
+  "approach": {
+   "id": "a-fast",
+   "title": "a-fast",
+   "runsIn": [
+    "bun"
+   ],
+   "engine": "eng@1",
+   "tradeoffs": {
+    "evm": true,
+    "stateRoot": "none",
+    "log": "memory",
+    "sigVerify": "inline",
+    "execution": "serial"
+   }
+  },
+  "scenario": "s1",
+  "params": {
+   "n": 10000,
+   "senders": 100,
+   "batch": 1000,
+   "seed": "x"
+  },
+  "signingMs": 1,
+  "durationMs": 1000,
+  "tps": 1100,
+  "latencyMs": {
+   "p50": 10,
+   "p99": 20,
+   "max": 30
+  },
+  "statuses": {
+   "success": 10000,
+   "reverted": 0,
+   "rejected": 0
+  },
+  "verified": true,
+  "verifyDetail": "",
+  "env": {
+   "runtime": "bun@1",
+   "os": "darwin-arm64",
+   "cpu": "Test CPU",
+   "cores": 8,
+   "engine": "eng@1",
+   "startedAt": "2026-11-19T10:00:00Z"
+  }
+ },
+ {
+  "approach": {
+   "id": "a-fast",
+   "title": "a-fast",
+   "runsIn": [
+    "bun"
+   ],
+   "engine": "eng@1",
+   "tradeoffs": {
+    "evm": true,
+    "stateRoot": "none",
+    "log": "memory",
+    "sigVerify": "inline",
+    "execution": "serial"
+   }
+  },
+  "scenario": "s1",
+  "params": {
+   "n": 10000,
+   "senders": 100,
+   "batch": 1000,
+   "seed": "x"
+  },
+  "signingMs": 1,
+  "durationMs": 1000,
+  "tps": 1000,
+  "latencyMs": {
+   "p50": 10,
+   "p99": 20,
+   "max": 30
+  },
+  "statuses": {
+   "success": 10000,
+   "reverted": 0,
+   "rejected": 0
+  },
+  "verified": true,
+  "verifyDetail": "",
+  "env": {
+   "runtime": "bun@1",
+   "os": "darwin-arm64",
+   "cpu": "Test CPU",
+   "cores": 8,
+   "engine": "eng@1",
+   "startedAt": "2026-11-19T11:00:00Z"
+  }
+ },
+ {
+  "approach": {
+   "id": "b-slow",
+   "title": "b-slow",
+   "runsIn": [
+    "bun"
+   ],
+   "engine": "eng@2",
+   "tradeoffs": {
+    "evm": true,
+    "stateRoot": "none",
+    "log": "memory",
+    "sigVerify": "inline",
+    "execution": "serial"
+   }
+  },
+  "scenario": "s1",
+  "params": {
+   "n": 10000,
+   "senders": 100,
+   "batch": 1000,
+   "seed": "x"
+  },
+  "signingMs": 1,
+  "durationMs": 1000,
+  "tps": null,
+  "latencyMs": {
+   "p50": 10,
+   "p99": 20,
+   "max": 30
+  },
+  "statuses": {
+   "success": 9995,
+   "reverted": 5,
+   "rejected": 0
+  },
+  "verified": false,
+  "verifyDetail": "",
+  "env": {
+   "runtime": "bun@1",
+   "os": "darwin-arm64",
+   "cpu": "Test CPU",
+   "cores": 8,
+   "engine": "eng@2",
+   "startedAt": "2026-11-19T10:00:00Z"
+  }
+ },
+ {
+  "approach": {
+   "id": "b-slow",
+   "title": "b-slow",
+   "runsIn": [
+    "bun"
+   ],
+   "engine": "eng@2",
+   "tradeoffs": {
+    "evm": true,
+    "stateRoot": "none",
+    "log": "memory",
+    "sigVerify": "inline",
+    "execution": "serial"
+   }
+  },
+  "scenario": "s1",
+  "params": {
+   "n": 10000,
+   "senders": 100,
+   "batch": 1000,
+   "seed": "x"
+  },
+  "signingMs": 1,
+  "durationMs": 1000,
+  "tps": null,
+  "latencyMs": {
+   "p50": 10,
+   "p99": 20,
+   "max": 30
+  },
+  "statuses": {
+   "success": 9995,
+   "reverted": 5,
+   "rejected": 0
+  },
+  "verified": false,
+  "verifyDetail": "",
+  "env": {
+   "runtime": "bun@1",
+   "os": "darwin-arm64",
+   "cpu": "Test CPU",
+   "cores": 8,
+   "engine": "eng@2",
+   "startedAt": "2026-11-19T10:00:00Z"
+  }
+ }
+]

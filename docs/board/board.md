@@ -43,13 +43,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
-### cli: report command generating REPORT.md
-- id: t-13
-- owner:
-- tags: cli, report
-- history:
-  - To Do @ 2026-11-19T09:38:00Z
-
 ### web: Studio (solc-js compile, deploy, call)
 - id: t-14
 - owner:
@@ -88,6 +81,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### cli: report command generating REPORT.md
+- id: t-13
+- owner: Claude
+- tags: cli, report
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Doing @ 2026-11-19T11:30:00Z by Claude
+  - Done @ 2026-11-19T11:45:00Z by Claude
 
 ### Approach 02: seq-memory
 - id: t-08
