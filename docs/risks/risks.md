@@ -232,3 +232,21 @@ The playground loads Inter, Space Grotesk and JetBrains Mono from Google Fonts t
 |---|---|---|
 | System fallback font stacks, so the UI stays fully usable without the fetch | Corrective | Strong |
 | Self-host the fonts if privacy or offline use becomes a requirement | Preventive | Partial |
+
+## R13 · Memory and CPU with many live chains in one tab
+- impact: 2
+- likelihood: 3
+- target: 1x3
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+Each running chain holds an engine, and sequencer chains start `hardwareConcurrency - 1` verify workers. Many chains open at once in one tab can exhaust memory or CPU and make the playground sluggish or crash the tab.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Cap: warn at 4 running chains, refuse at 8, never auto-close (ADR "Cap on running chains in one tab") | Preventive | Strong |
+| The chain list never opens a chain; it only reads the height of one already running | Preventive | Strong |
+| Delete a chain or reload the page to stop running chains | Corrective | Partial |

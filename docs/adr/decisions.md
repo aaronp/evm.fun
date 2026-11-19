@@ -480,3 +480,49 @@ Add richer block-explorer views to the Chains page without showing data the chai
 
 ## Decision
 Linear. Playground and benchmark chains are linear: one block per height, no forks, no finality. The two fork views in the mockups need fork data these chains do not produce, and would have needed invented fork rules and placeholder values. Fork views come back with snapshots, export/import and restore (explorer spec steps 2-3), when real fork data exists.
+
+---
+title: Cap on running chains in one tab (warn 4, refuse 8, no auto-close)
+status: accepted
+date: 2026-11-19
+tags: architecture, web
+decision: warn-refuse
+---
+
+## Goal
+Keep the playground responsive when many chains are open at once: each running chain holds an engine (and, for sequencer chains, verify workers).
+
+## People
+- Claude — author
+- Aaron — decider
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| safe | Tab stays responsive | 4 | Higher = memory and CPU stay bounded. |
+| control | User keeps control | 4 | Higher = nothing is closed or lost behind the user's back. |
+| effort | Low effort | 2 | Higher = less to build and maintain. |
+
+## Solution: none — No cap
+| criterion | score |
+| --- | --- |
+| safe | 1 |
+| control | 5 |
+| effort | 5 |
+
+## Solution: lru — Auto-close the least recently used chain
+| criterion | score |
+| --- | --- |
+| safe | 5 |
+| control | 1 |
+| effort | 2 |
+
+## Solution: warn-refuse — Warn at 4 running chains, refuse to open more at 8, never auto-close
+| criterion | score |
+| --- | --- |
+| safe | 4 |
+| control | 5 |
+| effort | 4 |
+
+## Decision
+Warn and refuse. A notice appears at 4 running chains (`LIVE_WARN`); opening or adding a ninth is refused with an error that tells the user to delete one or reload (`LIVE_MAX` = 8). Nothing is closed automatically, so a chain the user is looking at never disappears. The chain list only peeks at running chains and never opens one.
