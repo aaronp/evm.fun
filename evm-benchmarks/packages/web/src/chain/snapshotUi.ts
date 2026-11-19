@@ -14,8 +14,8 @@ export const dumpHeight = (dump: unknown): number => {
   return blocks.length ? Number(blocks[blocks.length - 1]!.number) : 0
 }
 
-/** Built here from the real file name and dump; a `source` inside the file is never trusted. */
-export const importSource = (fileName: string, dump: unknown): ChainSource => ({ kind: 'import', fileName, height: dumpHeight(dump) })
+/** Built here from the real file name (clamped to MAX_NAME so the chain re-exports) and dump; a `source` inside the file is never trusted. */
+export const importSource = (fileName: string, dump: unknown): ChainSource => ({ kind: 'import', fileName: fileName.slice(0, MAX_NAME), height: dumpHeight(dump) })
 
 export const sizeKb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024)).toLocaleString('en-US')} KB`
 

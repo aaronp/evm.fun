@@ -80,8 +80,9 @@ function decode(text: string, opts: { engine: string; crossEngineOk: boolean }):
   if (!isObj(d)) return bad('Missing or invalid dump: expected an object')
   const missing = DUMP_KEYS.filter(k => !(k in d))
   if (missing.length) return bad(`Invalid dump: missing ${missing.join(', ')}`)
-  for (const k of ['accounts', 'code', 'storage']) if (!isObj(d[k])) return bad(`Invalid dump: ${k} is not an object`)
-  for (const k of ['blocks', 'receipts', 'transactions']) if (!Array.isArray(d[k])) return bad(`Invalid dump: ${k} is not an array`)
+  // webevm 0.9.1: receipts and transactions are maps keyed by tx hash; only blocks is an array
+  for (const k of ['accounts', 'code', 'storage', 'receipts', 'transactions']) if (!isObj(d[k])) return bad(`Invalid dump: ${k} is not an object`)
+  if (!Array.isArray(d.blocks)) return bad('Invalid dump: blocks is not an array')
   if (d.chainId !== 31337) return bad(`Invalid dump: chainId ${show(d.chainId)} is not 31337`)
   if (f.source !== undefined) {
     const s = f.source
@@ -100,7 +101,11 @@ export const fileNameFor = (chainName: string, height: number): string => {
   return (slug || 'chain') + tail
 }
 
-export const defaultSnapshotName = (chainName: string, height: number): string => `${chainName} @ block ${height}`
+/** "<chain name> @ block <n>", with the chain-name part clamped so the whole name fits MAX_NAME. */
+export const defaultSnapshotName = (chainName: string, height: number): string => {
+  const tail = ` @ block ${height}`
+  return chainName.slice(0, MAX_NAME - tail.length) + tail
+}
 
 export const provenanceText = (src?: ChainSource): string | null =>
   !src ? null

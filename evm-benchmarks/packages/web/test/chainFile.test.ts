@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test'
 import { encodeChainFile, decodeChainFile, fileNameFor, defaultSnapshotName, provenanceText, CROSS_ENGINE_OK, type ChainFile } from '../src/chain/chainFile'
 
-const dump = { version: 1, chainId: 31337, accounts: { '0xa': { balance: 2n ** 64n, list: [1n, [2n ** 70n]] } }, code: {}, storage: {}, blocks: [], receipts: [], transactions: [] }
+const dump = { version: 1, chainId: 31337, accounts: { '0xa': { balance: 2n ** 64n, list: [1n, [2n ** 70n]] } }, code: {}, storage: {}, blocks: [], receipts: {}, transactions: {} }
 const file: ChainFile = {
   format: 'evm.fun/chain', version: 1, exportedAt: '2026-11-19T00:00:00Z', chainId: 31337, engine: 'webevm@0.9.1+revm',
   chain: { name: 'demo', type: 'plain' }, dump, contracts: [], source: { kind: 'import', fileName: 'x.evmfun.json', height: 3 },
@@ -90,7 +90,7 @@ test('dump field types are validated', () => {
   expect(d({ storage: null })).toMatch(/storage/)
   expect(d({ blocks: {} })).toMatch(/blocks is not an array/)
   expect(d({ receipts: 1 })).toMatch(/receipts/)
-  expect(d({ transactions: {} })).toMatch(/transactions/)
+  expect(d({ transactions: [] })).toMatch(/transactions is not an object/)
   expect(d({ chainId: 1 })).toMatch(/chainId/)
 })
 

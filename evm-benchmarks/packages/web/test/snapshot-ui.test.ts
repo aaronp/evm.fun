@@ -30,3 +30,7 @@ test('fork name keeps " (fork)" and fits the 200-character import cap', () => {
   expect(long.length).toBe(MAX_NAME)
   expect(long.endsWith(' (fork)')).toBe(true)
 })
+
+test('import source clamps the file name to the 200-character cap', () => {
+  expect(importSource('f'.repeat(300), { blocks: [] })).toMatchObject({ fileName: 'f'.repeat(MAX_NAME) })
+})

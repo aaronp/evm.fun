@@ -4,6 +4,8 @@ import { createKv } from '../src/store/kv'
 import { createChainRegistry, LIVE_MAX, type ChainType } from '../src/chain/registry'
 import { createSnapshotStore } from '../src/chain/snapshots'
 import { createContractsRegistry } from '../src/contracts/registry'
+import { decodeChainFile, encodeChainFile, MAX_NAME } from '../src/chain/chainFile'
+import { forkName } from '../src/chain/snapshotUi'
 
 const a = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 const B = '0x000000000000000000000000000000000000dEaD' as const
@@ -231,4 +233,25 @@ test('take: writes strictly and says why a failed snapshot write failed', async 
   await expect(createSnapshotStore(kv as any).take(h)).rejects.toThrow(/^Snapshot too large to save \(\d[\d,]* KB\)/)
   expect(strict).toBe(true)
   await h.dispose()
+})
+
+test('a 200-character chain name survives snapshot -> fork -> export -> import', async () => {
+  const e = env()
+  const reg = createChainRegistry(e.deps())
+  const name = 'n'.repeat(200)
+  const h = await reg.create(name, 'plain', [])
+  const s = await createSnapshotStore(e.kv).take(h) // default name "<chain> @ block 0"
+  expect(s.name.length).toBeLessThanOrEqual(MAX_NAME)
+  const f = await reg.createFrom(s.dump, {
+    name: forkName(s.name), type: 'plain', contracts: [],
+    source: { kind: 'snapshot', snapshotName: s.name, fromChainName: name, height: s.height },
+  })
+  const text = encodeChainFile({
+    format: 'evm.fun/chain', version: 1, exportedAt: new Date().toISOString(), chainId: 31337, engine: 'x',
+    chain: { name: f.info.name, type: f.info.type }, dump: s.dump, contracts: [], source: f.info.source,
+  })
+  const d = decodeChainFile(text, { engine: 'x', crossEngineOk: true })
+  expect(d.ok ? 'ok' : d.error).toBe('ok')
+  await h.dispose()
+  await f.dispose()
 })
