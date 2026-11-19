@@ -187,7 +187,7 @@ function Browse({ chain, view, q, win }: { chain: ChainHandle; view: ExplorerVie
 
 export function Explorer({ win }: { win: Win }) {
   const [view, setView] = useState<ExplorerView>(readView)
-  const { chain } = useApp()
+  const { chain, balanceTick } = useApp()
   const nav = useNavigate()
   const [q, setQ] = useState('')
   const [miss, setMiss] = useState(false)
@@ -198,7 +198,7 @@ export function Explorer({ win }: { win: Win }) {
       cs => setNames(new Map(cs.map(c => [c.address.toLowerCase(), c]))),
       () => setNames(new Map()),
     )
-  }, [chain])
+  }, [chain, balanceTick]) // balanceTick: a restore replaces the contract records
 
   if (!chain) return <div className="space-y-4"><p className={muted}>Select a chain first.</p></div>
 
