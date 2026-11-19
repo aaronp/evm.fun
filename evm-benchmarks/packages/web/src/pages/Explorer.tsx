@@ -167,7 +167,7 @@ function ActiveView({ view, chain, q, win, sel }: { view: ExplorerView; chain: C
   if (view === 'table') return <TableView chain={chain} q={q} headers={win.headers} total={win.total} loading={win.loading} selected={sel} />
   if (view === 'chain') return <ChainView chain={chain} q={q} selected={sel} total={win.total} loading={win.loading} />
   if (view === 'timeline') return <TimelineView q={q} headers={win.headers} total={win.total} selected={sel} loading={win.loading} />
-  return <FisheyeView q={q} headers={win.headers} total={win.total} selected={sel} loading={win.loading} />
+  return <FisheyeView q={q} headers={win.headers} selected={sel} loading={win.loading} />
 }
 type Win = { headers: Header[]; total: number; loading: boolean }
 

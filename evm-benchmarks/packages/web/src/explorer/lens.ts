@@ -27,11 +27,12 @@ export function lensFocus(n: number, p: number, mag: number, spread: number, len
   return (lo + hi) / 2
 }
 
-/** Tile look from the mockup: cross size 36..150 px by size/max; full and mid label thresholds per orientation; filled from 6 px. */
+/** Tile look from the mockup: cross size (H: tile height 36..150 px; V: tile width 160..440 px) by size/max; full and mid label thresholds per orientation; filled from 6 px. */
 export function tileStyle(size: number, maxSize: number, horizontal: boolean) {
+  const rel = maxSize > 0 ? size / maxSize : 0
   const full = size >= (horizontal ? 130 : 64)
   return {
-    cross: Math.round(36 + 114 * (maxSize > 0 ? size / maxSize : 0)),
+    cross: Math.round(horizontal ? 36 + 114 * rel : 160 + 280 * rel),
     full,
     mid: !full && size >= (horizontal ? 44 : 22),
     filled: size >= 6,

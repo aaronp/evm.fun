@@ -4,10 +4,15 @@ import { lensWindow, tileStyle } from '../src/explorer/lens'
 describe('tileStyle', () => {
   const M = 300
   const at = (s: number, h: boolean) => tileStyle(s, M, h)
-  test('cross size scales 36..150 with size/max', () => {
+  test('horizontal cross (tile height) scales 36..150 with size/max', () => {
     expect(at(0, true).cross).toBe(36)
+    expect(at(M / 2, true).cross).toBe(93)
     expect(at(M, true).cross).toBe(150)
-    expect(at(M / 2, false).cross).toBe(93)
+  })
+  test('vertical cross (tile width) scales 160..440 with size/max', () => {
+    expect(at(0, false).cross).toBe(160)
+    expect(at(M / 2, false).cross).toBe(300)
+    expect(at(M, false).cross).toBe(440)
   })
   test('filled from 6', () => {
     expect(at(5, true).filled).toBe(false)

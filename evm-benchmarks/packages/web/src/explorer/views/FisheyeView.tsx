@@ -13,6 +13,7 @@ interface Opts { orient: Orient; order: Order; rest: Rest; mag: number; spread: 
 
 const KEY = 'evmb.fisheye'
 const DEFAULTS: Opts = { orient: 'horizontal', order: 'newest', rest: 'newest', mag: LENS_MAG, spread: LENS_SPREAD, len: 860 }
+const short = (h: string) => `${h.slice(0, 8)}…${h.slice(-4)}` // mockup C.short
 const STEP = 30 // Older / Newer step, in blocks
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x))
 const num = (v: unknown, lo: number, hi: number, d: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : d)
@@ -57,7 +58,7 @@ function Controls({ o, set }: { o: Opts; set(p: Partial<Opts>): void }) {
 }
 
 /** A 36-block lens over the window, magnified around the pointer (or the newest/selected block at rest), as in the mockup. */
-export function FisheyeView({ q, headers, selected, loading }: { q: string; headers: Header[]; total: number; selected?: number; loading: boolean }) {
+export function FisheyeView({ q, headers, selected, loading }: { q: string; headers: Header[]; selected?: number; loading: boolean }) {
   const nav = useNavigate()
   const [o, setO] = useState(load)
   const set = (p: Partial<Opts>) => setO(prev => {
@@ -151,15 +152,16 @@ export function FisheyeView({ q, headers, selected, loading }: { q: string; head
               const ul = filtering && hit ? 'underline' : ''
               return (
                 <div key={b.number} className="box-border flex flex-none justify-center"
-                  style={H ? { width: size, padding: `${Math.round((150 - t.cross) / 2)}px ${t.filled ? 1 : 0}px 0` } : { height: size, padding: `${t.filled ? 1 : 0}px 0` }}>
+                  style={H ? { width: size, padding: `${Math.round((150 - t.cross) / 2)}px ${t.filled ? 1 : 0}px 0` } : { height: size, maxWidth: 440, padding: `${t.filled ? 1 : 0}px 0` }}>
                   <div id={`fe-${b.number}`} role="option" aria-selected={isSel} title={`Block ${b.number}, ${b.hash.slice(0, 12)}`} onClick={() => go(i)}
                     style={H ? { width: '100%', height: t.cross, padding: t.full || t.mid ? 6 : 0 } : { width: t.cross, maxWidth: '100%', height: '100%', padding: t.full || t.mid ? '0 12px' : 0 }}
                     className={`box-border flex cursor-pointer flex-col justify-center gap-0.5 overflow-hidden text-left text-[13px] leading-[18px] text-on-accent ${t.filled ? 'rounded-md bg-accent' : 'rounded-full bg-line-strong'} ${isSel ? 'outline-2 outline-offset-2 outline-text' : ''} ${hit ? '' : 'opacity-30'}`}>
-                    {t.full && <>
-                      <span className={`text-[15px] font-semibold ${ul}`}>#{b.number}</span>
-                      <span className={`font-mono text-xs ${ul}`}>{b.hash.slice(2, 8)}</span>
-                    </>}
-                    {t.mid && <span className={`font-semibold ${ul}`}>#{b.number}</span>}
+                    {(t.full || t.mid) && (
+                      <span className={H ? 'flex flex-col gap-0.5' : 'flex items-center gap-2.5'}>
+                        <span className={`font-semibold ${t.full ? 'text-[15px]' : ''} ${ul}`}>#{b.number}</span>
+                        <span className={`font-mono ${t.mid && H ? 'text-[11px]' : 'text-xs'} ${ul}`}>{t.full ? short(b.hash) : b.hash.slice(2, 8)}</span>
+                      </span>
+                    )}
                     {!t.full && !t.mid && <span className="sr-only">#{b.number}</span>}
                     {isSel && <span className="sr-only"> (selected)</span>}
                     {filtering && !hit && <span className="sr-only"> (does not match filter)</span>}
