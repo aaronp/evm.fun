@@ -74,13 +74,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 
 
-### web: Explorer page
-- id: t-25
-- owner:
-- tags: web, plan3
-- history:
-  - To Do @ 2026-11-19T12:33:12Z
-
 ### web: Benchmark page
 - id: t-26
 - owner:
@@ -98,6 +91,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### web: Explorer page
+- id: t-25
+- owner: Claude
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+  - Doing @ 2026-11-19T13:20:24Z by Claude
+  - Done @ 2026-11-19T13:26:59Z by Claude
 
 ### web: Transact page
 - id: t-24

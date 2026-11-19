@@ -6,10 +6,11 @@ import { Accounts } from './pages/Accounts'
 import { Chains } from './pages/Chains'
 import { Studio } from './pages/Studio'
 import { Transact } from './pages/Transact'
+import { Explorer } from './pages/Explorer'
 
 const pages = ['Accounts', 'Chains', 'Studio', 'Transact', 'Explorer', 'Benchmark']
 
-const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact /> }
+const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Explorer: <Explorer /> }
 const Stub = ({ name }: { name: string }) => <h1 className="text-xl font-semibold">{name}</h1>
 
 export function App() {
@@ -35,7 +36,7 @@ export function App() {
           <StorageNotice />
           <Routes>
             {pages.map(p => (
-              <Route key={p} path={`/${p.toLowerCase()}`} element={real[p] ?? <Stub name={p} />} />
+              <Route key={p} path={p === 'Explorer' ? '/explorer/*' : `/${p.toLowerCase()}`} element={real[p] ?? <Stub name={p} />} />
             ))}
             <Route path="*" element={<Navigate to="/accounts" replace />} />
           </Routes>
