@@ -277,6 +277,14 @@ Fastest EVM that stays Solidity-compatible and runs in the browser.
 ## Decision
 Open. Settled by spike t-01 and approaches 02 vs 05.
 
+## Notes
+Spike t-01 (`evm-benchmarks/spike/webevm.test.ts`, webevm 0.9.1, Bun 1.3.13), all confirmed:
+- `senderMode: 'trusted'` works: `evm_sendRawTransactionSyncAs [raw, from]` returns a receipt with status 0x1.
+- `miningConfig: {type: 'manual'}` queues transactions (receipt null) until `node.mine()`. 3 queued transfers landed in one block.
+- `blockGasLimit: 300_000_000n` mined 1000 transfers in a single block, all status 0x1.
+- revm loads in Bun. The option is `engine: await createRevmEngine({wasm})` (an object on `createNode`), not `createEngine` (that is only for `webevm/worker-host` `exposeNode`). `wasm` = bytes of `require.resolve('revm-wasm/revm.wasm')`; `node.engine.id` is `revm-wasm`.
+- Throughput, 2000 single-sender transfers, default engine: recover+auto about 1700 tx/s; trusted+manual(500) about 16900 tx/s (about 10x).
+
 ---
 title: State root per block, deferred, or none
 status: proposed

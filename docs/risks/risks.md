@@ -5,7 +5,7 @@ as_at: 2026-11-19
 
 ## R01 · webevm lacks a feature we rely on
 - impact: 4
-- likelihood: 3
+- likelihood: 1
 - target: 2x2
 - appetite: 6
 - category: Technology

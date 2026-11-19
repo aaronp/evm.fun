@@ -1,0 +1,18 @@
+{
+  "name": "evm-benchmarks",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "approaches/*"],
+  "scripts": {
+    "test": "bun test",
+    "bench": "bun packages/cli/src/main.ts bench",
+    "report": "bun packages/cli/src/main.ts report"
+  },
+  "dependencies": {
+    "viem": "^2.58.1",
+    "webevm": "0.9.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4"
+  }
+}

@@ -6,24 +6,6 @@ theme: paper
 
 ## To Do
 
-### Spike: confirm webevm trusted sender, manual mining, revm
-- id: t-01
-- owner:
-- tags: spike, engine
-- history:
-  - To Do @ 2026-11-19T09:38:00Z
-
-```md
-Confirm the features approaches 02-05 rely on. Record outcome in ADR "Which EVM engine backs the sequencer" and risk R01.
-```
-
-### Scaffold evm-benchmarks Bun workspace
-- id: t-02
-- owner:
-- tags: infra
-- history:
-  - To Do @ 2026-11-19T09:38:00Z
-
 ### contracts: MintableToken + AtomicSwap compiled with solc-js
 - id: t-03
 - owner:
@@ -167,3 +149,25 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ```md
 evm-benchmarks/docs/superpowers/specs/2026-11-19-evm-benchmarks-design.md
 ```
+
+### Spike: confirm webevm trusted sender, manual mining, revm
+- id: t-01
+- owner: Claude
+- tags: spike, engine
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Doing @ 2026-11-19T09:58:20Z by Claude
+  - Done @ 2026-11-19T09:58:20Z by Claude
+
+```md
+Confirm the features approaches 02-05 rely on. Record outcome in ADR "Which EVM engine backs the sequencer" and risk R01.
+```
+
+### Scaffold evm-benchmarks Bun workspace
+- id: t-02
+- owner: Claude
+- tags: infra
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Doing @ 2026-11-19T09:58:20Z by Claude
+  - Done @ 2026-11-19T09:58:20Z by Claude
