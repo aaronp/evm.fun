@@ -9,9 +9,14 @@ const MAX_TX_GAS = 3_000_000n; // largest fixed gas limit in the benchmark (depl
 
 const factory: ApproachFactory = (opts = {}) => {
   const cores = (globalThis as any).navigator?.hardwareConcurrency ?? 2;
-  const workers = Math.max(1, Number(opts.workers ?? cores - 1));
-  const block = Number(opts.block ?? 500);
-  const chunk = Number(opts.chunk ?? 250);
+  const posInt = (k: string, d: number) => {
+    const v = Number(opts[k] ?? d);
+    if (!Number.isInteger(v) || v < 1) throw new Error(`02-seq-memory: ${k} must be a positive integer, got ${opts[k]}`);
+    return v;
+  };
+  const workers = posInt('workers', Math.max(1, cores - 1));
+  const block = posInt('block', 500);
+  const chunk = posInt('chunk', 250);
 
   // all per-chain state; built in setup() so the factory allocates nothing
   let run:

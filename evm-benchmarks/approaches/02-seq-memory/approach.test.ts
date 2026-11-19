@@ -92,3 +92,9 @@ test('dispose then reuse', async () => {
   expect(made.length).toBe(4);
   expect(made.every((w) => w.terminated)).toBe(true);
 }, 60_000);
+
+test('rejects non-positive or non-integer options', () => {
+  for (const [k, v] of [['chunk', '0'], ['block', '-5'], ['workers', '1.5'], ['block', 'abc']])
+    expect(() => create({[k!]: v!})).toThrow(`02-seq-memory: ${k} must be a positive integer, got ${v}`);
+  expect(() => create({workers: '2', block: '10', chunk: '5'})).not.toThrow();
+});
