@@ -48,6 +48,7 @@ export function AppState({ children }: { children: ReactNode }) {
   useEffect(() => { if (chain) registry.recordHeight(chain.info.id).catch(() => {}) }, [chain, balanceTick])
 
   useEffect(() => {
+    registry.pruneSnapshots().catch(() => {}) // once per page load, before any ephemeral chain exists
     refresh().then(async () => {
       const id = read()
       if (id && (await registry.list()).some(c => c.id === id)) await selectChain(id)

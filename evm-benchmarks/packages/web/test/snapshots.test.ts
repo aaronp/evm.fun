@@ -193,3 +193,24 @@ test('createFrom at the cap throws and builds nothing', async () => {
   expect(e.stores.size).toBe(LIVE_MAX)
   for (const c of await reg.list()) await reg.peek(c.id)?.dispose()
 })
+
+test('pruneSnapshots drops snapshots of chains that are gone (an unsaved benchmark chain after reload)', async () => {
+  const e = env()
+  const reg = createChainRegistry(e.deps())
+  const kept = await reg.create('kept', 'plain', [])
+  const eph = await reg.create('bench', 'plain', [])
+  await e.kv.del('chains', eph.info.id) // as if it had been added with addEphemeral: never stored
+  eph.info.ephemeral = true
+  const snaps = createSnapshotStore(e.kv)
+  const s1 = await snaps.take(kept)
+  const s2 = await snaps.take(eph)
+  // while the ephemeral chain is live its snapshot stays
+  await reg.pruneSnapshots()
+  expect((await snaps.list(eph.info.id)).map(x => x.id)).toEqual([s2.id])
+  await kept.dispose()
+  await eph.dispose()
+  // "reload": a new registry over the same kv knows only stored chains
+  await createChainRegistry(e.deps()).pruneSnapshots()
+  expect((await snaps.list(kept.info.id)).map(x => x.id)).toEqual([s1.id])
+  expect(await snaps.get(s2.id)).toBeUndefined()
+})

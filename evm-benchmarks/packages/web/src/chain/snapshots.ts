@@ -34,5 +34,9 @@ export function createSnapshotStore(kv: Kv) {
     async removeForChain(chainId: string) {
       for (const s of await this.list(chainId)) await kv.del(STORE, s.id)
     },
+    /** Delete snapshots whose chain is not in `knownIds` (an unsaved benchmark chain is gone after a reload). */
+    async pruneOrphans(knownIds: Set<string>) {
+      for (const s of await kv.list<Snapshot>(STORE)) if (!knownIds.has(s.chainId)) await kv.del(STORE, s.id)
+    },
   }
 }

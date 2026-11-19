@@ -122,6 +122,10 @@ export function createChainRegistry(deps: {
       await snapshots.removeForChain(id)
       await deps.purge?.(id)
     },
+    /** Delete snapshots of chains that are neither stored nor live. */
+    async pruneSnapshots() {
+      await snapshots.pruneOrphans(new Set((await self.list()).map(c => c.id)))
+    },
     addEphemeral(handle: ChainHandle) {
       assertRoom()
       handle.info.ephemeral = true
