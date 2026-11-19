@@ -2,6 +2,9 @@ import type { Address, ApproachHost } from '@evmb/core'
 import plain from '@evmb/approach-01-webevm-baseline'
 import sequencer from '@evmb/approach-02-seq-memory'
 import type { Kv } from '../store/kv'
+import { createContractsRegistry } from '../contracts/registry'
+import type { ChainSource, ContractRecord } from './chainFile'
+import { createSnapshotStore, type Snapshot } from './snapshots'
 import { makeHandle, type ChainHandle, type ChainInfo, type ChainType } from './handle'
 
 export type { ChainHandle, ChainInfo, ChainType }
@@ -25,6 +28,8 @@ export function createChainRegistry(deps: {
   const assertRoom = () => {
     if (live.size >= LIVE_MAX) throw new Error(`${LIVE_MAX} chains are already running in this tab — delete one or reload the page`)
   }
+  const snapshots = createSnapshotStore(deps.kv)
+  const contracts = createContractsRegistry(deps.kv)
   const track = (h: ChainHandle) => (live.set(h.info.id, h), h)
 
   return {
@@ -53,6 +58,40 @@ export function createChainRegistry(deps: {
       await deps.kv.set(STORE, info.id, info)
       return track(h)
     },
+    /**
+     * Open `dump` as a new saved chain. Atomic: on any failure no kv row, contracts, persisted db or live handle remains.
+     * `source` is trusted as given, so an import caller must build it from the real file name and height,
+     * never from a `source` inside the file.
+     */
+    async createFrom(dump: unknown, o: { name: string; type: ChainType; contracts: ContractRecord[]; source: ChainSource }): Promise<ChainHandle> {
+      assertRoom()
+      const info: ChainInfo = { id: crypto.randomUUID(), name: o.name, type: o.type, createdAt: new Date().toISOString(), source: o.source }
+      const h = build(info)
+      try {
+        await h.approach.setup({ prefund: {}, dump })
+        info.lastHeight = Number(BigInt((await h.request('eth_blockNumber', [])) as string))
+        await contracts.replace(info.id, o.contracts)
+        await deps.kv.set(STORE, info.id, info)
+      } catch (e) {
+        await h.dispose().catch(() => {})
+        await deps.kv.del(STORE, info.id).catch(() => {})
+        await contracts.replace(info.id, []).catch(() => {})
+        await deps.purge?.(info.id).catch(() => {})
+        throw e
+      }
+      return track(h)
+    },
+    /** Rewind chain `id` to `snap`. Refused while txs are pending (nothing saved or lost). */
+    async restoreTo(id: string, snap: Snapshot, o: { saveFirst: boolean }): Promise<{ saved?: Snapshot }> {
+      const h = await this.open(id)
+      const n = h.approach.pending?.() ?? 0
+      if (n > 0) throw new Error(`Wait for ${n} pending transactions to settle`)
+      const saved = o.saveFirst ? await snapshots.take(h) : undefined
+      await h.approach.restore!(snap.dump)
+      await contracts.replace(id, snap.contracts)
+      await this.recordHeight(id)
+      return { saved }
+    },
     open(id: string): Promise<ChainHandle> {
       const cached = live.get(id)
       if (cached) return Promise.resolve(cached)
@@ -79,6 +118,7 @@ export function createChainRegistry(deps: {
       await live.get(id)?.dispose()
       live.delete(id)
       await deps.kv.del(STORE, id)
+      await snapshots.removeForChain(id)
       await deps.purge?.(id)
     },
     addEphemeral(handle: ChainHandle) {

@@ -1,6 +1,8 @@
 import type { DeployedContract as ContractRecord } from '../contracts/registry'
 import type { ChainType } from './handle'
 
+export type { ContractRecord }
+
 export type ChainSource =
   | { kind: 'snapshot'; snapshotName: string; fromChainName: string; height: number }
   | { kind: 'import'; fileName: string; height: number }

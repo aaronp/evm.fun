@@ -1,4 +1,4 @@
-import { kv } from '../store/kv'
+import { kv, type Kv } from '../store/kv'
 
 export type DeployedContract = {
   address: `0x${string}`
@@ -13,8 +13,15 @@ type Row = DeployedContract & { chainId: string }
 const store = (chainId: string) => `contracts:${chainId}`
 const key = (address: string) => address.toLowerCase()
 
-export const contractsRegistry = {
+export const createContractsRegistry = (kv: Kv) => ({
   list: (chainId: string) => kv.list<Row>(store(chainId)).then(rows => rows as DeployedContract[]),
   add: (chainId: string, c: DeployedContract) => kv.set(store(chainId), key(c.address), { ...c, chainId }),
   remove: (chainId: string, address: string) => kv.del(store(chainId), key(address)),
-}
+  /** Make the chain's records exactly `records`. */
+  async replace(chainId: string, records: DeployedContract[]) {
+    for (const r of await kv.list<Row>(store(chainId))) await kv.del(store(chainId), key(r.address))
+    for (const r of records) await kv.set(store(chainId), key(r.address), { ...r, chainId })
+  },
+})
+
+export const contractsRegistry = createContractsRegistry(kv)
