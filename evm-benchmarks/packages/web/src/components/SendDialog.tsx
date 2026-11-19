@@ -35,6 +35,8 @@ export function SendDialog({ dialogRef, chain, asset, from, balance, accounts, o
     if (!isAddress(dest)) return setErr('Recipient is not a valid address (check the checksum).')
     const amt = parseAmount(amount, asset.decimals)
     if ('error' in amt) return setErr(amt.error)
+    if (amt.ok === 0n) return setErr('Amount must be more than 0')
+    if (balance !== undefined && amt.ok > balance) return setErr('More than the balance')
     if (!from) return setErr('Select an account first.')
     setBusy(true)
     try {
@@ -50,7 +52,7 @@ export function SendDialog({ dialogRef, chain, asset, from, balance, accounts, o
   }
 
   return (
-    <dialog ref={dialogRef} onClose={onClose} aria-labelledby="send-title" className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-line bg-panel p-5 text-text backdrop:bg-bg/70">
+    <dialog ref={dialogRef} onClose={onClose} onCancel={e => busy && e.preventDefault()} aria-labelledby="send-title" className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-line bg-panel p-5 text-text backdrop:bg-bg/70">
       <form method="dialog" className="space-y-3" onSubmit={e => { e.preventDefault(); send() }}>
         <h2 id="send-title" className="font-display text-base font-semibold">Send {asset.symbol}</h2>
         <p className="text-sm text-muted">
@@ -71,7 +73,7 @@ export function SendDialog({ dialogRef, chain, asset, from, balance, accounts, o
           <Input aria-label="Amount" className="font-mono" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} />
         </label>
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={() => dialogRef.current?.close()}>Cancel</Button>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => dialogRef.current?.close()}>Cancel</Button>
           <Button type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send'}</Button>
         </div>
       </form>

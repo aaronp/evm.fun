@@ -19,9 +19,9 @@ import type { CompileResult } from '../solc/compile'
 import { encodeArgs } from '../abi/args'
 import { signAndSend } from '../tx/send'
 import { ADDRESS_LIST } from '../components/AddressList'
-import { assetId, isErc20Abi, isMintable, readTokenInfo } from '@evmb/assets'
+import { isErc20Abi, isMintable, readTokenInfo } from '@evmb/assets'
 import { assetRegistry } from '../assets/registry'
-import { MAX_NAME } from '../chain/chainFile'
+import { tokenAsset } from '../assets/build'
 import { contractsRegistry, type DeployedContract } from '../contracts/registry'
 
 // Only var(--c-…) strings: a theme switch recolours the editor live, no remount.
@@ -151,10 +151,7 @@ export function Studio() {
       if (!chain.info.ephemeral && isErc20Abi(contract.abi)) {
         // the deploy succeeded; a token that can't be read just isn't listed as an asset
         await readTokenInfo(chain.request, r.contractAddress).then(
-          t => assetRegistry.add({
-            id: assetId(chain.info.id, r.contractAddress!), chainId: chain.info.id, kind: 'erc20', address: r.contractAddress,
-            symbol: t.symbol.slice(0, MAX_NAME), name: t.name.slice(0, MAX_NAME), decimals: t.decimals, origin: 'deployed', issuer: from.address, mintable: isMintable(contract.abi), addedAt: new Date().toISOString(),
-          }),
+          t => assetRegistry.add(tokenAsset(chain.info.id, r.contractAddress!, t, { origin: 'deployed', issuer: from.address, mintable: isMintable(contract.abi) })),
         ).catch(() => {})
       }
       setDeployed(await contractsRegistry.list(chain.info.id))

@@ -28,11 +28,11 @@ export function formatAmount(v: bigint, decimals: number, dp = decimals): string
 }
 
 export function parseAmount(text: string, decimals: number): { ok: bigint } | { error: string } {
-  const m = /^(\d+)(?:\.(\d+))?$/.exec(text.trim())
+  const m = /^(?:(\d+)(?:\.(\d+))?|\.(\d+))$/.exec(text.trim())
   if (!m) return { error: 'Enter a positive number.' }
-  const frac = m[2] ?? ''
+  const frac = m[2] ?? m[3] ?? ''
   if (frac.length > decimals) return { error: `At most ${decimals} digits after the point.` }
-  return { ok: BigInt(m[1]! + frac.padEnd(decimals, '0')) }
+  return { ok: BigInt((m[1] ?? '0') + frac.padEnd(decimals, '0')) }
 }
 
 /** Percentage of the total per value, on bigints (basis points, so no float drift on large balances). */

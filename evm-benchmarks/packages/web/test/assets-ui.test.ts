@@ -23,6 +23,7 @@ test('formatAmount', () => {
 test('parseAmount', () => {
   expect(parseAmount('1.5', 2)).toEqual({ ok: 150n })
   expect(parseAmount(' 7 ', 2)).toEqual({ ok: 700n })
+  expect(parseAmount('.5', 2)).toEqual({ ok: 50n })
   for (const bad of ['1.555', '-1', 'abc', '', '1.']) expect('error' in parseAmount(bad, 2)).toBe(true)
 })
 test('shares', () => {
