@@ -46,9 +46,23 @@ const factory: ApproachFactory = (_opts, host = {}) => {
       tradeoffs: {evm: true, stateRoot: 'none', log: 'memory', sigVerify: 'inline', execution: 'serial', notes: 'one tx per block'},
     },
 
-    async setup({prefund}) {
-      await start(persistence && fresh(persistence), prefund);
+    async setup({prefund, dump}) {
+      await start(persistence && fresh(persistence), dump ? undefined : prefund);
+      if (dump) await approach.restore!(dump);
     },
+
+    async snapshot() {
+      return node!.dumpState();
+    },
+
+    async restore(dump) {
+      await node!.loadState(dump as any);
+      receipts = new Map(); // blocks after the dump are gone, and so are their receipts
+      waiters = [];
+      if (persistence) await persistence.save(await node!.dumpState());
+    },
+
+    pending: () => 0,
 
     async open() {
       if (!persistence || !(await persistence.load())) throw new Error('01-webevm-baseline: nothing persisted to open');

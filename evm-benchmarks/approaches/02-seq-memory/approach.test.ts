@@ -161,3 +161,107 @@ test('setup() makes the reset durable before any tx', async () => {
   expect(await rpc(three, 'eth_blockNumber')).toBe('0x0');
   await three.dispose();
 });
+
+// --- snapshot / restore / setup({dump}) ---
+const snapRaws = async (from: number, n: number) => Promise.all(Array.from({length: n}, (_, i) => sign(from + i)));
+const settle = async (ap: ReturnType<typeof create>, raws: Hex[]) => {
+  await ap.submit(raws);
+  return ap.awaitSettled(raws.map((r) => keccak256(r)));
+};
+const memPersist = () => {
+  let saved: any = null;
+  return {load: async () => saved, save: async (s: any) => void (saved = structuredClone(s))};
+};
+
+test('snapshot -> more txs -> restore rewinds head, balances and receipts', async () => {
+  const ap = create(opts);
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  await settle(ap, await snapRaws(0, 3));
+  const head = await ap.request!('eth_blockNumber');
+  const bal = await ap.getBalance(B);
+  const dump = await ap.snapshot!();
+  const later = await snapRaws(3, 2);
+  await settle(ap, later);
+  expect(await ap.getBalance(B)).toBe(bal + 2n);
+  await ap.restore!(dump);
+  expect(await ap.request!('eth_blockNumber')).toBe(head);
+  expect(await ap.getBalance(B)).toBe(bal);
+  // own receipts for vanished blocks are gone: the same txs settle afresh and the node still works
+  expect(await ap.request!('eth_getTransactionReceipt', [keccak256(later[0]!)])).toBeNull();
+  const again = await settle(ap, later);
+  expect(again.map((r) => r.status)).toEqual(['success', 'success']);
+  expect(await ap.getBalance(B)).toBe(bal + 2n);
+  await ap.dispose();
+});
+
+test('restore drops the approach receipts for blocks that no longer exist', async () => {
+  const ap = create(opts);
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  await settle(ap, await snapRaws(0, 1));
+  const dump = await ap.snapshot!();
+  const later = (await snapRaws(1, 1))[0]!;
+  await settle(ap, [later]);
+  await ap.restore!(dump);
+  // if the stale receipt survived, this would resolve at once with the old receipt; the node says the tx is unknown
+  let settled = false;
+  void ap.awaitSettled([keccak256(later)]).then(() => (settled = true));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(settled).toBe(false);
+  await ap.submit([later]);
+  await ap.awaitSettled([keccak256(later)]);
+  await ap.dispose();
+});
+
+test('setup({dump}) on a new instance gives the same head, hash and balances', async () => {
+  const one = create(opts);
+  await one.setup({prefund: {[a.address]: 10n ** 21n}});
+  await settle(one, await snapRaws(0, 3));
+  const dump = await one.snapshot!();
+  const head = await one.request!('eth_blockNumber');
+  const block = await one.request!('eth_getBlockByNumber', [head, false]);
+  const bal = await Promise.all([a.address, B].map((x) => one.getBalance(x)));
+  await one.dispose();
+  const two = create(opts);
+  await two.setup({prefund: {}, dump});
+  expect(await two.request!('eth_blockNumber')).toBe(head);
+  expect(((await two.request!('eth_getBlockByNumber', [head, false])) as any).hash).toBe((block as any).hash);
+  expect(await Promise.all([a.address, B].map((x) => two.getBalance(x)))).toEqual(bal);
+  await two.dispose();
+});
+
+test('persistence: setup({dump}) and restore are durable across open()', async () => {
+  const host = {persistence: memPersist()};
+  const one = create(opts, host);
+  await one.setup({prefund: {[a.address]: 10n ** 21n}});
+  await settle(one, await snapRaws(0, 3));
+  const dump = await one.snapshot!();
+  const head = await one.request!('eth_blockNumber');
+  await settle(one, await snapRaws(3, 2));
+  await one.restore!(dump);
+  await one.dispose();
+  const two = create(opts, host);
+  await two.open!();
+  expect(await two.request!('eth_blockNumber')).toBe(head);
+  await two.dispose();
+
+  const host2 = {persistence: memPersist()};
+  const three = create(opts, host2);
+  await three.setup({prefund: {}, dump});
+  await three.dispose();
+  const four = create(opts, host2);
+  await four.open!();
+  expect(await four.request!('eth_blockNumber')).toBe(head);
+  await four.dispose();
+});
+
+test('pending() counts txs between submit and settled, then 0', async () => {
+  const ap = create(opts);
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  expect(ap.pending!()).toBe(0);
+  const raws = await snapRaws(0, 6);
+  await ap.submit(raws);
+  expect(ap.pending!()).toBe(6);
+  await ap.awaitSettled(raws.map((r) => keccak256(r)));
+  expect(ap.pending!()).toBe(0);
+  await ap.dispose();
+});

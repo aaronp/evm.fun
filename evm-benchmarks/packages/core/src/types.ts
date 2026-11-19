@@ -28,10 +28,14 @@ export interface Receipt {
   error?: string;
 }
 
+/** webevm dumpState() result, opaque to core */
+export type ChainDump = unknown;
+
 export interface Approach {
   meta: ApproachMeta;
   /** fresh chain each call */
-  setup(opts: {prefund: Record<Address, bigint>}): Promise<void>;
+  /** dump given: load it instead of applying prefund, and persist before returning */
+  setup(opts: {prefund: Record<Address, bigint>; dump?: ChainDump}): Promise<void>;
   submit(rawTxs: Hex[]): Promise<void>;
   /** same order as hashes */
   awaitSettled(hashes: Hex[]): Promise<Receipt[]>;
@@ -43,6 +47,12 @@ export interface Approach {
   open?(): Promise<void>;
   /** EIP-1193 read pass-through to the node */
   request?(method: string, params?: unknown[]): Promise<unknown>;
+  /** webevm dumpState() of the live node */
+  snapshot?(): Promise<ChainDump>;
+  /** loadState into the live node (rewinds it); persists if persistence given */
+  restore?(dump: ChainDump): Promise<void>;
+  /** txs submitted but not yet settled */
+  pending?(): number;
   dispose(): Promise<void>;
 }
 

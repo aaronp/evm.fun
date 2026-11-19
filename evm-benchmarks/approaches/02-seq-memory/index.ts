@@ -29,6 +29,8 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
   let receipts = new Map<Hex, Receipt>();
   let waiters: (() => void)[] = [];
   let fatal: Error | undefined;
+  let submitted = 0; // txs handed to submit(); pending = submitted - settled
+  let settled = 0;
   let executeMs = 0;
   let mineMs = 0;
 
@@ -39,6 +41,7 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
   };
   const record = (r: Receipt) => {
     receipts.set(r.hash, r);
+    settled++;
     notify();
   };
   const fail = (e: Error) => {
@@ -95,6 +98,7 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
     receipts = new Map();
     waiters = [];
     fatal = undefined;
+    submitted = settled = 0;
     executeMs = mineMs = 0;
     const node = await createNode({
       chainId: 31337,
@@ -134,9 +138,24 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
       tradeoffs: {evm: true, stateRoot: 'none', log: 'memory', sigVerify: 'parallel-pre', execution: 'serial'},
     },
 
-    async setup({prefund}) {
-      await start(persistence && fresh(persistence), prefund);
+    async setup({prefund, dump}) {
+      await start(persistence && fresh(persistence), dump ? undefined : prefund);
+      if (dump) await approach.restore!(dump);
     },
+
+    async snapshot() {
+      return run!.node.dumpState();
+    },
+
+    // ponytail: assumes idle (callers refuse while pending() > 0); in-flight txs would be rejected or lost
+    async restore(dump) {
+      await run!.node.loadState(dump as any);
+      receipts = new Map(); // blocks after the dump are gone, and so are their receipts
+      notify();
+      if (persistence) await persistence.save(await run!.node.dumpState());
+    },
+
+    pending: () => submitted - settled,
 
     async open() {
       if (!persistence || !(await persistence.load())) throw new Error('02-seq-memory: nothing persisted to open');
@@ -148,6 +167,7 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
     },
 
     async submit(rawTxs) {
+      submitted += rawTxs.length;
       run!.seq.submit(rawTxs);
     },
 
