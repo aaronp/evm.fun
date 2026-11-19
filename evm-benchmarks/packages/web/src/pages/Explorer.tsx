@@ -164,7 +164,7 @@ export type ExplorerView = 'table' | 'chain' | 'timeline' | 'fisheye'
 /** Table is built; the other views arrive in later tasks. */
 function ActiveView({ view, chain, q, win, sel }: { view: ExplorerView; chain: ChainHandle; q: string; win: Win; sel?: number }) {
   if (view === 'table') return <TableView chain={chain} q={q} headers={win.headers} total={win.total} loading={win.loading} />
-  if (view === 'chain') return <ChainView chain={chain} q={q} selected={sel} total={win.total} />
+  if (view === 'chain') return <ChainView chain={chain} q={q} selected={sel} total={win.total} loading={win.loading} />
   return <Panel title={view[0]!.toUpperCase() + view.slice(1)}><p className={`${muted} p-4`}>Coming in this plan</p></Panel>
 }
 type Win = { headers: Header[]; total: number; loading: boolean }
