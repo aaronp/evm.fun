@@ -78,9 +78,74 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
+### Playground core and approach extensions
+- id: t-20
+- owner:
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+
+### web: scaffold and stores
+- id: t-21
+- owner:
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+
+### web: chains and accounts pages
+- id: t-22
+- owner:
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+
+### web: solc worker and Studio
+- id: t-23
+- owner:
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+
+### web: Transact page
+- id: t-24
+- owner:
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+
+### web: Explorer page
+- id: t-25
+- owner:
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+
+### web: Benchmark page
+- id: t-26
+- owner:
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+
+### web: browser smoke test and docs
+- id: t-27
+- owner:
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+
 ## Doing
 
 ## Done
+
+### Playground spike: persistence and revm
+- id: t-19
+- owner: Claude
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+  - Doing @ 2026-11-19T12:34:25Z by Claude
+  - Done @ 2026-11-19T12:34:25Z by Claude
 
 ### cli: report command generating REPORT.md
 - id: t-13

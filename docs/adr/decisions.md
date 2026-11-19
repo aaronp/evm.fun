@@ -311,3 +311,44 @@ Know what a verifiable state root costs in throughput.
 Open. Measured by approaches 02 vs 03.
 
 Notes: Plan 1 only has the `none` side (01 and 02, both stateRoot none; 273-4,238 TPS). The per-block and deferred costs come from approach 03 in plan 2. Stays proposed.
+
+---
+title: Chain persistence in the playground
+status: accepted
+date: 2026-11-19
+tags: architecture, web
+decision: native
+---
+
+## Goal
+Playground chains keep blocks, receipts and balances across page reloads.
+
+## People
+- Claude — author
+- Aaron — decider
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| history | Explorer history survives reload | 5 | Higher = blocks and receipts come back. |
+| effort | Little glue code | 4 | Higher = less code to write and maintain. |
+
+## Solution: native — webevm persistence adapter (createIndexedDBPersistence)
+| criterion | score |
+| --- | --- |
+| history | 5 |
+| effort | 5 |
+
+## Solution: own — dumpState/loadState plus our own block and receipt store
+| criterion | score |
+| --- | --- |
+| history | 5 |
+| effort | 2 |
+
+## Decision
+Use webevm's own `persistence` option (IndexedDB adapter in the browser). Spike `evm-benchmarks/spike/playground.test.ts` (webevm 0.9.1, Bun 1.3.13), 3/3 pass with an in-memory adapter:
+- `PersistenceAdapter` is `{load(): Promise<SerializedState | null>; save(state): Promise<void>}`: one record for the whole chain. `createNode` calls `load()` at creation and applies it only if `saved.chainId` matches; `save()` is awaited inside each state-changing request.
+- After 3 mined transfers and `dispose()`, a second node on the same adapter reports `eth_blockNumber` 0x3, `eth_getBlockByNumber(2, true)` lists the tx, the receipt has status 0x1 and balances match. Blocks and receipts survive, so the fallback is not needed.
+- `initialBalances` do not override restored state: the restored balance wins on reopen.
+- revm via `createNode({engine: await createRevmEngine({wasm})})` runs a transfer; `node.engine.id` is `revm-wasm`.
+- Consequence: the whole state is re-serialised on every save, so cost grows with chain size (risk R10). `save()` must not call back into the node. Playground chain ids must stay 31337 for a persisted chain to load.

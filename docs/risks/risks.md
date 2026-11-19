@@ -140,3 +140,54 @@ The JSON-RPC approach (06) benchmarks anvil or Besu on the same signed transacti
 - realisation: 2027-01-31
 
 A native (non-EVM) ERC-20 approach, labelled `evm: false`, shows how much throughput EVM compatibility costs.
+
+## R08 · solc bundle size and load time
+- impact: 2
+- likelihood: 4
+- target: 2x2
+- appetite: 6
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+soljson is several MB and takes seconds to initialise, which slows first compile in the Studio.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Load solc lazily in a worker, only when the Studio compiles | Preventive | Strong |
+| Show a loading state while the compiler initialises | Detective | Partial |
+
+## R09 · revm-wasm and workers through Bun's HTML bundler
+- impact: 3
+- likelihood: 3
+- target: 2x2
+- appetite: 6
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+Bun's HTML bundler may not emit the wasm file or module workers with relative URLs, which breaks revm or the solc worker on a static host.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Browser smoke test of the built site (plan 3, task 9) | Detective | Strong |
+| Copy wasm and soljson as static assets with relative URLs | Corrective | Strong |
+
+## R10 · data loss in webevm IndexedDB persistence
+- impact: 3
+- likelihood: 3
+- target: 2x2
+- appetite: 6
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+webevm saves the whole chain as one IndexedDB record on every state-changing request. Large chains make each save slow, and a failed or blocked write can lose history; clearing site data loses everything.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Wrap storage access and fall back to memory with a visible notice | Corrective | Strong |
+| Keep playground chains small; benchmark chains run without persistence | Preventive | Partial |
