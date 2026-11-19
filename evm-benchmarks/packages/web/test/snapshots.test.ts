@@ -149,7 +149,9 @@ for (const type of ['plain', 'sequencer'] as ChainType[]) {
       } as typeof e.kv
       const reg = createChainRegistry({ ...e.deps(), kv })
       const e2 = env() // the dump comes from a separate world so e's kv and stores start empty
-      const s0 = await createSnapshotStore(e2.kv).take(await createChainRegistry(e2.deps()).create('o', type, []))
+      const src = await createChainRegistry(e2.deps()).create('o', type, [])
+      const s0 = await createSnapshotStore(e2.kv).take(src)
+      await src.dispose() // a live sequencer chain keeps verify workers alive past exit (R11 crash)
       await expect(reg.createFrom(s0.dump, { name: 'x', type, contracts: [rec(5)], source })).rejects.toThrow('disk full')
       expect(stores.length).toBe(1)
       expect(await e.kv.list(stores[0]!)).toEqual([])

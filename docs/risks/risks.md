@@ -211,11 +211,14 @@ Observed (plan 3): persistence re-serialises the whole chain on every change. Th
 
 Update during plan 6 (snapshots): the crash now reproduces in about 1 of 2 to 3 full runs, more often inside the sandbox, and once as exit 133. The earlier zero-in-40 result no longer holds, so likelihood is raised from 2 to 4.
 
+Root cause of most of that rise, found 2026-11-19 at the end of plan 6: one snapshot test (`createFrom: storage failing…`) never disposed its source sequencer chain, leaving 11 verify workers alive at exit (found with a `Worker`-counting `--preload`; that test was the only leaker). After the fix, every suite ends with 0 live workers, and the remaining rate is about 1 crash in 5 to 6 runs (single process or split, so splitting doesn't help). That residue is Bun's.
+
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
 | Every test disposes its chains (instrumented run: 129/129 workers terminated) | Preventive | Partial |
-| Re-run on a crash; a panic with all tests passed is not a test failure | Corrective | Partial |
+| Re-run on a crash; a panic with all tests passed is not a test failure. CI (pages.yml) runs `bun test || bun test`, so a deterministic failure still fails | Corrective | Partial |
+| Leak check: `bun test --preload <Worker-counting script>` should report 0 live workers per file | Detective | Partial |
 | Upgrade Bun when a release fixes worker teardown | Corrective | Partial |
 
 ## R12 · Google Fonts third-party fetch in the playground
