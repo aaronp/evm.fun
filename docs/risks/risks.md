@@ -288,6 +288,8 @@ Each snapshot stores a full dump (blocks, receipts, transactions, state) in Inde
 
 The kv store drops to memory for good after any failed IndexedDB operation (the app then shows it is not persisting). Snapshot writes are the exception: they use a strict write, so a quota or IndexedDB failure on a large snapshot is shown in the dialog ("Snapshot too large to save (N KB): browser storage is full" or the error) and the rest of the app keeps persisting.
 
+The orphan prune at startup is per tab: it knows only this tab's stored and live chains, so reloading one tab can prune the snapshots of a benchmark chain still live in another tab. That is acceptable for a single-tab playground.
+
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
