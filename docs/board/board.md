@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### assets: AssetToken contract
-- id: t-54
-- owner: Claude
-- tags: web, plan7
-- history:
-  - To Do @ 2026-11-19T22:03:42Z
-
 ### assets: package registry, identity, detection, calldata
 - id: t-55
 - owner: Claude
@@ -115,6 +108,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### assets: AssetToken contract
+- id: t-54
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+  - Doing @ 2026-11-19T22:08:38Z by Claude
+  - Done @ 2026-11-19T22:09:24Z by Claude
 
 ### snapshots: README, ADR and the browser checklist
 - id: t-53
