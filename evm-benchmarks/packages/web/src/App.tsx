@@ -5,10 +5,11 @@ import { AppState } from './state'
 import { Accounts } from './pages/Accounts'
 import { Chains } from './pages/Chains'
 import { Studio } from './pages/Studio'
+import { Transact } from './pages/Transact'
 
 const pages = ['Accounts', 'Chains', 'Studio', 'Transact', 'Explorer', 'Benchmark']
 
-const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio /> }
+const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact /> }
 const Stub = ({ name }: { name: string }) => <h1 className="text-xl font-semibold">{name}</h1>
 
 export function App() {

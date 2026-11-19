@@ -11,7 +11,7 @@ import { Card } from '../ui/card'
 import { compileInWorker } from '../solc/client'
 import { templates } from '../solc/templates'
 import type { CompileResult } from '../solc/compile'
-import { parseArg } from '../abi/args'
+import { encodeArgs } from '../abi/args'
 import { signAndSend } from '../tx/send'
 import { contractsRegistry, type DeployedContract } from '../contracts/registry'
 
@@ -48,6 +48,7 @@ export function Studio() {
   const [pick, setPick] = useState(0)
   const [args, setArgs] = useState<string[]>([])
   const [deployer, setDeployer] = useState(account ?? '')
+  const [deploying, setDeploying] = useState(false)
   const [status, setStatus] = useState<{ ok: boolean; text: string }>()
   const [deployed, setDeployed] = useState<DeployedContract[]>([])
   const list = accounts.list()
@@ -79,11 +80,13 @@ export function Studio() {
 
   const deploy = async () => {
     const from = list.find(a => a.address === deployer)
-    if (!chain || !contract || !from) return
+    if (!chain || !contract || !from || deploying) return
     setStatus(undefined)
+    const parsed = encodeArgs(ctor, args)
+    if (!parsed.ok) return setStatus({ ok: false, text: parsed.errors.join('; ') })
+    setDeploying(true)
     try {
-      const parsed = ctor.map((p: { type: string }, i: number) => parseArg(p.type, args[i] ?? ''))
-      const data = encodeDeployData({ abi: contract.abi, bytecode: contract.bytecode, args: parsed })
+      const data = encodeDeployData({ abi: contract.abi, bytecode: contract.bytecode, args: parsed.values })
       const r = await signAndSend(chain, from, { data })
       if (r.status !== 'success' || !r.contractAddress) throw new Error(`Deploy ${r.status}${r.error ? `: ${r.error}` : ''}`)
       await contractsRegistry.add(chain.info.id, { address: r.contractAddress, name: contract.name, abi: contract.abi, deployer: from.address, txHash: r.hash })
@@ -91,6 +94,8 @@ export function Studio() {
       setStatus({ ok: true, text: `Deployed ${contract.name} at ${r.contractAddress}` })
     } catch (e) {
       setStatus({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setDeploying(false)
     }
   }
 
@@ -104,7 +109,7 @@ export function Studio() {
           defaultValue=""
           onChange={e => {
             const t = templates.find(t => t.name === e.target.value)
-            if (t) { setSource(t.source); setFileName(t.name) }
+            if (t) { setSource(t.source); setFileName(t.name); setResult(undefined); setStatus(undefined) }
           }}
         >
           <option value="">Load template…</option>
@@ -132,6 +137,10 @@ export function Studio() {
         </Card>
       )}
 
+      {result && result.errors.every(e => e.severity !== 'error') && result.contracts.length === 0 && (
+        <Card className="text-sm">No deployable contract in this file</Card>
+      )}
+
       {contract && (
         <Card className="space-y-3">
           {result!.contracts.length > 1 && (
@@ -156,7 +165,7 @@ export function Studio() {
               </label>
             ))}
             <div>
-              <Button onClick={deploy} disabled={!chain || !deployer}>Deploy</Button>
+              <Button onClick={deploy} disabled={!chain || !deployer || deploying}>{deploying ? 'Deploying…' : 'Deploy'}</Button>
               {!chain && <span className="ml-2 text-xs text-slate-500">Select a chain first.</span>}
               {chain && list.length === 0 && <span className="ml-2 text-xs text-slate-500">Create an account first.</span>}
             </div>

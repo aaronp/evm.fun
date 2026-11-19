@@ -74,13 +74,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 
 
-### web: Transact page
-- id: t-24
-- owner:
-- tags: web, plan3
-- history:
-  - To Do @ 2026-11-19T12:33:12Z
-
 ### web: Explorer page
 - id: t-25
 - owner:
@@ -104,8 +97,16 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 ## Doing
 
-
 ## Done
+
+### web: Transact page
+- id: t-24
+- owner: Claude
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+  - Doing @ 2026-11-19T13:16:12Z by Claude
+  - Done @ 2026-11-19T13:17:32Z by Claude
 
 ### web: solc worker and Studio
 - id: t-23

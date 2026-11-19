@@ -1,6 +1,6 @@
 import { privateKeyToAccount } from 'viem/accounts'
 import { signTx, type Receipt } from '@evmb/core'
-import type { Address, Hex } from 'viem'
+import { decodeFunctionResult, encodeFunctionData, type Abi, type Address, type Hex } from 'viem'
 import type { ChainHandle } from '../chain/handle'
 import type { Account } from '../store/accounts'
 
@@ -23,4 +23,11 @@ export async function signAndSend(
     // estimate unsupported or the call reverts: fall back and let the receipt report it
   }
   return handle.send(await signTx(privateKeyToAccount(account.privateKey), nonce, { ...tx, gas }))
+}
+
+/** eth_call a view/pure function and decode the result. */
+export async function readContract(handle: ChainHandle, to: Address, abi: Abi, functionName: string, args: unknown[] = []): Promise<unknown> {
+  const data = encodeFunctionData({ abi, functionName, args } as any)
+  const out = (await handle.request('eth_call', [{ to, data }, 'latest'])) as Hex
+  return decodeFunctionResult({ abi, functionName, data: out } as any)
 }
