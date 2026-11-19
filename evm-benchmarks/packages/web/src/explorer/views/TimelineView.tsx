@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { markRadius, timeScale } from '../timeline'
+import { markRadius, ticks as tickValues, timeScale } from '../timeline'
 import { blockMatches, windowContains, type Header } from '../window'
 import { Panel } from '../../ui/panel'
 
@@ -17,7 +17,7 @@ export function TimelineView({ q, headers, total, selected, loading }: { q: stri
     const X = timeScale(headers, W)
     const ts = headers.map(h => h.timestamp)
     const lo = Math.min(...ts), hi = Math.max(...ts)
-    const ticks = hi > lo ? Array.from({ length: 5 }, (_, i) => lo + ((hi - lo) * i) / 4) : [lo]
+    const ticks = tickValues(lo, hi)
     const maxTx = Math.max(...headers.map(h => h.txCount))
     const filtering = q.trim() !== ''
     const old = selected !== undefined && !windowContains(headers, selected)
@@ -36,14 +36,14 @@ export function TimelineView({ q, headers, total, selected, loading }: { q: stri
                 <text x={X(t)} y={AXIS + 16} textAnchor={X(t) < 60 ? 'start' : X(t) > W - 60 ? 'end' : 'middle'} className="fill-muted text-[10px]">{iso(t)}</text>
               </g>
             ))}
-            {headers.map(b => {
+            {[...headers.filter(b => b.number !== selected), ...headers.filter(b => b.number === selected)].map(b => {
               const hit = blockMatches(b, q)
               const r = markRadius(b.txCount, maxTx)
               return (
-                <g key={b.number} className="cursor-pointer" opacity={hit ? 1 : 0.25} onClick={() => go(b.number)}>
+                <g key={b.number} className="cursor-pointer" onClick={() => go(b.number)}>
                   <title>{`#${b.number} · ${b.txCount} txs · ${iso(b.timestamp)}`}</title>
+                  <circle cx={X(b.timestamp)} cy={Y} r={r} opacity={hit ? 1 : 0.25} className={`fill-accent ${filtering && hit ? 'stroke-text' : 'stroke-surface'}`} strokeWidth={filtering && hit ? 2 : 1} />
                   {b.number === selected && <circle cx={X(b.timestamp)} cy={Y} r={r + 4} fill="none" className="stroke-text" strokeWidth={2} />}
-                  <circle cx={X(b.timestamp)} cy={Y} r={r} className={`fill-accent ${filtering && hit ? 'stroke-text' : 'stroke-surface'}`} strokeWidth={filtering && hit ? 2 : 1} />
                 </g>
               )
             })}

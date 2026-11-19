@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { markRadius, timeScale } from '../src/explorer/timeline'
+import { markRadius, ticks, timeScale } from '../src/explorer/timeline'
 import type { Header } from '../src/explorer/window'
 
 const h = (timestamp: number): Header => ({ number: 0, hash: '0x00', parentHash: '0x00', timestamp, txCount: 0 })
@@ -26,4 +26,16 @@ describe('markRadius', () => {
     expect(r).toEqual([...r].sort((a, b) => a - b))
   })
   test('maxTx 0 gives 3', () => expect(markRadius(0, 0)).toBe(3))
+})
+
+describe('ticks', () => {
+  test('integers including both endpoints', () => {
+    const t = ticks(100, 106)
+    expect(t.every(Number.isInteger)).toBe(true)
+    expect(t[0]).toBe(100)
+    expect(t[t.length - 1]).toBe(106)
+    expect(t.length).toBe(5)
+  })
+  test('deduplicated for a tiny span', () => expect(ticks(10, 12)).toEqual([10, 11, 12]))
+  test('single value when lo === hi', () => expect(ticks(7, 7)).toEqual([7]))
 })

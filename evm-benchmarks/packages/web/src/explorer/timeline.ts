@@ -11,3 +11,7 @@ export function timeScale(headers: Header[], width: number, pad = 16): (ts: numb
 /** 3 px at 0 txs, rising with sqrt(txCount/maxTx) to 14 px. */
 export const markRadius = (txCount: number, maxTx: number) =>
   maxTx > 0 ? 3 + 11 * Math.sqrt(Math.min(txCount, maxTx) / maxTx) : 3
+
+/** n evenly spaced whole-second ticks from lo to hi, deduplicated (a tiny span yields fewer). */
+export const ticks = (lo: number, hi: number, n = 5): number[] =>
+  hi > lo ? [...new Set(Array.from({ length: n }, (_, i) => lo + Math.round(((hi - lo) * i) / (n - 1))))] : [lo]
