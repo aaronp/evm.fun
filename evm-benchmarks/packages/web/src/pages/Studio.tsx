@@ -2,12 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { basicSetup, EditorView } from 'codemirror'
 import { EditorSelection } from '@codemirror/state'
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { tags as t } from '@lezer/highlight'
 import { solidity } from '@replit/codemirror-lang-solidity'
 import { encodeDeployData } from 'viem'
 import { accounts } from '../store/accounts'
 import { useApp } from '../state'
+import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
+import { Input, Select } from '../ui/input'
 import { compileInWorker } from '../solc/client'
 import { templates } from '../solc/templates'
 import type { CompileResult } from '../solc/compile'
@@ -16,7 +20,30 @@ import { signAndSend } from '../tx/send'
 import { ADDRESS_LIST } from '../components/AddressList'
 import { contractsRegistry, type DeployedContract } from '../contracts/registry'
 
-const input = 'rounded-md border border-slate-300 px-2 py-1 text-sm'
+// Only var(--c-…) strings: a theme switch recolours the editor live, no remount.
+const editorTheme = EditorView.theme({
+  '&': { color: 'var(--c-text)', backgroundColor: 'var(--c-panel)', height: '100%' },
+  '.cm-scroller': { fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: '13px' },
+  '.cm-content': { caretColor: 'var(--c-accent)' },
+  '.cm-cursor': { borderLeftColor: 'var(--c-accent)' },
+  '&.cm-focused': { outline: '2px solid var(--c-accent)', outlineOffset: '-2px' },
+  '.cm-gutters': { backgroundColor: 'var(--c-panel)', color: 'var(--c-faint)', border: 'none' },
+  '.cm-activeLine': { backgroundColor: 'var(--c-surface-hover)' },
+  '.cm-activeLineGutter': { backgroundColor: 'var(--c-surface-hover)', color: 'var(--c-text-2)' },
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: 'var(--c-selected)' },
+  '.cm-matchingBracket': { backgroundColor: 'var(--c-accent-soft)', outline: '1px solid var(--c-accent)' },
+})
+const highlight = syntaxHighlighting(
+  HighlightStyle.define([
+    { tag: [t.keyword, t.modifier, t.controlKeyword, t.definitionKeyword], color: 'var(--c-code-keyword)' },
+    { tag: [t.string, t.regexp], color: 'var(--c-code-string)' },
+    { tag: [t.number, t.bool, t.null], color: 'var(--c-warn-text)' },
+    { tag: [t.typeName, t.className], color: 'var(--c-accent)' },
+    { tag: [t.function(t.variableName), t.function(t.propertyName)], color: 'var(--c-success-text)' },
+    { tag: [t.comment, t.lineComment, t.blockComment], color: 'var(--c-muted)', fontStyle: 'italic' },
+    { tag: [t.operator, t.punctuation], color: 'var(--c-text-2)' },
+  ]),
+)
 
 function Editor({ value, onChange, viewRef }: { value: string; onChange(v: string): void; viewRef: React.MutableRefObject<EditorView | undefined> }) {
   const host = useRef<HTMLDivElement>(null)
@@ -26,7 +53,7 @@ function Editor({ value, onChange, viewRef }: { value: string; onChange(v: strin
     const view = new EditorView({
       doc: value,
       parent: host.current!,
-      extensions: [basicSetup, solidity, EditorView.updateListener.of(u => u.docChanged && cb.current(u.state.doc.toString()))],
+      extensions: [basicSetup, solidity, editorTheme, highlight, EditorView.updateListener.of(u => u.docChanged && cb.current(u.state.doc.toString()))],
     })
     viewRef.current = view
     return () => view.destroy()
@@ -36,7 +63,7 @@ function Editor({ value, onChange, viewRef }: { value: string; onChange(v: strin
     const v = viewRef.current
     if (v && v.state.doc.toString() !== value) v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } })
   }, [value])
-  return <div ref={host} className="h-96 overflow-auto rounded-md border border-slate-300 bg-white text-sm" />
+  return <div ref={host} className="h-96 overflow-auto border-t border-line-strong" />
 }
 
 export function Studio() {
@@ -106,93 +133,107 @@ export function Studio() {
     }
   }
 
+  const errorCount = result?.errors.filter(e => e.severity === 'error').length ?? 0
+  const status_ = !result ? <Badge>Not compiled</Badge> : errorCount > 0 ? <Badge variant="danger">{errorCount} error{errorCount > 1 ? 's' : ''}</Badge> : <Badge variant="success">Compiled</Badge>
+
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Studio</h1>
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          aria-label="Template"
-          className={input}
-          defaultValue=""
-          onChange={e => {
-            const t = templates.find(t => t.name === e.target.value)
-            if (t) { setSource(t.source); setFileName(t.name); setResult(undefined); setStatus(undefined) }
-          }}
-        >
-          <option value="">Load template…</option>
-          {templates.map(t => <option key={t.name}>{t.name}</option>)}
-        </select>
-        <Button onClick={compile} disabled={busy}>
-          {busy && <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" aria-hidden />}
-          {busy ? 'Compiling…' : 'Compile'}
-        </Button>
-        {busy && <span className="text-xs text-slate-500">The first compile loads the compiler (~10 MB).</span>}
-      </div>
-      <Editor value={source} onChange={setSource} viewRef={view} />
-
-      {result && result.errors.length > 0 && (
-        <Card className="space-y-1 text-sm">
-          {result.errors.map((e, i) => (
-            <div key={i} className={e.severity === 'error' ? 'text-red-700' : 'text-amber-700'}>
-              <span className="font-medium">{e.severity}</span>
-              {e.line !== undefined && (
-                <button className="mx-1 underline" onClick={() => jump(e.line!)}>line {e.line}</button>
-              )}
-              <span>{e.message}</span>
+      <h1 className="font-display text-xl font-semibold">Studio</h1>
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0 space-y-4">
+          <div className="overflow-hidden rounded-xl border border-line-strong bg-panel">
+            <div className="flex flex-wrap items-center gap-2 p-3">
+              <span className="mr-auto font-mono text-sm text-text-2">{fileName}</span>
+              {status_}
+              <Select
+                aria-label="Template"
+                defaultValue=""
+                onChange={e => {
+                  const t = templates.find(t => t.name === e.target.value)
+                  if (t) { setSource(t.source); setFileName(t.name); setResult(undefined); setStatus(undefined) }
+                }}
+              >
+                <option value="">Load template…</option>
+                {templates.map(t => <option key={t.name}>{t.name}</option>)}
+              </Select>
+              <Button onClick={compile} disabled={busy}>
+                {busy && <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-on-accent border-t-transparent" aria-hidden />}
+                {busy ? 'Compiling…' : 'Compile'}
+              </Button>
             </div>
-          ))}
-        </Card>
-      )}
-
-      {result && result.errors.every(e => e.severity !== 'error') && result.contracts.length === 0 && (
-        <Card className="text-sm">No deployable contract in this file</Card>
-      )}
-
-      {contract && (
-        <Card className="space-y-3">
-          {result!.contracts.length > 1 && (
-            <select aria-label="Contract" className={input} value={pick} onChange={e => { setPick(+e.target.value); setArgs([]) }}>
-              {result!.contracts.map((c, i) => <option key={i} value={i}>{c.name}</option>)}
-            </select>
-          )}
-          <details>
-            <summary className="cursor-pointer text-sm font-medium">ABI ({contract.abi.length} entries)</summary>
-            <pre className="mt-2 max-h-64 overflow-auto rounded bg-slate-100 p-2 text-xs">{JSON.stringify(contract.abi, null, 2)}</pre>
-          </details>
-          <div className="space-y-2">
-            <h2 className="text-sm font-semibold">Deploy {contract.name}</h2>
-            <select aria-label="Deployer" className={input} value={deployer} onChange={e => setDeployer(e.target.value)}>
-              <option value="">Deployer account…</option>
-              {list.map(a => <option key={a.address} value={a.address}>{a.label} ({a.address.slice(0, 8)}…)</option>)}
-            </select>
-            {ctor.map((p: { name: string; type: string }, i: number) => (
-              <label key={i} className="block text-sm">
-                {p.name || `arg${i}`} <span className="text-slate-500">({p.type})</span>
-                <input className={`${input} w-full sm:ml-2 sm:w-80`} list={p.type === 'address' ? ADDRESS_LIST : undefined} value={args[i] ?? ''} onChange={e => setArgs(a => Object.assign([...a], { [i]: e.target.value }))} />
-              </label>
-            ))}
-            <div>
-              <Button onClick={deploy} disabled={!chain || !deployer || deploying}>{deploying ? 'Deploying…' : 'Deploy'}</Button>
-              {!chain && <span className="ml-2 text-xs text-slate-500">Select a chain first.</span>}
-              {chain && list.length === 0 && <span className="ml-2 text-xs text-slate-500">Create an account first.</span>}
-            </div>
-            {status && <div role="status" className={`text-sm ${status.ok ? 'text-green-700' : 'text-red-700'}`}>{status.text}</div>}
+            {busy && <p className="px-3 pb-3 text-xs text-muted">The first compile loads the compiler (~10 MB).</p>}
+            <Editor value={source} onChange={setSource} viewRef={view} />
           </div>
-        </Card>
-      )}
 
-      {deployed.length > 0 && (
-        <Card className="space-y-1 text-sm">
-          <h2 className="font-semibold">Deployed on this chain</h2>
-          {deployed.map(c => (
-            <div key={c.address} className="flex flex-wrap gap-2">
-              <span>{c.name}</span>
-              <span className="font-mono text-xs">{c.address}</span>
-              <Link className="underline" to={`/transact?contract=${c.address}`}>Open in Transact</Link>
-            </div>
-          ))}
-        </Card>
-      )}
+          {result && result.errors.length > 0 && (
+            <Card className="space-y-2 text-sm">
+              {result.errors.map((e, i) => (
+                <div key={i} className="flex flex-wrap items-center gap-2">
+                  <Badge variant={e.severity === 'error' ? 'danger' : 'warn'}>{e.severity}</Badge>
+                  {e.line !== undefined && (
+                    <button className="text-accent underline hover:text-accent-hover" onClick={() => jump(e.line!)}>line {e.line}</button>
+                  )}
+                  <span className="min-w-0 break-words">{e.message}</span>
+                </div>
+              ))}
+            </Card>
+          )}
+
+          {result && result.errors.every(e => e.severity !== 'error') && result.contracts.length === 0 && (
+            <Card className="text-sm">No deployable contract in this file</Card>
+          )}
+        </div>
+
+        <div className="min-w-0 space-y-4">
+          {contract && (
+            <Card className="space-y-3">
+              {result!.contracts.length > 1 && (
+                <Select aria-label="Contract" className="w-full" value={pick} onChange={e => { setPick(+e.target.value); setArgs([]) }}>
+                  {result!.contracts.map((c, i) => <option key={i} value={i}>{c.name}</option>)}
+                </Select>
+              )}
+              <details>
+                <summary className="cursor-pointer text-sm font-medium">ABI ({contract.abi.length} entries)</summary>
+                <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-panel p-2 font-mono text-xs">{JSON.stringify(contract.abi, null, 2)}</pre>
+              </details>
+              <div className="space-y-3">
+                <h2 className="font-display text-sm font-semibold">Deploy {contract.name}</h2>
+                <Select aria-label="Deployer" className="w-full" value={deployer} onChange={e => setDeployer(e.target.value)}>
+                  <option value="">Deployer account…</option>
+                  {list.map(a => <option key={a.address} value={a.address}>{a.label} ({a.address.slice(0, 8)}…)</option>)}
+                </Select>
+                {ctor.map((p: { name: string; type: string }, i: number) => (
+                  <label key={i} className="block space-y-1 text-sm">
+                    <span>{p.name || `arg${i}`} <span className="font-mono text-xs text-muted">({p.type})</span></span>
+                    <Input className="w-full" list={p.type === 'address' ? ADDRESS_LIST : undefined} value={args[i] ?? ''} onChange={e => setArgs(a => Object.assign([...a], { [i]: e.target.value }))} />
+                  </label>
+                ))}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button className="w-full" onClick={deploy} disabled={!chain || !deployer || deploying}>{deploying ? 'Deploying…' : 'Deploy'}</Button>
+                  {!chain && <span className="text-xs text-muted">Select a chain first.</span>}
+                  {chain && list.length === 0 && <span className="text-xs text-muted">Create an account first.</span>}
+                </div>
+                {status && <div role="status" className={`break-words text-sm ${status.ok ? 'text-success-text' : 'text-danger'}`}>{status.text}</div>}
+              </div>
+            </Card>
+          )}
+
+          {deployed.length > 0 && (
+            <Card className="space-y-2 text-sm">
+              <h2 className="font-display font-semibold">Deployed on this chain</h2>
+              {deployed.map(c => (
+                <div key={c.address} className="space-y-0.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium">{c.name}</span>
+                    <Link className="text-accent underline hover:text-accent-hover" to={`/transact?contract=${c.address}`}>Open in Transact</Link>
+                  </div>
+                  <div className="break-all font-mono text-xs text-muted">{c.address}</div>
+                </div>
+              ))}
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

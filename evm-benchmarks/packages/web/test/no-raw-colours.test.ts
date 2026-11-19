@@ -17,7 +17,6 @@ const NOT_YET_PORTED: string[] = [
   'src/components/ReceiptView.tsx',
   'src/pages/Benchmark.tsx',
   'src/pages/Explorer.tsx',
-  'src/pages/Studio.tsx',
   'src/pages/Transact.tsx',
 ]
 
