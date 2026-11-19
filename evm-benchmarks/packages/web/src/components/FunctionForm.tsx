@@ -5,12 +5,12 @@ import type { ChainHandle } from '../chain/handle'
 import type { Account } from '../store/accounts'
 import { encodeArgs } from '../abi/args'
 import { readContract, signAndSend } from '../tx/send'
+import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
+import { Input } from '../ui/input'
 import { useApp } from '../state'
 import { show } from './ReceiptView'
 import { ADDRESS_LIST } from './AddressList'
-
-const input = 'rounded-md border border-slate-300 px-2 py-1 text-sm'
 
 /** One form per function: view/pure -> eth_call, otherwise sign and send. */
 export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
@@ -50,14 +50,15 @@ export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="w-28 font-medium">{fn.name}</span>
+      <span className="w-28 font-mono font-medium">{fn.name}</span>
+      <Badge variant={read ? 'accent' : 'warn'}>{read ? 'read' : 'writes'}</Badge>
       {fn.inputs.map((p, i) => (
-        <input key={i} aria-label={p.name || `arg${i}`} placeholder={`${p.name || `arg${i}`} (${p.type})`} className={`${input} w-full sm:w-48`} list={p.type === 'address' ? ADDRESS_LIST : undefined}
+        <Input key={i} aria-label={p.name || `arg${i}`} placeholder={`${p.name || `arg${i}`} (${p.type})`} className="w-full sm:w-48" list={p.type === 'address' ? ADDRESS_LIST : undefined}
           value={raw[i] ?? ''} onChange={e => setRaw(r => Object.assign([...r], { [i]: e.target.value }))} />
       ))}
-      {fn.stateMutability === 'payable' && <input aria-label="value" placeholder="value (wei)" className={`${input} w-full sm:w-32`} value={value} onChange={e => setValue(e.target.value)} />}
+      {fn.stateMutability === 'payable' && <Input aria-label="value" placeholder="value (wei)" className="w-full sm:w-32" value={value} onChange={e => setValue(e.target.value)} />}
       <Button variant={read ? 'ghost' : 'primary'} onClick={run} disabled={busy}>{read ? 'Call' : 'Send'}</Button>
-      {out && <span role="status" className={`whitespace-pre-wrap font-mono text-xs ${out.ok ? 'text-green-700' : 'text-red-700'}`}>{out.text}</span>}
+      {out && <span role="status" className={`whitespace-pre-wrap font-mono text-xs ${out.ok ? 'text-success-text' : 'text-danger'}`}>{out.text}</span>}
     </div>
   )
 }

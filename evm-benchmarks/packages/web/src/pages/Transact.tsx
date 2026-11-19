@@ -8,12 +8,12 @@ import { contractsRegistry, type DeployedContract } from '../contracts/registry'
 import { signAndSend } from '../tx/send'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
+import { Input, Select } from '../ui/input'
 import { Erc20Card, isErc20 } from '../components/Erc20Card'
 import { FunctionForm } from '../components/FunctionForm'
 import { ADDRESS_LIST } from '../components/AddressList'
 import { ReceiptView } from '../components/ReceiptView'
 
-const input = 'rounded-md border border-slate-300 px-2 py-1 text-sm'
 const ETH = 'eth'
 
 export function Transact() {
@@ -35,7 +35,7 @@ export function Transact() {
     else setContracts([])
   }, [chain])
 
-  if (!chain) return <div className="space-y-4"><h1 className="text-xl font-semibold">Transact</h1><p className="text-sm">Select a chain first.</p></div>
+  if (!chain) return <div className="space-y-4"><h1 className="font-display text-xl font-semibold">Transact</h1><p className="text-sm text-muted">Select a chain first.</p></div>
 
   const record = (r: Receipt, abi?: Abi) => { setReceipts(rs => [{ r, abi }, ...rs]); setTick(t => t + 1) }
   const sendEth = async () => {
@@ -50,31 +50,31 @@ export function Transact() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Transact</h1>
+      <h1 className="font-display text-xl font-semibold">Transact</h1>
       <div className="flex flex-wrap gap-2">
-        <select aria-label="Account" className={input} value={account ?? ''} onChange={e => selectAccount(e.target.value || undefined)}>
+        <Select aria-label="Account" value={account ?? ''} onChange={e => selectAccount(e.target.value || undefined)}>
           <option value="">Account…</option>
           {list.map(a => <option key={a.address} value={a.address}>{a.label} ({a.address.slice(0, 8)}…)</option>)}
-        </select>
-        <select aria-label="Target" className={input} value={target} onChange={e => setTarget(e.target.value)}>
+        </Select>
+        <Select aria-label="Target" value={target} onChange={e => setTarget(e.target.value)}>
           <option value={ETH}>ETH transfer</option>
           {contracts.map(x => <option key={x.address} value={x.address}>{x.name} {x.address.slice(0, 8)}…</option>)}
-        </select>
+        </Select>
       </div>
       {target === ETH && (
         <Card className="flex flex-wrap items-center gap-2 text-sm">
-          <input aria-label="Recipient" placeholder="to (address)" list={ADDRESS_LIST} className={`${input} w-full sm:w-96`} value={eth.to} onChange={e => setEth({ ...eth, to: e.target.value })} />
-          <input aria-label="Amount" placeholder="amount (wei)" className={`${input} w-full sm:w-40`} value={eth.amount} onChange={e => setEth({ ...eth, amount: e.target.value })} />
+          <Input aria-label="Recipient" placeholder="to (address)" list={ADDRESS_LIST} className="w-full sm:w-96" value={eth.to} onChange={e => setEth({ ...eth, to: e.target.value })} />
+          <Input aria-label="Amount" placeholder="amount (wei)" className="w-full sm:w-40" value={eth.amount} onChange={e => setEth({ ...eth, amount: e.target.value })} />
           <Button onClick={sendEth}>Send</Button>
-          {ethErr && <span role="alert" className="text-red-700">{ethErr}</span>}
+          {ethErr && <span role="alert" className="text-danger">{ethErr}</span>}
         </Card>
       )}
       {c && isErc20(c.abi as Abi) && (
         <Erc20Card chain={chain} to={c.address} abi={c.abi as Abi} account={from} refresh={tick} onReceipt={r => record(r, c.abi as Abi)} />
       )}
       {c && (
-        <Card className="space-y-2">
-          <h2 className="text-sm font-semibold">{c.name} functions</h2>
+        <Card className="space-y-3">
+          <h2 className="font-display text-sm font-semibold">{c.name} functions</h2>
           {fns.map((f, i) => <FunctionForm key={i} fn={f} abi={c.abi as Abi} to={c.address} chain={chain} account={from} onReceipt={r => record(r, c.abi as Abi)} />)}
         </Card>
       )}

@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { decodeEventLog, type Abi } from 'viem'
 import type { Receipt } from '@evmb/core'
 import type { ChainHandle } from '../chain/handle'
+import { Badge } from '../ui/badge'
+import { Card } from '../ui/card'
 
 export const show = (v: unknown) => JSON.stringify(v, (_, x) => (typeof x === 'bigint' ? x.toString() : x))
 
@@ -18,20 +20,20 @@ export function ReceiptView({ chain, receipt, abi }: { chain: ChainHandle; recei
   })
   const block = raw ? Number(BigInt(raw.blockNumber)) : undefined
   return (
-    <div className="space-y-1 rounded border border-slate-200 bg-white p-2 text-xs">
+    <Card className="space-y-1.5 p-3 text-xs">
       <div>
-        <span className={receipt.status === 'success' ? 'font-medium text-green-700' : 'font-medium text-red-700'}>{receipt.status}</span>
-        {receipt.error && <span className="ml-2 text-red-700">{receipt.error}</span>}
-        <span className="ml-2 font-mono">{receipt.hash}</span>
+        <Badge variant={receipt.status === 'success' ? 'success' : 'danger'}>{receipt.status}</Badge>
+        {receipt.error && <span className="ml-2 text-danger">{receipt.error}</span>}
+        <span className="ml-2 break-all font-mono">{receipt.hash}</span>
       </div>
       {raw && (
-        <div>
-          gas used {BigInt(raw.gasUsed).toString()} · block <Link className="underline" to={`/explorer/block/${block}`}>{block}</Link>
+        <div className="text-muted">
+          gas used {BigInt(raw.gasUsed).toString()} · block <Link className="text-accent underline" to={`/explorer/block/${block}`}>{block}</Link>
         </div>
       )}
       {raw?.logs.map((l, i) => (
-        <div key={i} className="font-mono">log {i}: {logs[i] ?? `${l.topics[0]?.slice(0, 10)}… (${l.data.length / 2 - 1} bytes, undecoded)`}</div>
+        <div key={i} className="break-all font-mono">log {i}: {logs[i] ?? `${l.topics[0]?.slice(0, 10)}… (${l.data.length / 2 - 1} bytes, undecoded)`}</div>
       ))}
-    </div>
+    </Card>
   )
 }

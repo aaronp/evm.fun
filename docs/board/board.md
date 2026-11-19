@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### web: Transact restyle
-- id: t-32
-- owner:
-- tags: web, plan4
-- history:
-  - To Do @ 2026-11-19T15:16:20Z
-
 ### web: Explorer restyle
 - id: t-33
 - owner:
@@ -97,6 +90,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### web: Transact restyle
+- id: t-32
+- owner: Claude
+- tags: web, plan4
+- history:
+  - To Do @ 2026-11-19T15:16:20Z
+  - Doing @ 2026-11-19T15:40:53Z by Claude
+  - Done @ 2026-11-19T15:57:03Z by Claude
 
 ### web: Studio restyle
 - id: t-31
