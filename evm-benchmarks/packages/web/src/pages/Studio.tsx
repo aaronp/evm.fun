@@ -34,7 +34,9 @@ const editorTheme = EditorView.theme({
   // base: '&light.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground'
   '&.cm-editor.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': { backgroundColor: 'var(--c-selected)' },
   '&.cm-editor .cm-selectionMatch.cm-selectionMatch': { backgroundColor: 'var(--c-accent-soft)' },
-  '.cm-matchingBracket': { backgroundColor: 'var(--c-accent-soft)', outline: '1px solid var(--c-accent)' },
+  // base: '&.cm-focused .cm-matchingBracket' (3 classes, hard-coded colour); the extra '.cm-editor' makes ours 4.
+  '&.cm-editor.cm-focused .cm-matchingBracket': { backgroundColor: 'var(--c-accent-soft)', outline: '1px solid var(--c-accent)' },
+  '&.cm-editor.cm-focused .cm-nonmatchingBracket': { backgroundColor: 'var(--c-danger-soft)', outline: '1px solid var(--c-danger)' },
   // Popups: CodeMirror's base theme hard-codes light colours behind '&light ...' selectors; '&.cm-editor' and doubled classes out-rank them.
   '&.cm-editor .cm-tooltip.cm-tooltip': { backgroundColor: 'var(--c-surface)', color: 'var(--c-text)', border: '1px solid var(--c-line-strong)' },
   '&.cm-editor .cm-tooltip.cm-tooltip-autocomplete ul li[aria-selected]': { backgroundColor: 'var(--c-accent-soft)', color: 'var(--c-text)' },
