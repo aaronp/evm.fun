@@ -267,3 +267,58 @@ Board: t-44.
   - Old links: Benchmark's "Open in Explorer" and Transact's block link.
   - From plan 4 Task 9: the distribution chart in both views with 2+ runs, and the icon theme switcher.
 - [ ] **Step 3:** Commit `docs(web): Chains page and explorer views`.
+
+### Task 8: Fisheye rework to match the mockup (user feedback)
+
+Board: add card t-45 "web: Fisheye matches mockup", then move it To Do → Doing → Done.
+
+**Why:** the user compared the shipped Fisheye with the mockup's (`evm-benchmarks/design/blocks/Main.dc.html`, the `feItems` block and its template). The tile look and the controls were lost. Also, 500 blocks in one lens gives tiles about 2px wide.
+
+**Files:**
+- Modify: `src/explorer/views/FisheyeView.tsx`, `src/explorer/lens.ts` (if a helper is added), `src/pages/Explorer.tsx` (container breakpoint)
+- Create: `test/fisheye.test.ts`
+
+**Interfaces** (pure, in `lens.ts`):
+```ts
+tileStyle(size: number, maxSize: number, horizontal: boolean): {cross: number; full: boolean; mid: boolean; filled: boolean}
+//   cross = round(36 + 114 * size/maxSize); full = size >= (H ? 130 : 64); mid = !full && size >= (H ? 44 : 22); filled = size >= 6
+lensWindow(total: number, anchor: number, span = 36): {start: number; end: number}   // a span-sized window of indexes containing anchor, clamped to [0, total)
+```
+
+**FisheyeView, ported from the mockup** (structure and values; never its placeholder data, statuses or fork stubs):
+- **Tiles:**
+  - rounded, along the lens axis
+  - axis size from `lensSizes` over the lens window, cross size from `tileStyle`
+  - fill `bg-accent` when `filled`, otherwise a `line-strong` pill
+  - text in `text-on-accent`: full tiles show `#n` plus a 6-char hash, mid tiles show `#n`
+- **Selection, hover and filter:**
+  - Selected block: an outer ring (`outline` in `text`/`accent`, 2px plus offset), which is not colour-only.
+  - Each tile has `title` = `Block n, <hash 12>` (no status) and an accessible name.
+  - The filter dims non-matches (opacity plus sr-only note) and underlines the matches' labels.
+- **Controls** (a compact control row above the lens, using `Segmented`):
+  - Orientation: Horizontal (default) / Vertical
+  - Order: Newest first (default) / Oldest first
+  - At rest: Newest / Selected
+  - Range inputs: Magnify (mag 0–24, default 12, shown as ×(1+mag)), Spread (1–6, step 0.5, default 2.5), Length (480–1200, default 860)
+  - All persisted in localStorage `evmb.fisheye` (try/catch)
+- **Lens window:**
+  - Shows `lensWindow(n, anchor)`: 36 blocks of the 500-block window (or fewer).
+  - The anchor is the selected block, or the newest.
+  - **Older** / **Newer** buttons step the window by 30. A caption reads "Blocks #a–#b of the latest N".
+  - Selecting a block outside the current lens window moves the window to it.
+- **Pointer and keys:**
+  - The pointer maps to focus with `lensFocus` over the window, rescaled by the element's on-screen size (as the mockup's `move`).
+  - Leaving returns to rest.
+  - ↑/↓ (vertical) or ←/→ (horizontal) move the focus, and Enter selects. The wrapper stays mounted.
+  - The horizontal lens scrolls inside its card at narrow widths. The page never scrolls sideways.
+- Fork stubs (orange dots, dashed "↳" boxes) are left out until step 3.
+
+**Layout:** in `Explorer.tsx`, change the Browse container breakpoint from `@4xl` to `@3xl`, so the panel sits beside the view at about 1440px wide (pane ≈ 880px).
+
+- [ ] **Step 1: Write failing tests** `fisheye.test.ts`:
+  - `tileStyle` thresholds and cross size at sizes 0/5/6/22/44/64/130/max, for both orientations.
+  - `lensWindow`: the anchor is inside the window; it clamps at both ends; total < span gives the whole range; total 0 gives an empty window.
+- [ ] **Step 2:** Run the tests. Expected: FAIL.
+- [ ] **Step 3:** Implement.
+- [ ] **Step 4:** Run the checks.
+- [ ] **Step 5:** Board. Commit `feat(web): Fisheye tiles, controls and lens window matching the mockup`.
