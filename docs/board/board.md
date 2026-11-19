@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### assets: README, ADR, risks, browser checklist
-- id: t-60
-- owner: Claude
-- tags: web, plan7
-- history:
-  - To Do @ 2026-11-19T22:03:42Z
-
 ### Approach 03: seq-stateroot
 - id: t-09
 - owner:
@@ -73,6 +66,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### assets: README, ADR, risks, browser checklist
+- id: t-60
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+  - Doing @ 2026-11-19T23:57:45Z by Claude
+  - Done @ 2026-11-19T23:58:19Z by Claude
 
 ### assets: allowances, import token, launch asset
 - id: t-59

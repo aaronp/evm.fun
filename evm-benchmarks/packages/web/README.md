@@ -69,6 +69,17 @@ Chains whose approach cannot dump state refuse with "This chain type can't be sn
 
 Both chains share the same blocks up to the "before" snapshot's height. Send different transactions to each and they diverge. Equal block hashes at a height don't imply equal transactions (webevm's block hash doesn't cover tx content), so compare tx hashes to tell where they split.
 
+## Assets
+
+The **Assets** page lists the selected chain's tokens with the native coin (ETH) last. The header shows name, symbol, address, decimals, issuer and live total supply; the balances card shows every account's balance (read with `balanceOf()` at the latest block, `eth_getBalance` for ETH) and **Send** moves tokens between accounts.
+
+- **Registry:** only identity and metadata are stored (IndexedDB `kv` namespace `assets:<chain id>`, keyed by lowercase address), by `@evmb/assets` (see [packages/assets/README.md](../assets/README.md)). Supply, balances and allowances are always read live.
+- **Allowances card:** lists each (owner, spender) with the amount currently allowed, found from `Approval` logs and re-read with `allowance()`. **Approve** sets an allowance (including "Unlimited (max uint256)"); **Revoke** sets it to 0. ETH has no allowances.
+- **Import token by address:** reads the address and adds it if it is an ERC-20 (`symbol`, `decimals`, `totalSupply` answer; `name` falls back to the symbol). An EOA, a non-token contract or garbage gives "Not an ERC-20 at 0x…" and adds nothing. Decimals 0 to 255 are accepted. An imported token also gets a contract record (tx hash zero, deployer = `owner()` or the zero address) if none exists for that address.
+- **Launch asset:** deploys a mintable ERC-20 from an account with a chosen name, symbol, decimals and initial supply, and registers it.
+- **Amounts:** typed amounts go through a custom `parseAmount`, which refuses more fractional digits than the token has decimals, negatives and non-numbers inline before anything is signed.
+- **Chains:** assets travel with snapshots, exports, forks and imports (the fork's assets carry its own chain id; the parent is unchanged). Benchmark (ephemeral) chains keep no asset records, so Import and Launch are disabled there.
+
 ## Themes
 
 Three themes: **dark**, **light** and **paper** (warm off-white). Colours are CSS custom properties (`--c-*`) defined once per theme in `src/theme/tokens.css` and mapped to Tailwind colours in `src/index.css`; components use only those tokens.

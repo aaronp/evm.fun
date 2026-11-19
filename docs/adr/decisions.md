@@ -583,3 +583,59 @@ Limits of the spike: apart from the merge regression (one transfer and one tiny 
 ## Consequences
 - **Block hashes do not cover tx content** (found in Task 4): webevm's `transactionsRoot` is a zero placeholder, so two forks can share a block hash at a height while holding different txs. Explorer step 3 must detect divergence by per-block tx hashes plus height, not by block hash alone. Shared history still lines up by hash.
 - Restore loads into a fresh node, so webevm `loadState` keeping the manual-mining queue no longer matters (risk R14, closed). Restore on a sequencer chain still requires `pending() === 0`, because the sequencer's in-flight txs live outside webevm.
+
+---
+title: "Assets: identity + metadata registry, live reads, no cache"
+status: accepted
+date: 2026-11-19
+tags: architecture, web
+decision: registry
+---
+
+## Goal
+Give the playground a first-class notion of an asset (native ETH and ERC-20s) that survives snapshots, forks and file export/import, without it ever disagreeing with the chain.
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| truth | Never stale | 5 | Higher = shown values always match the chain. |
+| effort | Low effort | 4 | Higher = less to build and maintain. |
+| travel | Travels with chains | 3 | Higher = survives fork, snapshot and export/import. |
+
+## Solution: registry — A: identity + metadata registry, live reads, no cache
+| criterion | score |
+| --- | --- |
+| truth | 5 |
+| effort | 4 |
+| travel | 4 |
+
+## Solution: indexer — B: indexer that caches balances, supply and allowances
+| criterion | score |
+| --- | --- |
+| truth | 3 |
+| effort | 1 |
+| travel | 2 |
+
+## Solution: derive — C: no registry, derive tokens from contract records
+| criterion | score |
+| --- | --- |
+| truth | 5 |
+| effort | 5 |
+| travel | 3 |
+
+## Decision
+A. Store only identity and metadata (symbol, name, decimals, origin, issuer, mintable); read supply, balances and allowances from the chain every time. B was rejected as too much machinery for playground scale and because a cache can go stale. C cannot represent imported tokens, origin or issuer. Details:
+
+- **Identity.** `AssetId` is `<chainId>:native` or `<chainId>:<lowercase address>`, where `chainId` is the playground `ChainInfo.id` (a UUID), not the EVM chain id 31337, which every chain shares. Fork and import call `rebase` so the new chain's assets carry the new id in both `id` and `chainId`; the parent's list is unchanged. Native is never stored.
+- **Allowance discovery.** Approval logs from block 0 give the (owner, spender) pairs; each pair is re-read with `allowance()`, because OpenZeppelin 5 `transferFrom` emits no `Approval` when it spends, so the last log would show a stale amount. Zero allowances are dropped.
+- **Amounts.** A custom `parseAmount` replaces viem `parseUnits`: `parseUnits` rounds extra decimals instead of refusing them, and `parseAmount` also accepts `.5`. It refuses extra fractional digits, negatives and non-numbers inline before signing.
+- **Imported tokens** also get a contract record, with `txHash` zeroHash and deployer `owner()` or zeroAddress (ruling R1: the real deploy tx is unknown), written only if no record exists for that address, so a real deployment record is never overwritten.
+- **Decimals** 0 to 255 are accepted (uint8).
+
+## Consequences
+- Every Assets view costs chain reads; allowance discovery scans all logs from block 0 (risk R16).
+- Upgrade path to B (an incremental indexer keyed by block) stays open: the registry's stored shape does not change.

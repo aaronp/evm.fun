@@ -10,3 +10,5 @@ Benchmark harness for EVM settlement architectures (Bun + TypeScript).
     bun run report
 
 Browser playground (accounts, chains, Solidity studio, explorer, in-browser benchmark): `make dev` / `make build`, see [packages/web/README.md](packages/web/README.md).
+
+Asset registry (token identity and metadata, live reads): [packages/assets/README.md](packages/assets/README.md).

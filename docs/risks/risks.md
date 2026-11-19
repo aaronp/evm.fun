@@ -301,3 +301,20 @@ The orphan prune at startup is per tab: it knows only this tab's stored and live
 | Save-first is a checkbox, so it can be turned off | Preventive | Partial |
 | Snapshot writes are strict: a failed write shows its error and never switches kv to memory | Corrective | Strong |
 | Startup prunes snapshots whose chain is gone (unsaved benchmark chains) | Corrective | Strong |
+
+## R16 · Allowance discovery scans all Approval logs from block 0
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+The Allowances card finds (owner, spender) pairs with `eth_getLogs` for the token's `Approval` event from block 0 to latest, on every open and refresh, then re-reads each pair with `allowance()`. The cost grows with chain history and with the number of distinct pairs, so a long-lived or busy playground chain makes the card slow.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Playground scale: chains are small, and the filter is one address and one topic | Preventive | Partial |
+| Upgrade path: page the log scan, or index incrementally and cache by block (ADR approach B) when a chain gets long | Corrective | Partial |
