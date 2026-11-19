@@ -13,7 +13,6 @@ const RAW = [
 // Files still using raw colours; each is removed from this list by the task that ports it.
 const NOT_YET_PORTED: string[] = [
   'src/pages/Benchmark.tsx',
-  'src/pages/Explorer.tsx',
 ]
 
 const root = new URL('..', import.meta.url).pathname
