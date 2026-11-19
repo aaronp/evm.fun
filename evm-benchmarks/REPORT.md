@@ -57,6 +57,9 @@ Target: 1,000 TPS — ❌ not met
 
 The browser playground (`packages/web`) runs the same scenarios in-browser on the revm engine; the smoke check ran erc20-disjoint on the sequencer, verified. Browser TPS not yet recorded.
 
+- CLI on revm (n=2000, 1 run; not comparable with the n=10000 tables above): `bun run bench --approach 02-seq-memory --scenario erc20-disjoint --n 2000 --runs 1 --opt engine=revm` gave 4,585 TPS, verified (p50 365 ms, p99 436 ms).
+- The user ran the browser smoke test on the dev server; all features worked. The static sub-path build was checked by the controller (index, wasm and soljson served correctly) but not clicked through.
+
 ### 2026-11-19: 01 vs 02, n=10000, 3 runs, webevm@0.9.1 default engine
 
 Median TPS, 01 baseline / 02 seq-memory: atomic-swap 834 / 1,351; erc20-disjoint 1,319 / 3,233; erc20-hot 1,321 / 3,197; erc20-mint 1,458 / 4,238; eth-transfer 273 / 315. All runs verified, none rejected or reverted.
