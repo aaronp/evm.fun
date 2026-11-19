@@ -46,3 +46,10 @@ test('report() keeps notes across regeneration and excludes smaller n', () => {
   expect(md.match(/hand written/g)).toHaveLength(1);
   expect(md).toContain('Excluded 1 results with n≠10000 (n=2000: 1)');
 });
+
+test('one approach with two different opts gives two labelled rows', () => {
+  const a = results.filter((r) => r.approach.id === 'a-fast');
+  const md = renderReport([...a.map((r) => ({...r, params: {...r.params, opts: {block: '2000'}}})), ...a.map((r) => ({...r, params: {...r.params, opts: {}}}))], '');
+  expect(md).toMatch(/\| a-fast \(block=2000\) \| eng@1 \| 1,000 \|/);
+  expect(md).toMatch(/\| a-fast \| eng@1 \| 1,000 \|/);
+});

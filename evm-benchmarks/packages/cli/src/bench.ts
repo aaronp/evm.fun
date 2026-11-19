@@ -50,6 +50,7 @@ export async function bench(argv: string[]) {
           // distinct seed per run so RPC targets never reuse accounts
           const r = await runBenchmark({approach, scenario: scenarios[s]!(), n, senders, batch, seed: `${v.seed}-r${k < 0 ? `w${-k}` : k + 1}`});
           if (k < 0) continue;
+          r.params.opts = opts;
           r.env.cpu = cpu[0]?.model ?? 'unknown';
           r.env.cores = cpu.length;
           writeFileSync(join(dir, `${ts}-${a}-${s}-r${k + 1}.json`), JSON.stringify(r, null, 2));

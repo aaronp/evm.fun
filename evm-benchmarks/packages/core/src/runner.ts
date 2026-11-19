@@ -16,7 +16,7 @@ export interface RunOptions {
 export interface RunResult {
   approach: ApproachMeta;
   scenario: string;
-  params: {n: number; senders: number; batch: number; seed: string};
+  params: {n: number; senders: number; batch: number; seed: string; opts?: Record<string, string>};
   signingMs: number;
   durationMs: number;
   tps: number | null;

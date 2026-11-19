@@ -7,6 +7,11 @@ const MARK = '<!-- notes -->';
 const TARGET = 1000;
 const med = (a: number[]) => percentile([...a].sort((x, y) => x - y), 50);
 const fmt = (x: number) => Math.round(x).toLocaleString('en-US');
+// row label: approach id plus its options, e.g. `02-seq-memory (block=2000)`
+const label = (r: RunResult) => {
+  const o = Object.entries(r.params.opts ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  return o.length ? `${r.approach.id} (${o.map(([k, v]) => `${k}=${v}`).join(', ')})` : r.approach.id;
+};
 
 export function renderReport(results: RunResult[], notes: string, excluded: RunResult[] = []): string {
   const newest = results.reduce((a, b) => (b.env.startedAt > a.env.startedAt ? b : a));
@@ -24,8 +29,8 @@ export function renderReport(results: RunResult[], notes: string, excluded: RunR
   }
   for (const scenario of [...new Set(results.map((r) => r.scenario))].sort()) {
     const rs = results.filter((r) => r.scenario === scenario);
-    const rows = [...new Set(rs.map((r) => r.approach.id))].map((id) => {
-      const runs = rs.filter((r) => r.approach.id === id);
+    const rows = [...new Set(rs.map(label))].map((id) => {
+      const runs = rs.filter((r) => label(r) === id);
       const ok = runs.filter((r) => r.verified && r.tps !== null);
       const m = runs[0]!.approach;
       return {
