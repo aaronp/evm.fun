@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { markRadius, ticks as tickValues, timeScale } from '../timeline'
 import { blockMatches, windowContains, type Header } from '../window'
 import { Panel } from '../../ui/panel'
+import { ViewToggle } from '../ViewToggle'
 
 const W = 720, H = 120, Y = 50, AXIS = 100
 
@@ -52,5 +53,5 @@ export function TimelineView({ q, headers, total, selected, loading }: { q: stri
       </div>
     )
   }
-  return <Panel title="Timeline">{body}</Panel>
+  return <Panel title="Timeline" actions={<ViewToggle />}>{body}</Panel>
 }

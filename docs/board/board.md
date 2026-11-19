@@ -68,6 +68,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 ## Done
 
+### web: view toggle in viewer header
+- id: t-46
+- owner: Claude
+- tags: web, plan5
+- history:
+  - To Do @ 2026-11-19T17:45:00Z
+  - Doing @ 2026-11-19T17:45:30Z by Claude
+  - Done @ 2026-11-19T17:53:30Z by Claude
+
 ### web: Fisheye matches mockup
 - id: t-45
 - owner: Claude

@@ -10,6 +10,7 @@ import { ChainView } from '../explorer/views/ChainView'
 import { TableView } from '../explorer/views/TableView'
 import { TimelineView } from '../explorer/views/TimelineView'
 import { FisheyeView } from '../explorer/views/FisheyeView'
+import { ViewCtx, readView, type ExplorerView } from '../explorer/ViewToggle'
 import type { Header } from '../explorer/window'
 import { Pager } from '../ui/pager'
 import { isErc20 } from '../components/Erc20Card'
@@ -161,7 +162,7 @@ function Address({ chain, names }: { chain: ChainHandle; names: Names }) {
   )
 }
 
-export type ExplorerView = 'table' | 'chain' | 'timeline' | 'fisheye'
+export type { ExplorerView }
 
 function ActiveView({ view, chain, q, win, sel }: { view: ExplorerView; chain: ChainHandle; q: string; win: Win; sel?: number }) {
   if (view === 'table') return <TableView chain={chain} q={q} headers={win.headers} total={win.total} loading={win.loading} selected={sel} />
@@ -183,7 +184,8 @@ function Browse({ chain, view, q, win }: { chain: ChainHandle; view: ExplorerVie
   )
 }
 
-export function Explorer({ view, win }: { view: ExplorerView; win: Win }) {
+export function Explorer({ win }: { win: Win }) {
+  const [view, setView] = useState<ExplorerView>(readView)
   const { chain } = useApp()
   const nav = useNavigate()
   const [q, setQ] = useState('')
@@ -206,6 +208,7 @@ export function Explorer({ view, win }: { view: ExplorerView; win: Win }) {
     if (kind !== 'invalid') nav(`/chains/${kind}/${s}`)
   }
   return (
+    <ViewCtx.Provider value={{ view, set: setView }}>
     <div className="space-y-4">
       <form className="flex gap-2" onSubmit={e => { e.preventDefault(); search() }}>
         <div className="relative min-w-0 flex-1">
@@ -224,5 +227,6 @@ export function Explorer({ view, win }: { view: ExplorerView; win: Win }) {
         <Route path="*" element={<NotFound what="page" />} />
       </Routes>
     </div>
+    </ViewCtx.Provider>
   )
 }

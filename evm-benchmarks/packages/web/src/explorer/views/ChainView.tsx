@@ -8,6 +8,7 @@ import { blockMatches, type Header } from '../window'
 import { Badge } from '../../ui/badge'
 import { Button } from '../../ui/button'
 import { Panel } from '../../ui/panel'
+import { ViewToggle } from '../ViewToggle'
 
 const short = (s: string) => `${s.slice(0, 10)}…${s.slice(-6)}`
 
@@ -39,7 +40,7 @@ export function ChainView({ chain, q, selected, total, loading }: { chain: Chain
     </div>
   )
   return (
-    <Panel title="Chain" badge={nav2}>
+    <Panel title="Chain" badge={nav2} actions={<ViewToggle />}>
       <div role="group" tabIndex={0} onKeyDown={onKey} aria-label="Block chain: use left and right arrow keys" className="flex flex-col items-stretch gap-2 p-4 md:flex-row md:items-center">
         {head < 0 ? <p className="text-sm text-muted">{loading ? 'Loading…' : 'No blocks.'}</p> : !shown ? <p className="text-sm text-muted">{cur === null ? 'Not found.' : 'Loading…'}</p> : shown.cards.map((b, i) => {
           const n = shown.nums[i]!
