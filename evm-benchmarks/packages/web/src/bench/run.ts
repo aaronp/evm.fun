@@ -19,7 +19,13 @@ export async function runInBrowser(
   onProgress?: RunOptions['onProgress'],
 ): Promise<{ result: RunResult; handle: ChainHandle }> {
   const approach = factories[type]({}, host)
-  const result = await runBenchmark({ approach, scenario: scenarios[scenario](), n, senders, seed: 'playground', onProgress })
+  let result: RunResult
+  try {
+    result = await runBenchmark({ approach, scenario: scenarios[scenario](), n, senders, seed: 'playground', onProgress })
+  } catch (e) {
+    await approach.dispose().catch(() => {}) // don't leak the engine of a failed run
+    throw e
+  }
   const info = { id: crypto.randomUUID(), name: `bench ${scenario} ${type}`, type, createdAt: new Date().toISOString() }
   return { result, handle: makeHandle(info, approach) }
 }

@@ -6,6 +6,7 @@ import { scenarios, type RunResult } from '@evmb/core'
 import { registry } from '../chain/revm'
 import type { ChainHandle, ChainType } from '../chain/handle'
 import { runInBrowser } from '../bench/run'
+import { addRun, sessionRuns, type Run } from '../bench/session'
 import { useApp } from '../state'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
@@ -16,8 +17,6 @@ const benchHost = { createEngine: () => createRevmEngine({ wasm: wasmUrl }) }
 const input = 'rounded-md border border-slate-300 px-2 py-1 text-sm'
 const num = (v: string, d: number) => Math.max(1, Math.floor(Number(v)) || d)
 const f = (x: number) => x.toFixed(1)
-
-interface Run { result: RunResult; handle: ChainHandle; type: ChainType; name: string }
 
 function ResultCard({ r }: { r: Run }) {
   const { result, type } = r
@@ -42,7 +41,7 @@ export function Benchmark() {
   const [n, setN] = useState('2000')
   const [senders, setSenders] = useState('100')
   const [progress, setProgress] = useState<[string, number, number]>()
-  const [runs, setRuns] = useState<Run[]>([])
+  const [runs, setRuns] = useState<Run[]>(sessionRuns)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
   const last = runs.at(-1)
@@ -54,10 +53,8 @@ export function Benchmark() {
         { type, scenario, n: num(n, 2000), senders: num(senders, 100), host: benchHost },
         (p, d, t) => setProgress([p, d, t]),
       )
-      const name = `bench ${scenario} ${type} #${runs.length + 1}`
-      handle.info.name = name
-      registry.addEphemeral(handle)
-      setRuns(rs => [...rs, { result, handle, type, name }])
+      registry.addEphemeral(addRun(result, handle, type, scenario).handle)
+      setRuns(sessionRuns())
       await refresh()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
@@ -96,7 +93,7 @@ export function Benchmark() {
           <thead><tr><th>run</th><th>TPS</th><th>p50</th><th>p99</th><th>verified</th><th /></tr></thead>
           <tbody>
             {runs.map(r => (
-              <tr key={r.name}>
+              <tr key={r.handle.info.id}>
                 <td>{r.name}</td>
                 <td>{r.result.tps === null ? '—' : f(r.result.tps)}</td>
                 <td>{f(r.result.latencyMs.p50)}</td>
