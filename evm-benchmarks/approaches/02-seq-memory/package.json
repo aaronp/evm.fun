@@ -1,0 +1,9 @@
+{
+  "name": "@evmb/approach-02-seq-memory",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "dependencies": {
+    "@evmb/core": "workspace:*"
+  }
+}

@@ -7,17 +7,6 @@ theme: paper
 ## To Do
 
 
-### Approach 02: seq-memory
-- id: t-08
-- owner:
-- tags: approach
-- history:
-  - To Do @ 2026-11-19T09:38:00Z
-
-```md
-Parallel sig pre-verify, single-writer sequencer, ring buffer, batched blocks, no state root, in-memory log.
-```
-
 ### Approach 03: seq-stateroot
 - id: t-09
 - owner:
@@ -99,6 +88,19 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### Approach 02: seq-memory
+- id: t-08
+- owner: Claude
+- tags: approach
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Doing @ 2026-11-19T10:43:22Z by Claude
+  - Done @ 2026-11-19T11:15:07Z by Claude
+
+```md
+Parallel sig pre-verify, single-writer sequencer, ring buffer, batched blocks, no state root, in-memory log.
+```
 
 ### cli: bench command writing results JSON
 - id: t-06

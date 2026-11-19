@@ -1,0 +1,151 @@
+import {createNode} from 'webevm';
+import type {Address, Approach, ApproachFactory, Hex, Receipt} from '@evmb/core';
+import {RingBuffer} from './ring.ts';
+import {Sequencer, type Sequenced} from './sequencer.ts';
+
+type Node = Awaited<ReturnType<typeof createNode>>;
+
+const MAX_TX_GAS = 3_000_000n; // largest fixed gas limit in the benchmark (deploy)
+
+const factory: ApproachFactory = (opts = {}) => {
+  const cores = (globalThis as any).navigator?.hardwareConcurrency ?? 2;
+  const workers = Math.max(1, Number(opts.workers ?? cores - 1));
+  const block = Number(opts.block ?? 500);
+  const chunk = Number(opts.chunk ?? 250);
+
+  // all per-chain state; built in setup() so the factory allocates nothing
+  let run:
+    | {node: Node; ring: RingBuffer<Sequenced>; seq: Sequencer; stop: boolean; wake?: () => void}
+    | undefined;
+  let receipts = new Map<Hex, Receipt>();
+  let waiters: (() => void)[] = [];
+  let fatal: Error | undefined;
+  let executeMs = 0;
+  let mineMs = 0;
+
+  const notify = () => {
+    const w = waiters;
+    waiters = [];
+    w.forEach((f) => f());
+  };
+  const record = (r: Receipt) => {
+    receipts.set(r.hash, r);
+    notify();
+  };
+  const fail = (e: Error) => {
+    fatal ??= e;
+    notify();
+  };
+
+  // executor: the only caller of the node while running
+  async function execute(r: NonNullable<typeof run>) {
+    while (!r.stop) {
+      const txs = r.ring.drain(block);
+      if (!txs.length) {
+        await new Promise<void>((res) => (r.wake = res));
+        continue;
+      }
+      r.seq.release(); // ring has room again
+      const t0 = performance.now();
+      const sent: Sequenced[] = [];
+      for (const tx of txs) {
+        try {
+          await r.node.request({method: 'evm_sendRawTransactionAs', params: [tx.raw, tx.from]});
+          sent.push(tx);
+        } catch (e) {
+          record({hash: tx.hash, status: 'rejected', settledAt: performance.now(), error: e instanceof Error ? e.message : String(e)});
+        }
+      }
+      const t1 = performance.now();
+      await r.node.mine();
+      const settledAt = performance.now();
+      mineMs += settledAt - t1;
+      for (const tx of sent) {
+        const rc: any = await r.node.request({method: 'eth_getTransactionReceipt', params: [tx.hash]});
+        record(
+          rc
+            ? {hash: tx.hash, status: rc.status === '0x1' ? 'success' : 'reverted', settledAt, contractAddress: rc.contractAddress ?? undefined}
+            : {hash: tx.hash, status: 'rejected', settledAt, error: 'not included in mined block'},
+        );
+      }
+      executeMs += t1 - t0 + (performance.now() - settledAt);
+    }
+  }
+
+  async function teardown() {
+    if (!run) return;
+    run.stop = true;
+    run.wake?.();
+    run.seq.terminate();
+    await run.node.dispose();
+    run = undefined;
+  }
+
+  const approach: Approach = {
+    meta: {
+      id: '02-seq-memory',
+      title: 'Sequencer + ring buffer, parallel sig pre-verify, batched blocks',
+      runsIn: ['bun', 'browser'],
+      engine: 'webevm@0.9.1',
+      tradeoffs: {evm: true, stateRoot: 'none', log: 'memory', sigVerify: 'parallel-pre', execution: 'serial'},
+    },
+
+    async setup({prefund}) {
+      await teardown();
+      receipts = new Map();
+      waiters = [];
+      fatal = undefined;
+      executeMs = mineMs = 0;
+      const node = await createNode({
+        chainId: 31337,
+        senderMode: 'trusted',
+        miningConfig: {type: 'manual'},
+        blockGasLimit: BigInt(block) * MAX_TX_GAS, // a full block of the heaviest tx always fits
+        initialBalances: prefund,
+      });
+      // ponytail: 4 blocks of headroom; more only matters if verify bursts outrun the executor for long
+      const ring = new RingBuffer<Sequenced>(block * 4);
+      const r: NonNullable<typeof run> = {
+        node,
+        ring,
+        stop: false,
+        seq: new Sequencer(workers, chunk, ring, {
+          pushed: () => r.wake?.(),
+          rejected: (v) => record({hash: v.hash, status: 'rejected', settledAt: performance.now(), error: v.error}),
+          fatal: fail,
+        }),
+      };
+      run = r;
+      execute(r).catch((e) => {
+        if (run === r) fail(e instanceof Error ? e : new Error(String(e)));
+      });
+    },
+
+    async submit(rawTxs) {
+      run!.seq.submit(rawTxs);
+    },
+
+    async awaitSettled(hashes) {
+      while (!hashes.every((h) => receipts.has(h))) {
+        if (fatal) throw fatal;
+        await new Promise<void>((res) => waiters.push(res));
+      }
+      return hashes.map((h) => receipts.get(h)!);
+    },
+
+    async call({to, data}) {
+      return (await run!.node.request({method: 'eth_call', params: [{to, data}, 'latest']})) as Hex;
+    },
+
+    async getBalance(addr: Address) {
+      return BigInt((await run!.node.request({method: 'eth_getBalance', params: [addr, 'latest']})) as string);
+    },
+
+    phases: () => ({verifyMs: run?.seq.verifyMs ?? 0, sequenceMs: run?.seq.sequenceMs ?? 0, executeMs, mineMs}),
+
+    dispose: teardown,
+  };
+  return approach;
+};
+
+export default factory;

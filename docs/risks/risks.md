@@ -24,7 +24,7 @@ webevm is young (v0.9.x, single maintainer). Trusted sender mode, manual mining 
 
 ## R02 · A single serial executor can't reach 1k TPS
 - impact: 3
-- likelihood: 3
+- likelihood: 4
 - target: 3x2
 - appetite: 9
 - category: Performance
@@ -32,6 +32,8 @@ webevm is young (v0.9.x, single maintainer). Trusted sender mode, manual mining 
 - approver: Aaron
 
 The single-threaded EVM loop may top out below 1k TPS for contract calls (especially atomic-swap).
+
+Measured by approach 02 (2026-11-19, n=10000, webevm@0.9.1 default engine, M4 Pro): erc20 2.6-3.1k TPS, atomic-swap 1.2k TPS, eth-transfer 318 TPS. eth-transfer misses 1k because webevm `mine()` costs ~3 ms per newly created account (block size makes no difference), so the limit is the engine, not the single executor. Likelihood raised to 4: already realized for one scenario; revm (05) is the next control to measure.
 
 ### Controls
 | Control | Type | Effectiveness |
