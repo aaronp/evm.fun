@@ -63,13 +63,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
-### snapshots: chain file format (pure)
-- id: t-50
-- owner:
-- tags: web, plan6
-- history:
-  - To Do @ 2026-11-19T18:21:54Z
-
 ### snapshots: snapshot store and registry createFrom / restoreTo
 - id: t-51
 - owner:
@@ -94,6 +87,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### snapshots: chain file format (pure)
+- id: t-50
+- owner: Claude
+- tags: web, plan6
+- history:
+  - To Do @ 2026-11-19T18:21:54Z
+  - Doing @ 2026-11-19T18:33:54Z by Claude
+  - Done @ 2026-11-19T18:34:46Z by Claude
 
 ### snapshots: approach snapshot/restore and setup from a dump
 - id: t-49
