@@ -13,6 +13,7 @@ import { templates } from '../solc/templates'
 import type { CompileResult } from '../solc/compile'
 import { encodeArgs } from '../abi/args'
 import { signAndSend } from '../tx/send'
+import { ADDRESS_LIST } from '../components/AddressList'
 import { contractsRegistry, type DeployedContract } from '../contracts/registry'
 
 const input = 'rounded-md border border-slate-300 px-2 py-1 text-sm'
@@ -161,7 +162,7 @@ export function Studio() {
             {ctor.map((p: { name: string; type: string }, i: number) => (
               <label key={i} className="block text-sm">
                 {p.name || `arg${i}`} <span className="text-slate-500">({p.type})</span>
-                <input className={`${input} ml-2 w-80`} value={args[i] ?? ''} onChange={e => setArgs(a => Object.assign([...a], { [i]: e.target.value }))} />
+                <input className={`${input} ml-2 w-80`} list={p.type === 'address' ? ADDRESS_LIST : undefined} value={args[i] ?? ''} onChange={e => setArgs(a => Object.assign([...a], { [i]: e.target.value }))} />
               </label>
             ))}
             <div>

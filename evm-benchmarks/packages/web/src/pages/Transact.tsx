@@ -10,6 +10,7 @@ import { Button } from '../ui/button'
 import { Card } from '../ui/card'
 import { Erc20Card, isErc20 } from '../components/Erc20Card'
 import { FunctionForm } from '../components/FunctionForm'
+import { ADDRESS_LIST } from '../components/AddressList'
 import { ReceiptView } from '../components/ReceiptView'
 
 const input = 'rounded-md border border-slate-300 px-2 py-1 text-sm'
@@ -62,7 +63,7 @@ export function Transact() {
       </div>
       {target === ETH && (
         <Card className="flex flex-wrap items-center gap-2 text-sm">
-          <input aria-label="Recipient" placeholder="to (address)" className={`${input} w-96`} value={eth.to} onChange={e => setEth({ ...eth, to: e.target.value })} />
+          <input aria-label="Recipient" placeholder="to (address)" list={ADDRESS_LIST} className={`${input} w-96`} value={eth.to} onChange={e => setEth({ ...eth, to: e.target.value })} />
           <input aria-label="Amount" placeholder="amount (wei)" className={`${input} w-40`} value={eth.amount} onChange={e => setEth({ ...eth, amount: e.target.value })} />
           <Button onClick={sendEth}>Send</Button>
           {ethErr && <span role="alert" className="text-red-700">{ethErr}</span>}

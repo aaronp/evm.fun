@@ -8,6 +8,7 @@ import { Studio } from './pages/Studio'
 import { Transact } from './pages/Transact'
 import { Explorer } from './pages/Explorer'
 import { Benchmark } from './pages/Benchmark'
+import { AddressList } from './components/AddressList'
 
 const pages = ['Accounts', 'Chains', 'Studio', 'Transact', 'Explorer', 'Benchmark']
 
@@ -35,6 +36,7 @@ export function App() {
         </nav>
         <main className="flex-1 space-y-4 p-6">
           <StorageNotice />
+          <AddressList />
           <Routes>
             {pages.map(p => (
               <Route key={p} path={p === 'Explorer' ? '/explorer/*' : `/${p.toLowerCase()}`} element={real[p] ?? <Stub name={p} />} />

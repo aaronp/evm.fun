@@ -7,6 +7,7 @@ import { encodeArgs } from '../abi/args'
 import { readContract, signAndSend } from '../tx/send'
 import { Button } from '../ui/button'
 import { show } from './ReceiptView'
+import { ADDRESS_LIST } from './AddressList'
 
 const input = 'rounded-md border border-slate-300 px-2 py-1 text-sm'
 
@@ -49,7 +50,7 @@ export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
     <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="w-28 font-medium">{fn.name}</span>
       {fn.inputs.map((p, i) => (
-        <input key={i} aria-label={p.name || `arg${i}`} placeholder={`${p.name || `arg${i}`} (${p.type})`} className={`${input} w-48`}
+        <input key={i} aria-label={p.name || `arg${i}`} placeholder={`${p.name || `arg${i}`} (${p.type})`} className={`${input} w-48`} list={p.type === 'address' ? ADDRESS_LIST : undefined}
           value={raw[i] ?? ''} onChange={e => setRaw(r => Object.assign([...r], { [i]: e.target.value }))} />
       ))}
       {fn.stateMutability === 'payable' && <input aria-label="value" placeholder="value (wei)" className={`${input} w-32`} value={value} onChange={e => setValue(e.target.value)} />}
