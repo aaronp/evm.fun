@@ -11,3 +11,8 @@ export function stepTarget(focus: number, head: number, dir: -1 | 1): number | n
   const t = focus + dir
   return t < 0 || t > head ? null : t
 }
+
+/** What to render: the resolved pair if any, else the last resolved pair of the same chain (kept while loading). Cards are never re-paired with other numbers. */
+export function shownPair<P extends { chain: unknown }>(last: P | null, cur: P | null | undefined, chain: unknown): P | null {
+  return cur === undefined ? (last?.chain === chain ? last : null) : cur
+}

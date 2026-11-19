@@ -16,3 +16,13 @@ describe('stepTarget', () => {
   test('beyond the tip: parent goes to the tip, child disabled', () => { expect(stepTarget(999, 10, -1)).toBe(10); expect(stepTarget(999, 10, 1)).toBeNull() })
   test('empty chain', () => expect(stepTarget(0, -1, -1)).toBeNull())
 })
+
+import { shownPair } from '../src/explorer/neighbours'
+describe('shownPair', () => {
+  const c = {}, d = {}
+  const p = (chain: object, nums: number[]) => ({ chain, nums })
+  test('current wins', () => expect(shownPair(p(c, [1]), p(c, [2]), c)).toEqual(p(c, [2])))
+  test('loading keeps the last pair of this chain, with its own numbers', () => expect(shownPair(p(c, [1]), undefined, c)).toEqual(p(c, [1])))
+  test('loading after a chain switch shows nothing', () => expect(shownPair(p(c, [1]), undefined, d)).toBeNull())
+  test('a rejected load is not replaced by the stale pair', () => expect(shownPair(p(c, [1]), null, c)).toBeNull())
+})

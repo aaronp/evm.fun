@@ -2,7 +2,7 @@ import { useRef, type KeyboardEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { ChainHandle } from '../../chain/handle'
 import { block } from '../data'
-import { neighbours, stepTarget } from '../neighbours'
+import { neighbours, shownPair, stepTarget } from '../neighbours'
 import { useLoad } from '../useLoad'
 import { blockMatches, type Header } from '../window'
 import { Badge } from '../../ui/badge'
@@ -18,10 +18,11 @@ export function ChainView({ chain, q, selected, total, loading }: { chain: Chain
   const focus = selected ?? head
   const { parents, children } = neighbours(focus, head)
   const nums = [...parents, focus, ...children]
-  const cards = useLoad(() => (head < 0 ? Promise.resolve(null) : Promise.all(nums.map(n => block(chain, n, 0, 0)))), [chain, focus, head])
-  const last = useRef<{ chain: ChainHandle; nums: number[]; cards: NonNullable<typeof cards> } | null>(null)
-  if (cards) last.current = { chain, nums, cards }
-  const shown = cards ? { nums, cards } : last.current?.chain === chain ? last.current : null // keep the previous cards while the next set loads
+  // The loaded value carries its own numbers so cards are never paired with another focus's numbers.
+  const cur = useLoad(async () => (head < 0 ? null : { chain, focus, nums, cards: await Promise.all(nums.map(n => block(chain, n, 0, 0))) }), [chain, focus, head])
+  const last = useRef<typeof cur>(null)
+  if (cur) last.current = cur
+  const shown = shownPair(last.current ?? null, cur, chain)
   const go = (n: number | null) => n !== null && nav(`/chains/block/${n}`)
   const parent = stepTarget(focus, head, -1)
   const child = stepTarget(focus, head, 1)
@@ -39,9 +40,9 @@ export function ChainView({ chain, q, selected, total, loading }: { chain: Chain
   return (
     <Panel title="Chain" badge={nav2}>
       <div role="group" tabIndex={0} onKeyDown={onKey} aria-label="Block chain: use left and right arrow keys" className="flex flex-col items-stretch gap-2 p-4 md:flex-row md:items-center">
-        {head < 0 ? <p className="text-sm text-muted">{loading ? 'Loading…' : 'No blocks.'}</p> : !shown ? <p className="text-sm text-muted">{cards === null ? 'Not found.' : 'Loading…'}</p> : shown.cards.map((b, i) => {
+        {head < 0 ? <p className="text-sm text-muted">{loading ? 'Loading…' : 'No blocks.'}</p> : !shown ? <p className="text-sm text-muted">{cur === null ? 'Not found.' : 'Loading…'}</p> : shown.cards.map((b, i) => {
           const n = shown.nums[i]!
-          const isFocus = n === focus
+          const isFocus = n === shown.focus
           const dim = !!b && !blockMatches({ number: n, hash: b.header.hash } as Header, q)
           return (
             <div key={n} className="flex flex-col items-center gap-2 md:flex-row">
