@@ -36,6 +36,14 @@
   --c-series-4: #C98500;
   --c-series-5: #D55181;
   --c-series-6: #9085E9;
+  --c-tone-1-bg: #2A3A6B;
+  --c-tone-1-fg: #C9D6FF;
+  --c-tone-2-bg: #173A27;
+  --c-tone-2-fg: #A7F3C4;
+  --c-tone-3-bg: #2B2140;
+  --c-tone-3-fg: #D8C6FF;
+  --c-tone-4-bg: #3A2A12;
+  --c-tone-4-fg: #FFD7A3;
 }
 
 :root[data-theme="light"] {
@@ -74,6 +82,14 @@
   --c-series-4: #A86F00;
   --c-series-5: #C93D73;
   --c-series-6: #6250D6;
+  --c-tone-1-bg: #DCE5FF;
+  --c-tone-1-fg: #1F3A9E;
+  --c-tone-2-bg: #D5F2DF;
+  --c-tone-2-fg: #14532D;
+  --c-tone-3-bg: #EADFFB;
+  --c-tone-3-fg: #4C1D95;
+  --c-tone-4-bg: #FCE8C8;
+  --c-tone-4-fg: #7A3B08;
 }
 
 :root[data-theme="paper"] {
@@ -112,4 +128,12 @@
   --c-series-4: #A86F00;
   --c-series-5: #C93D73;
   --c-series-6: #6250D6;
+  --c-tone-1-bg: #DDE3F5;
+  --c-tone-1-fg: #22399A;
+  --c-tone-2-bg: #DCEBDD;
+  --c-tone-2-fg: #25663F;
+  --c-tone-3-bg: #E6DEF3;
+  --c-tone-3-fg: #4B2D7A;
+  --c-tone-4-bg: #F3E2C2;
+  --c-tone-4-fg: #7A3B08;
 }

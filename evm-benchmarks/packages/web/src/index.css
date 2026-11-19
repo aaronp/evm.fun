@@ -36,6 +36,14 @@
   --color-series-4: var(--c-series-4);
   --color-series-5: var(--c-series-5);
   --color-series-6: var(--c-series-6);
+  --color-tone-1-bg: var(--c-tone-1-bg);
+  --color-tone-1-fg: var(--c-tone-1-fg);
+  --color-tone-2-bg: var(--c-tone-2-bg);
+  --color-tone-2-fg: var(--c-tone-2-fg);
+  --color-tone-3-bg: var(--c-tone-3-bg);
+  --color-tone-3-fg: var(--c-tone-3-fg);
+  --color-tone-4-bg: var(--c-tone-4-bg);
+  --color-tone-4-fg: var(--c-tone-4-fg);
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-display: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;

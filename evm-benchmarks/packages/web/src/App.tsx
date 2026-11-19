@@ -10,19 +10,21 @@ import { legacyRoute } from './routes'
 import { Studio } from './pages/Studio'
 import { Transact } from './pages/Transact'
 import { Benchmark } from './pages/Benchmark'
+import { Assets } from './pages/Assets'
 import { ContextBox, ContextStrip } from './components/ContextBox'
 import { ThemeSwitcher } from './components/ThemeSwitcher'
 import { ENGINE } from './chain/revm'
-import { AccountsIcon, BenchmarkIcon, BrandIcon, ChainsIcon, StudioIcon, TransactIcon } from './ui/icons'
+import { AccountsIcon, BenchmarkIcon, BrandIcon, ChainsIcon, StudioIcon, TransactIcon, AssetsIcon } from './ui/icons'
 import { AddressList } from './components/AddressList'
 
 const groups = [
   { label: 'Setup', items: [['Accounts', AccountsIcon], ['Chains', ChainsIcon]] },
   { label: 'Build & run', items: [['Studio', StudioIcon], ['Transact', TransactIcon], ['Benchmark', BenchmarkIcon]] },
+  { label: 'Markets', items: [['Assets', AssetsIcon]] },
 ] as const
 const pages = groups.flatMap(g => g.items.map(([n]) => n))
 
-const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Benchmark: <Benchmark /> }
+const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Benchmark: <Benchmark />, Assets: <Assets /> }
 const LegacyRedirect = () => <Navigate to={legacyRoute(useLocation().pathname) ?? '/chains'} replace />
 const Stub = ({ name }: { name: string }) => <h1 className="text-xl font-semibold">{name}</h1>
 

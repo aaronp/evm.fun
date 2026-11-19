@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### assets: Assets page list, header, balances, Send
-- id: t-58
-- owner: Claude
-- tags: web, plan7
-- history:
-  - To Do @ 2026-11-19T22:03:42Z
-
 ### assets: allowances, import token, launch asset
 - id: t-59
 - owner: Claude
@@ -87,6 +80,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### assets: Assets page list, header, balances, Send
+- id: t-58
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+  - Doing @ 2026-11-19T22:36:00Z by Claude
+  - Done @ 2026-11-19T22:37:28Z by Claude
 
 ### assets: travel with snapshots, forks and files
 - id: t-57
