@@ -63,16 +63,18 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
-### snapshots: README, ADR and the browser checklist
-- id: t-53
-- owner:
-- tags: web, plan6
-- history:
-  - To Do @ 2026-11-19T18:21:54Z
-
 ## Doing
 
 ## Done
+
+### snapshots: README, ADR and the browser checklist
+- id: t-53
+- owner: Claude
+- tags: web, plan6
+- history:
+  - To Do @ 2026-11-19T18:21:54Z
+  - Doing @ 2026-11-19T19:00:00Z by Claude
+  - Done @ 2026-11-19T19:01:07Z by Claude
 
 ### snapshots: snapshot, restore, import and export UI
 - id: t-52

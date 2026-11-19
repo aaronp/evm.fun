@@ -200,7 +200,7 @@ Observed (plan 3): persistence re-serialises the whole chain on every change. Th
 
 ## R11 · Bun worker-teardown segfault in the test suite
 - impact: 2
-- likelihood: 2
+- likelihood: 4
 - target: 2x1
 - appetite: 4
 - category: Quality
@@ -208,6 +208,8 @@ Observed (plan 3): persistence re-serialises the whole chain on every change. Th
 - approver: Aaron
 
 `bun test` (Bun 1.3.13) panicked once in 4 runs during the plan-3 final review (82 workers spawned, 74 terminated at the time of the crash). Plan 3 raised worker churn: the suite now creates 129 workers (base 3c6dd51: 18), because the web tests build sequencer chains that each start `hardwareConcurrency - 1` verify workers. Re-runs on 2026-11-19 did not reproduce it: HEAD 0 crashes in 40 runs, base 0 in 35. An instrumented run showed all 129 workers terminated, so no test leaks a chain; the crash looks like a Bun bug when workers are terminated (not awaited) while others start.
+
+Update during plan 6 (snapshots): the crash now reproduces in about 1 of 2 to 3 full runs, more often inside the sandbox, and once as exit 133. The earlier zero-in-40 result no longer holds, so likelihood is raised from 2 to 4.
 
 ### Controls
 | Control | Type | Effectiveness |
@@ -250,3 +252,39 @@ Each running chain holds an engine, and sequencer chains start `hardwareConcurre
 | Cap: warn at 4 running chains, refuse at 8, never auto-close (ADR "Cap on running chains in one tab") | Preventive | Strong |
 | The chain list never opens a chain; it only reads the height of one already running | Preventive | Strong |
 | Delete a chain or reload the page to stop running chains | Corrective | Partial |
+
+## R14 · webevm loadState does not clear the manual-mining queue
+- impact: 3
+- likelihood: 1
+- target: 3x1
+- appetite: 3
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+Restore calls webevm `loadState` on the live node. In webevm 0.9.1 `loadState` does not clear the manual-mining queue, so txs queued before a restore would be mined on top of the restored state. The pipeline cannot reach this: `restoreTo` requires `pending() === 0` and the dialog disables Restore otherwise. It is reachable through the raw request pass-through (a manual-mining chain given txs by direct JSON-RPC, then restored).
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| `restoreTo` refuses while `pending() > 0` (nothing saved or lost) | Preventive | Strong |
+| Restore dialog polls pending and disables Restore with "Wait for N pending transactions to settle" | Preventive | Strong |
+| Clear the queue ourselves or fix upstream if restore is ever exposed to raw requests | Corrective | Partial |
+
+## R15 · Snapshot storage growth
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+Each snapshot stores a full dump (blocks, receipts, transactions, state) in IndexedDB, and "Save current state first" adds one on every restore. Measured: a 2,000-block chain is about 5.7 MB (5,665 KB), so repeated snapshots of long chains can fill browser storage quota or slow the dialogs. Heavier blocks (deploys, logs) will be larger.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| The snapshots dialog shows each snapshot's size in KB and a "large" badge above 20 MB | Detective | Partial |
+| Delete a snapshot from the dialog; deleting a chain deletes its snapshots | Corrective | Strong |
+| Save-first is a checkbox, so it can be turned off | Preventive | Partial |

@@ -35,7 +35,39 @@ Timeline and Fisheye use the latest 500 blocks; a selected older block still sho
 
 **Filter:** digits match the block number exactly; hex (with or without `0x`) matches a block-hash prefix. Table hides non-matches within the latest 500 blocks (a caption says so); Chain, Timeline and Fisheye dim non-matches. Enter navigates to a full tx hash, address or block number; other input shows "Not found".
 
-Fork views come later, with snapshots, export/import and restore, when there is real fork data to show.
+Fork views come later, when there is real fork data to show. The data now exists: see the next section.
+
+## Snapshots, restore, import/export
+
+Four app-bar actions on **Chains** work on the selected chain (Import needs none):
+
+- **Snapshot** saves the chain's current state under a name (default `<chain name> @ block <n>`) in this browser (IndexedDB, `kv` namespace `snapshots`). A snapshot holds webevm's `dumpState` output and the chain's contract records, so blocks, hashes, receipts, balances and deployed contracts all come back exactly.
+- **Snapshots** lists the chain's snapshots with block height, time and size in KB. A "large" badge shows above 20 MB. Each row has **Open as new chain**, **Restore this chain...**, **Export** and **Delete**. Deleting a chain deletes its snapshots.
+- **Export** downloads the chain as `<chain name slug>-<height>.evmfun.json`.
+- **Import** reads such a file as a new chain.
+
+Chains whose approach cannot dump state refuse with "This chain type can't be snapshotted".
+
+**Restore** rewinds the selected chain in place to a snapshot (`loadState`). A confirm dialog says blocks after the snapshot's height will be discarded and offers **Save current state as a snapshot first**, checked by default; the saved snapshot is named in the confirmation. After a restore the app goes to `/chains`, the block window, cached height and balance refresh, and the chain's contract records are replaced by the snapshot's. A persisted chain stays restored after a reload.
+
+**Pending guard:** a sequencer chain may hold transactions that are submitted but not yet mined, and restoring would drop or mix them with the restored state. Restore is refused while any are pending: the dialog shows "Wait for N pending transactions to settle", disables Restore, and re-enables it as the count reaches 0. Plain chains mine each tx as it arrives and never have any.
+
+**The file** (`.evmfun.json`) is JSON: `format: "evm.fun/chain"`, `version: 1`, `exportedAt`, `chainId` (31337), `engine`, `chain` (name and type), `dump` (webevm's state dump), `contracts` (address, deployer, tx hash, name, ABI) and an optional `source`. BigInts are written as `{"$bigint":"<decimal>"}` and read back exactly. It contains **no private keys**; accounts stay in this browser and are not part of a chain. The `engine` is informational: dumps load across engines both ways.
+
+**Import validation:** the whole file is checked before anything is created. These are rejected with a message: invalid or truncated JSON, a wrong `format`, a `version` above 1, a `chainId` other than 31337, missing or wrongly typed fields (including malformed contracts and a `dump` that is not the expected shape). A rejected import shows "Import failed: <reason>" and creates nothing: no chain, no stored row, no database. Opening a snapshot or file as a new chain also fails cleanly (and leaves nothing behind) if the engine cannot load it. New chains count toward the running-chain cap (warn at 4, refuse at 8).
+
+**Provenance:** the chain header shows where a chain came from: `from snapshot '<name>' of <chain> @ #<height>` for an opened snapshot, or `imported from <file name> @ #<height>` for an import. For imports the app builds this from the real file name and the dump's height; a `source` inside the file is ignored.
+
+**No funds:** an imported chain only has the balances in its dump. If none of your accounts holds funds on it, a notice says so: create an account and fund it before sending transactions.
+
+### Demonstrate a fork
+
+1. On a chain, click **Snapshot** and save it (say "before").
+2. Send a few transactions (Transact), so the chain moves ahead.
+3. Open **Snapshots** and choose **Restore this chain...** on "before". Keep "Save current state as a snapshot first" checked and confirm. The chain is back at the earlier height with the earlier contracts, and the later state is kept as a new snapshot (the "future").
+4. Open **Snapshots** again and choose **Open as new chain** on the saved "future". You now have two chains: the original at the earlier height and a new one named "<snapshot name> (fork)" carrying the future, whose header shows its provenance.
+
+Both chains share the same blocks up to the snapshot height. Send different transactions to each and they diverge.
 
 ## Themes
 
