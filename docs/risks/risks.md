@@ -197,3 +197,21 @@ Observed (plan 3): persistence re-serialises the whole chain on every change. Th
 |---|---|---|
 | Wrap storage access and fall back to memory with a visible notice | Corrective | Strong |
 | Keep playground chains small; benchmark chains run without persistence | Preventive | Partial |
+
+## R11 · Bun worker-teardown segfault in the test suite
+- impact: 2
+- likelihood: 2
+- target: 2x1
+- appetite: 4
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+`bun test` (Bun 1.3.13) panicked once in 4 runs during the plan-3 final review (82 workers spawned, 74 terminated at the time of the crash). Plan 3 raised worker churn: the suite now creates 129 workers (base 3c6dd51: 18), because the web tests build sequencer chains that each start `hardwareConcurrency - 1` verify workers. Re-runs on 2026-11-19 did not reproduce it: HEAD 0 crashes in 40 runs, base 0 in 35. An instrumented run showed all 129 workers terminated, so no test leaks a chain; the crash looks like a Bun bug when workers are terminated (not awaited) while others start.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Every test disposes its chains (instrumented run: 129/129 workers terminated) | Preventive | Partial |
+| Re-run on a crash; a panic with all tests passed is not a test failure | Corrective | Partial |
+| Upgrade Bun when a release fixes worker teardown | Corrective | Partial |
