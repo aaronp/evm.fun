@@ -43,6 +43,7 @@ export function createChainPersistence(
       const r = f(t.objectStore(STORE))
       t.oncomplete = () => res(r.result)
       t.onerror = () => rej(t.error)
+      t.onabort = () => rej(t.error)
     })
 
   return {

@@ -14,6 +14,17 @@ export interface BenchParams {
   host: ApproachHost
 }
 
+export const MAX_N = 50_000
+
+/** Validate the Benchmark form's N / senders text inputs. */
+export function parseBenchSize(n: string, senders: string): { n: number; senders: number } | { error: string } {
+  const int = (v: string) => (/^\s*\d+\s*$/.test(v) ? Number(v) : NaN)
+  const N = int(n), S = int(senders)
+  if (!(N >= 1 && N <= MAX_N)) return { error: `N must be a whole number from 1 to ${MAX_N.toLocaleString('en-US')}` }
+  if (!(S >= 1 && S <= N)) return { error: `senders must be a whole number from 1 to N (${N})` }
+  return { n: N, senders: S }
+}
+
 export async function runInBrowser(
   { type, scenario, n, senders, host }: BenchParams,
   onProgress?: RunOptions['onProgress'],

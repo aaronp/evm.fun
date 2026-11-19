@@ -27,3 +27,13 @@ test('session runs get distinct names/ids and persist across reads', async () =>
   expect(sessionRuns()).toHaveLength(2)
   await Promise.all(rs.map(r => r.handle.dispose()))
 })
+
+test('parseBenchSize validates N and senders', async () => {
+  const { parseBenchSize } = await import('../src/bench/run')
+  expect(parseBenchSize('2000', '100')).toEqual({ n: 2000, senders: 100 })
+  expect(parseBenchSize(' 50000 ', '50000')).toEqual({ n: 50000, senders: 50000 })
+  for (const [n, s] of [['0', '1'], ['50001', '1'], ['1.5', '1'], ['abc', '1'], ['', '1'], ['-3', '1'], ['1e3', '1']])
+    expect(parseBenchSize(n!, s!)).toHaveProperty('error', 'N must be a whole number from 1 to 50,000')
+  for (const s of ['0', '11', 'x', '2.5'])
+    expect(parseBenchSize('10', s)).toHaveProperty('error', 'senders must be a whole number from 1 to N (10)')
+})

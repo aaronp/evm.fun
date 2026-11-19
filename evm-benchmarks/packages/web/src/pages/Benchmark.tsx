@@ -6,7 +6,7 @@ import { wasmUrl } from 'revm-wasm/wasm-url'
 import { scenarios, type RunResult } from '@evmb/core'
 import { registry } from '../chain/revm'
 import type { ChainHandle, ChainType } from '../chain/handle'
-import { runInBrowser } from '../bench/run'
+import { parseBenchSize, runInBrowser } from '../bench/run'
 import { addRun, sessionRuns, type Run } from '../bench/session'
 import { useApp } from '../state'
 import { Button } from '../ui/button'
@@ -16,7 +16,6 @@ import { Notice } from '../ui/notice'
 // revm only, deliberately NO persistence: re-serialising the chain on every change would distort TPS.
 const benchHost = { createEngine: () => createRevmEngine({ wasm: wasmUrl }) }
 const input = 'rounded-md border border-slate-300 px-2 py-1 text-sm'
-const num = (v: string, d: number) => Math.max(1, Math.floor(Number(v)) || d)
 const f = (x: number) => x.toFixed(1)
 
 function ResultCard({ r }: { r: Run }) {
@@ -47,11 +46,14 @@ export function Benchmark() {
   const [err, setErr] = useState<string>()
   const last = runs.at(-1)
 
+  const size = parseBenchSize(n, senders)
+
   async function run() {
+    if ('error' in size) return
     setBusy(true); setErr(undefined)
     try {
       const { result, handle } = await runInBrowser(
-        { type, scenario, n: num(n, 2000), senders: num(senders, 100), host: benchHost },
+        { type, scenario, ...size, host: benchHost },
         (p, d, t) => setProgress([p, d, t]),
       )
       registry.addEphemeral(addRun(result, handle, type, scenario).handle)
@@ -79,7 +81,8 @@ export function Benchmark() {
         <label>scenario <select className={input} value={scenario} onChange={e => setScenario(e.target.value as keyof typeof scenarios)}>{Object.keys(scenarios).map(s => <option key={s}>{s}</option>)}</select></label>
         <label>N <input className={`${input} w-24`} value={n} onChange={e => setN(e.target.value)} /></label>
         <label>senders <input className={`${input} w-24`} value={senders} onChange={e => setSenders(e.target.value)} /></label>
-        <Button disabled={busy} onClick={run}>{busy ? 'Running…' : 'Run benchmark'}</Button>
+        <Button disabled={busy || 'error' in size} onClick={run}>{busy ? 'Running…' : 'Run benchmark'}</Button>
+        {'error' in size && <span role="alert" className="basis-full text-red-700">{size.error}</span>}
         <div className="basis-full space-y-1">
           <p><b>plain</b>: {CHAIN_TYPE_BLURB.plain}</p>
           <p><b>sequencer</b>: {CHAIN_TYPE_BLURB.sequencer}</p>

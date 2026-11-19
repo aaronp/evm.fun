@@ -65,8 +65,14 @@ export function Studio() {
   const compile = async () => {
     setBusy(true)
     setStatus(undefined)
-    const r = await compileInWorker(source, fileName)
-    setBusy(false)
+    let r: CompileResult
+    try {
+      r = await compileInWorker(source, fileName)
+    } catch (e) {
+      r = { contracts: [], errors: [{ severity: 'error', message: `Compiler failed: ${e instanceof Error ? e.message : String(e)}` }] }
+    } finally {
+      setBusy(false)
+    }
     setResult(r)
     setPick(0)
     setArgs([])
