@@ -43,12 +43,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
-### web: Studio (solc-js compile, deploy, call)
-- id: t-14
-- owner:
-- tags: web
-- history:
-  - To Do @ 2026-11-19T09:38:00Z
 
 ### web: in-browser Benchmark
 - id: t-15
@@ -79,12 +73,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
   - To Do @ 2026-11-19T09:38:00Z
 
 
-### web: solc worker and Studio
-- id: t-23
-- owner:
-- tags: web, plan3
-- history:
-  - To Do @ 2026-11-19T12:33:12Z
 
 ### web: Transact page
 - id: t-24
@@ -118,6 +106,24 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 
 ## Done
+
+### web: solc worker and Studio
+- id: t-23
+- owner: Claude
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+  - Doing @ 2026-11-19T13:11:10Z by Claude
+  - Done @ 2026-11-19T13:11:12Z by Claude
+
+### web: Studio (solc-js compile, deploy, call)
+- id: t-14
+- owner: Claude
+- tags: web
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Doing @ 2026-11-19T13:11:10Z by Claude
+  - Done @ 2026-11-19T13:11:12Z by Claude
 
 ### web: chains and accounts pages
 - id: t-22

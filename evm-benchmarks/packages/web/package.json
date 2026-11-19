@@ -7,10 +7,16 @@
     "build": "bun build.ts"
   },
   "dependencies": {
+    "@codemirror/language": "^6.11.0",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.0",
     "@evmb/approach-01-webevm-baseline": "workspace:*",
     "@evmb/approach-02-seq-memory": "workspace:*",
+    "@evmb/contracts": "workspace:*",
     "@evmb/core": "workspace:*",
     "@openzeppelin/contracts": "5.6.1",
+    "@replit/codemirror-lang-solidity": "^6.0.2",
+    "codemirror": "^6.0.2",
     "react": "^19",
     "react-dom": "^19",
     "react-router-dom": "^7.6.3",

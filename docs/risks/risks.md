@@ -152,6 +152,8 @@ A native (non-EVM) ERC-20 approach, labelled `evm: false`, shows how much throug
 
 soljson is several MB and takes seconds to initialise, which slows first compile in the Studio.
 
+Measured (plan 3, task 5): soljson.js 0.8.38 is 10,811,469 bytes (10.3 MiB) uncompressed, fetched only on the first Compile and evaluated inside the compiler worker.
+
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
