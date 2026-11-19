@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### assets: allowances, import token, launch asset
-- id: t-59
-- owner: Claude
-- tags: web, plan7
-- history:
-  - To Do @ 2026-11-19T22:03:42Z
-
 ### assets: README, ADR, risks, browser checklist
 - id: t-60
 - owner: Claude
@@ -80,6 +73,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### assets: allowances, import token, launch asset
+- id: t-59
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+  - Doing @ 2026-11-19T22:43:41Z by Claude
+  - Done @ 2026-11-19T22:46:30Z by Claude
 
 ### assets: Assets page list, header, balances, Send
 - id: t-58

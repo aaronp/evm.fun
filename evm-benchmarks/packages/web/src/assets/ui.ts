@@ -1,5 +1,5 @@
 import { zeroAddress } from 'viem'
-import type { Asset } from '@evmb/assets'
+import { MAX_UINT256, type Asset } from '@evmb/assets'
 
 const GLYPHS: Record<string, string> = { GBP: '£', USD: '$', EUR: '€', ETH: 'Ξ' }
 export const glyphFor = (symbol: string) => GLYPHS[symbol.toUpperCase()] ?? (symbol[0] ?? '?').toUpperCase()
@@ -49,3 +49,6 @@ export function issuerText(asset: Asset, accounts: { label: string; address: str
   if (!i || i === zeroAddress) return '—'
   return accounts.find(a => a.address.toLowerCase() === i.toLowerCase())?.label ?? shortAddress(i)
 }
+
+export const allowanceLabel = (amount: bigint, decimals: number, symbol: string) =>
+  amount === MAX_UINT256 ? 'Unlimited' : `${formatAmount(amount, decimals)} ${symbol}`

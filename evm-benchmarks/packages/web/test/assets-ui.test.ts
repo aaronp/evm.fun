@@ -1,7 +1,8 @@
 import { test, expect } from 'bun:test'
 import { zeroAddress, type Address } from 'viem'
 import { nativeAsset, type Asset } from '@evmb/assets'
-import { badgeTone, formatAmount, glyphFor, issuerText, parseAmount, shares, TONES } from '../src/assets/ui'
+import { MAX_UINT256 } from '@evmb/assets'
+import { allowanceLabel, badgeTone, formatAmount, glyphFor, issuerText, parseAmount, shares, TONES } from '../src/assets/ui'
 
 const A = '0x6643000000000000000000000000000000001234' as Address
 const B = '0x0754000000000000000000000000000000005678' as Address
@@ -37,4 +38,9 @@ test('issuerText', () => {
   expect(issuerText(tok(), accts)).toBe('—')
   expect(issuerText(tok(zeroAddress), accts)).toBe('—')
   expect(issuerText(nativeAsset('c'), accts)).toBe('genesis')
+})
+
+test('allowanceLabel: max is Unlimited, else amount and symbol', () => {
+  expect(allowanceLabel(MAX_UINT256, 2, 'GBP')).toBe('Unlimited')
+  expect(allowanceLabel(50000n, 2, 'GBP')).toBe('500.00 GBP')
 })

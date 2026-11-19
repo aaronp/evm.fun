@@ -9,9 +9,12 @@ import { contractsRegistry } from '../contracts/registry'
 import { assetRegistry } from '../assets/registry'
 import { reconcileAssets } from '../assets/build'
 import { badgeTone, formatAmount, glyphFor, issuerText, shares, shortAddress } from '../assets/ui'
+import { AllowancesCard } from '../components/ApprovePanel'
+import { ImportTokenDialog } from '../components/ImportTokenDialog'
+import { LaunchAssetDialog } from '../components/LaunchAssetDialog'
 import { SendDialog } from '../components/SendDialog'
 import { Button } from '../ui/button'
-import { InfoIcon } from '../ui/icons'
+import { InfoIcon, PlusIcon } from '../ui/icons'
 
 const NATIVE_DP = 8
 const kindText = (a: Asset) => (a.kind === 'native' ? 'Native' : `ERC-20${a.mintable ? ' · Mintable' : ''}`)
@@ -32,16 +35,27 @@ export function Assets() {
   const [supply, setSupply] = useState<bigint>()
   const [bals, setBals] = useState<Map<Address, bigint>>()
   const [sender, setSender] = useState<Account>()
+  const [dlg, setDlg] = useState<'import' | 'launch'>()
   const reconciled = useRef(new Set<string>())
+  const prevId = useRef<string | undefined>(undefined)
   const sendRef = useRef<HTMLDialogElement>(null)
   const people = accountStore.list()
   const chainId = chain?.info.id
 
-  useAppBar({ title: 'Assets', crumbs: chain ? [{ label: chain.info.name, to: '/chains' }, { label: 'Assets' }] : undefined })
+  const noWrites = chain?.info.ephemeral ? 'Benchmark chains keep no asset records' : undefined
+  useAppBar({
+    title: 'Assets',
+    crumbs: chain ? [{ label: chain.info.name, to: '/chains' }, { label: 'Assets' }] : undefined,
+    actions: [
+      { kind: 'button', id: 'import', label: 'Import token by address', icon: null, text: true, title: noWrites ?? (chain ? undefined : 'Select a chain first'), disabled: !chain || !!noWrites, onClick: () => setDlg('import') },
+      { kind: 'button', id: 'launch', label: 'Launch asset', icon: <PlusIcon width={16} height={16} />, text: true, primary: true, title: noWrites ?? (chain ? undefined : 'Select a chain first'), disabled: !chain || !!noWrites, onClick: () => setDlg('launch') },
+    ],
+  })
 
   // Reload the list, first adopting already-deployed tokens once per chain per mount (never on benchmark chains).
   useEffect(() => {
-    setAssets([]) // never act on the previous chain's tokens while the new list loads
+    if (prevId.current !== chainId) setAssets([]) // never act on the previous chain's tokens while the new list loads
+    prevId.current = chainId
     if (!chain || !chainId) return
     let live = true
     ;(async () => {
@@ -71,6 +85,11 @@ export function Assets() {
   }, [chain, cur?.id, addrKey, balanceTick])
 
   useEffect(() => { if (sender) sendRef.current?.showModal() }, [sender])
+
+  async function added(a: Asset) {
+    if (chainId) setAssets(await assetRegistry.list(chainId))
+    setParams({ asset: a.id }, { replace: true })
+  }
 
   const barShares = useMemo(() => shares(people.map(p => bals?.get(p.address) ?? 0n)), [bals, addrKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -128,11 +147,13 @@ export function Assets() {
                   <span className="block h-full bg-accent" style={{ width: `${barShares[i] ?? 0}%` }} />
                 </span>
                 <span className="text-right font-mono text-sm font-medium">{v === undefined ? '—' : `${formatAmount(v, cur.decimals, dp)} ${cur.symbol}`}</span>
-                <Button variant="ghost" size="sm" className="min-h-9 border-input-line! px-3! text-[13px]!" aria-label={`Send ${cur.symbol} from ${p.label}`} onClick={() => setSender(p)}>Send</Button>
+                <Button variant="outline" aria-label={`Send ${cur.symbol} from ${p.label}`} onClick={() => setSender(p)}>Send</Button>
               </div>
             )
           })}
         </section>
+
+        {!native && <AllowancesCard chain={chain} asset={cur} people={people} tick={balanceTick} onSent={bumpBalance} />}
 
         {native && (
           <section className="flex gap-3 rounded-2xl border border-dashed border-input-line bg-surface px-[22px] py-5 text-[13px] leading-[1.55] text-text-2">
@@ -142,6 +163,8 @@ export function Assets() {
         )}
       </div>
 
+      {dlg === 'import' && <ImportTokenDialog chain={chain} known={assets} onAdded={added} onClose={() => setDlg(undefined)} />}
+      {dlg === 'launch' && <LaunchAssetDialog chain={chain} accounts={people} onLaunched={added} onSent={bumpBalance} onClose={() => setDlg(undefined)} />}
       {sender && <SendDialog dialogRef={sendRef} chain={chain} asset={cur} from={sender} balance={bals?.get(sender.address)} accounts={people} onSent={bumpBalance} onClose={() => setSender(undefined)} />}
     </div>
   )
