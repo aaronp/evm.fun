@@ -9,7 +9,7 @@ import { contractsRegistry } from '../contracts/registry'
 import { assetRegistry } from '../assets/registry'
 import { reconcileAssets } from '../assets/build'
 import { badgeTone, formatAmount, glyphFor, issuerText, shares, shortAddress } from '../assets/ui'
-import { AllowancesCard } from '../components/ApprovePanel'
+import { AllowancesCard } from '../components/AllowancesCard'
 import { ImportTokenDialog } from '../components/ImportTokenDialog'
 import { LaunchAssetDialog } from '../components/LaunchAssetDialog'
 import { SendDialog } from '../components/SendDialog'
@@ -48,7 +48,7 @@ export function Assets() {
     crumbs: chain ? [{ label: chain.info.name, to: '/chains' }, { label: 'Assets' }] : undefined,
     actions: [
       { kind: 'button', id: 'import', label: 'Import token by address', icon: null, text: true, title: noWrites ?? (chain ? undefined : 'Select a chain first'), disabled: !chain || !!noWrites, onClick: () => setDlg('import') },
-      { kind: 'button', id: 'launch', label: 'Launch asset', icon: <PlusIcon width={16} height={16} />, text: true, primary: true, title: noWrites ?? (chain ? undefined : 'Select a chain first'), disabled: !chain || !!noWrites, onClick: () => setDlg('launch') },
+      { kind: 'button', id: 'launch', label: 'Launch asset', icon: <PlusIcon width={14} height={14} />, text: true, primary: true, title: noWrites ?? (chain ? undefined : 'Select a chain first'), disabled: !chain || !!noWrites, onClick: () => setDlg('launch') },
     ],
   })
 
@@ -147,7 +147,7 @@ export function Assets() {
                   <span className="block h-full bg-accent" style={{ width: `${barShares[i] ?? 0}%` }} />
                 </span>
                 <span className="text-right font-mono text-sm font-medium">{v === undefined ? '—' : `${formatAmount(v, cur.decimals, dp)} ${cur.symbol}`}</span>
-                <Button variant="outline" aria-label={`Send ${cur.symbol} from ${p.label}`} onClick={() => setSender(p)}>Send</Button>
+                <Button variant="outline" size="field" aria-label={`Send ${cur.symbol} from ${p.label}`} onClick={() => setSender(p)}>Send</Button>
               </div>
             )
           })}

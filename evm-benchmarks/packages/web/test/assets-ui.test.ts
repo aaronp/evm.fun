@@ -1,7 +1,6 @@
 import { test, expect } from 'bun:test'
 import { zeroAddress, type Address } from 'viem'
-import { nativeAsset, type Asset } from '@evmb/assets'
-import { MAX_UINT256 } from '@evmb/assets'
+import { MAX_UINT256, nativeAsset, type Asset } from '@evmb/assets'
 import { allowanceLabel, badgeTone, formatAmount, glyphFor, issuerText, parseAmount, shares, TONES } from '../src/assets/ui'
 
 const A = '0x6643000000000000000000000000000000001234' as Address

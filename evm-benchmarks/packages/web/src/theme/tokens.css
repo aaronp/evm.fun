@@ -28,6 +28,7 @@
   --c-warn-soft: #2A2416;
   --c-danger: #FF8A8A;
   --c-danger-soft: #3A1A1E;
+  --c-danger-line: #4A2028;
   --c-code-keyword: #C792EA;
   --c-code-string: #7FDBCA;
   --c-series-1: #3987E5;
@@ -74,6 +75,7 @@
   --c-warn-soft: #FDF0D9;
   --c-danger: #B42318;
   --c-danger-soft: #FCE8E6;
+  --c-danger-line: #E8B4AE;
   --c-code-keyword: #7C3AED;
   --c-code-string: #0F766E;
   --c-series-1: #2A78D6;
@@ -120,6 +122,7 @@
   --c-warn-soft: #F8EAD0;
   --c-danger: #B03A2E;
   --c-danger-soft: #F6E1DC;
+  --c-danger-line: #DDB5AD;
   --c-code-keyword: #7B3FA8;
   --c-code-string: #1E6B63;
   --c-series-1: #2A78D6;

@@ -41,7 +41,9 @@ export function ImportTokenDialog({ chain, known, onAdded, onClose }: {
     try {
       const address = getAddress(addr)
       const a = tokenAsset(chainId, address, info, { origin: 'imported', issuer: info.owner, mintable: false })
-      await contractsRegistry.add(chainId, { address, name: a.name, abi: erc20Abi as any, deployer: info.owner ?? zeroAddress, txHash: zeroHash })
+      // never overwrite a real record (ABI, deployer, tx hash) with the placeholder
+      const have = (await contractsRegistry.list(chainId)).some(c => c.address.toLowerCase() === address.toLowerCase())
+      if (!have) await contractsRegistry.add(chainId, { address, name: a.name, abi: [...erc20Abi], deployer: info.owner ?? zeroAddress, txHash: zeroHash })
       await assetRegistry.add(a)
       onAdded(a)
       ref.current?.close()

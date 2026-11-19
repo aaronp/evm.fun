@@ -7,7 +7,7 @@ import type { Account } from '../store/accounts'
 import { signAndSend } from '../tx/send'
 import { assetRegistry } from '../assets/registry'
 import { tokenAsset } from '../assets/build'
-import { contractsRegistry } from '../contracts/registry'
+import { contractsRegistry, type DeployedContract } from '../contracts/registry'
 import { MAX_NAME } from '../chain/chainFile'
 import { parseAmount, shortAddress } from '../assets/ui'
 import { Button } from '../ui/button'
@@ -26,6 +26,7 @@ export function LaunchAssetDialog({ chain, accounts, onLaunched, onSent, onClose
   const [issuer, setIssuer] = useState<string>(accounts[0]?.address ?? '')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
+  const [stuck, setStuck] = useState(false) // deployed but not saved: only Close is offered, so no duplicate deploy
 
   useEffect(() => { ref.current?.showModal() }, [])
 
@@ -45,11 +46,18 @@ export function LaunchAssetDialog({ chain, accounts, onLaunched, onSent, onClose
       const data = encodeDeployData({ abi: AssetToken.abi, bytecode: AssetToken.bytecode, args: [n, s, dec, sup.ok, from.address] })
       const r = await signAndSend(chain, from, { data }, onSent)
       if (r.status !== 'success' || !r.contractAddress) throw new Error(`Deploy ${r.status}${r.error ? `: ${r.error}` : ''}`)
-      const a = tokenAsset(chain.info.id, r.contractAddress, { symbol: s, name: n, decimals: dec }, { origin: 'launched', issuer: from.address, mintable: true })
-      await contractsRegistry.add(chain.info.id, { address: r.contractAddress, name: a.name, abi: AssetToken.abi as any[], deployer: from.address, txHash: r.hash })
-      await assetRegistry.add(a)
-      onLaunched(a)
-      ref.current?.close()
+      const at = r.contractAddress
+      try {
+        const a = tokenAsset(chain.info.id, at, { symbol: s, name: n, decimals: dec }, { origin: 'launched', issuer: from.address, mintable: true })
+        await contractsRegistry.add(chain.info.id, { address: at, name: a.name, abi: AssetToken.abi as DeployedContract['abi'], deployer: from.address, txHash: r.hash })
+        await assetRegistry.add(a)
+        onLaunched(a)
+        ref.current?.close()
+      } catch (e) {
+        setStuck(true)
+        setErr(`Deployed at ${at} but not saved: ${e instanceof Error ? e.message : String(e)}`)
+        setBusy(false)
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
       setBusy(false)
@@ -73,8 +81,8 @@ export function LaunchAssetDialog({ chain, accounts, onLaunched, onSent, onClose
           </Select>
         </label>
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" disabled={busy} onClick={() => ref.current?.close()}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? 'Launching…' : 'Launch'}</Button>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => ref.current?.close()}>{stuck ? 'Close' : 'Cancel'}</Button>
+          {!stuck && <Button type="submit" disabled={busy}>{busy ? 'Launching…' : 'Launch'}</Button>}
         </div>
       </form>
     </dialog>
