@@ -9,6 +9,7 @@
     "report": "bun packages/cli/src/main.ts report"
   },
   "dependencies": {
+    "revm-wasm": "0.3.1",
     "viem": "^2.58.1",
     "webevm": "0.9.1"
   },
