@@ -24,7 +24,7 @@ function load(): Opts {
       orient: o.orient === 'vertical' ? 'vertical' : 'horizontal',
       order: o.order === 'oldest' ? 'oldest' : 'newest',
       rest: o.rest === 'selected' ? 'selected' : 'newest',
-      mag: num(o.mag, 0, 24, DEFAULTS.mag), spread: num(o.spread, 1, 6, DEFAULTS.spread), len: num(o.len, 480, 1200, DEFAULTS.len),
+      mag: num(o.mag, 0, 40, DEFAULTS.mag), spread: num(o.spread, 0.5, 10, DEFAULTS.spread), len: num(o.len, 360, 1600, DEFAULTS.len),
     }
   } catch { return DEFAULTS }
 }
@@ -49,9 +49,9 @@ function Controls({ o, set }: { o: Opts; set(p: Partial<Opts>): void }) {
         <Segmented<Rest> label="At rest, focus" name="fe-rest" value={o.rest} onChange={v => set({ rest: v })} className={seg} itemClassName={item}
           options={[{ value: 'newest', content: 'Newest' }, { value: 'selected', content: 'Selected' }]} />
       </div>
-      {range('Magnify', 'mag', 0, 24, 1, `×${1 + o.mag}`)}
-      {range('Spread', 'spread', 1, 6, 0.5, String(o.spread))}
-      {range('Length', 'len', 480, 1200, 20, `${o.len}px`)}
+      {range('Magnify', 'mag', 0, 40, 1, `×${1 + o.mag}`)}
+      {range('Spread', 'spread', 0.5, 10, 0.5, String(o.spread))}
+      {range('Length', 'len', 360, 1600, 20, `${o.len}px`)}
     </div>
   )
 }
@@ -76,10 +76,10 @@ export function FisheyeView({ q, headers, selected, loading }: { q: string; head
   const [pan, setPan] = useState<{ anchor: number; sel?: number } | null>(null)
   let win = lensWindow(n, selIdx >= 0 ? selIdx : newestIdx)
   const pi = pan ? idxOf(pan.anchor) : -1
-  if (pi >= 0) {
-    const pw = lensWindow(n, pi)
-    if (pan!.sel === selected || (selIdx >= pw.start && selIdx < pw.end)) win = pw
-  }
+  const pw = pi >= 0 ? lensWindow(n, pi) : null
+  const panUsed = !!pw && (pan!.sel === selected || (selIdx >= pw.start && selIdx < pw.end))
+  if (panUsed) win = pw!
+  useEffect(() => { if (pan && !panUsed) setPan(null) }, [pan, panUsed]) // an ignored pan is stale: never restore it later
   const w = win.end - win.start
   const step = (older: boolean) => {
     const dir = (o.order === 'newest') === older ? 1 : -1
@@ -92,7 +92,12 @@ export function FisheyeView({ q, headers, selected, loading }: { q: string; head
   useEffect(() => setF(null), [selected, tip, win.start, o.order]) // focus is an index into the lens: drop it when the lens moves
 
   const inLens = (i: number) => i >= win.start && i < win.end
-  const rest = clamp((o.rest === 'selected' && inLens(selIdx) ? selIdx : newestIdx) - win.start, 0, Math.max(0, w - 1))
+  // Rest: the preferred block if it's in the lens, else the other one, else the lens edge nearest the newest block.
+  const newestIn = inLens(newestIdx), selIn = inLens(selIdx)
+  const [restIdx, restText] = newestIn && (o.rest === 'newest' || !selIn) ? [newestIdx, 'the newest block']
+    : selIn ? [selIdx, 'the selected block']
+    : [clamp(newestIdx, win.start, win.end - 1), 'the newest block in view']
+  const rest = Math.max(0, restIdx - win.start)
   const focus = f === null ? rest : Math.min(f, w - 1)
   const fi = Math.round(focus)
   const lens = items.slice(win.start, win.end)
@@ -108,7 +113,8 @@ export function FisheyeView({ q, headers, selected, loading }: { q: string; head
     // Rescaled by the element's on-screen size, as in the mockup's move handler.
     const r = e.currentTarget.getBoundingClientRect()
     const frac = clamp(H ? (e.clientX - r.left) / r.width : (e.clientY - r.top) / r.height, 0, 1)
-    setF(lensFocus(w, frac * o.len, o.mag, o.spread, o.len))
+    const nf = lensFocus(w, frac * o.len, o.mag, o.spread, o.len)
+    if (f === null || Math.abs(f - nf) > 0.01) setF(nf)
   }
   const onKey = (e: KeyboardEvent) => {
     if (!w) return
@@ -127,7 +133,7 @@ export function FisheyeView({ q, headers, selected, loading }: { q: string; head
       <div className="space-y-2.5 border-b border-line px-4 py-3">
         <p className="text-xs text-muted">
           Move the pointer along the lens to sweep through history{w > 0 && <>; magnified at <strong className="text-text">#{lens[fi]!.number}</strong></>}.
-          At rest it focuses the {o.rest === 'newest' ? 'newest' : 'selected'} block.
+          At rest it focuses {restText}.
         </p>
         <Controls o={o} set={set} />
       </div>
@@ -140,7 +146,7 @@ export function FisheyeView({ q, headers, selected, loading }: { q: string; head
             {old && ` · Block #${selected} is older than the latest ${n} shown`}
           </span>
         </div>
-        <div className="overflow-x-auto">
+        <div className={`overflow-x-auto ${H ? 'px-4 py-5' : 'p-4'}`}>
           <div role="listbox" tabIndex={0} aria-label={`Blocks, ${o.order} first. Use ${keys} arrows to move, Enter to open.`}
             aria-activedescendant={w ? `fe-${lens[fi]!.number}` : undefined} aria-orientation={o.orient}
             className={`flex cursor-crosshair rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${H ? 'min-h-[260px] items-start' : 'flex-col'}`}
@@ -153,8 +159,8 @@ export function FisheyeView({ q, headers, selected, loading }: { q: string; head
                 <div key={b.number} className="box-border flex flex-none justify-center"
                   style={H ? { width: size, padding: `${Math.round((150 - t.cross) / 2)}px ${t.filled ? 1 : 0}px 0` } : { height: size, maxWidth: 440, padding: `${t.filled ? 1 : 0}px 0` }}>
                   <div id={`fe-${b.number}`} role="option" aria-selected={isSel} title={`Block ${b.number}, ${b.hash.slice(0, 12)}`} onClick={() => go(i)}
-                    style={H ? { width: '100%', height: t.cross, padding: t.full || t.mid ? 6 : 0 } : { width: t.cross, maxWidth: '100%', height: '100%', padding: t.full || t.mid ? '0 12px' : 0 }}
-                    className={`box-border flex cursor-pointer flex-col justify-center gap-0.5 overflow-hidden text-left text-[13px] leading-[18px] text-on-accent ${t.filled ? 'rounded-md bg-accent' : 'rounded-full bg-line-strong'} ${isSel ? 'outline-2 outline-offset-2 outline-text' : ''} ${hit ? '' : 'opacity-30'}`}>
+                    style={H ? { width: '100%', height: t.cross, padding: t.full || t.mid ? 6 : 0 } : { width: t.cross, maxWidth: '100%', height: '100%', padding: '0 12px' }}
+                    className={`box-border flex cursor-pointer flex-col justify-center gap-0.5 overflow-hidden text-left text-[13px] leading-[18px] text-on-accent ${t.filled ? 'rounded-md border border-line-strong bg-accent' : 'rounded-full bg-line-strong'} ${isSel ? 'outline-2 outline-offset-2 outline-text' : ''} ${hit ? '' : 'opacity-30'}`}>
                     {(t.full || t.mid) && (
                       <span className={H ? 'flex flex-col gap-0.5' : 'flex items-center gap-2.5'}>
                         <span className={`font-semibold ${t.full ? 'text-[15px]' : ''} ${ul}`}>#{b.number}</span>
