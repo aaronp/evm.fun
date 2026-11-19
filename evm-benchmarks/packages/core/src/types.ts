@@ -14,6 +14,8 @@ export interface ApproachMeta {
   id: string;
   title: string;
   runsIn: ('bun' | 'browser')[];
+  /** engine name@version, shown in results */
+  engine?: string;
   tradeoffs: Tradeoffs;
 }
 

@@ -22,6 +22,7 @@ const factory: ApproachFactory = () => {
       id: '01-webevm-baseline',
       title: 'webevm baseline (stock node, one tx per block)',
       runsIn: ['bun', 'browser'],
+      engine: 'webevm@0.9.1',
       tradeoffs: {evm: true, stateRoot: 'none', log: 'memory', sigVerify: 'inline', execution: 'serial', notes: 'one tx per block'},
     },
 

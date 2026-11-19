@@ -105,6 +105,8 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 ## Doing
 
+## Done
+
 ### core: Approach interface, trade-off schema, metrics
 - id: t-04
 - owner: Claude
@@ -112,8 +114,7 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
   - Doing @ 2026-11-19T10:05:40Z by Claude
-
-## Done
+  - Done @ 2026-11-19T10:30:26Z by Claude
 
 ### core: five scenarios (generator + verifier each)
 - id: t-05
