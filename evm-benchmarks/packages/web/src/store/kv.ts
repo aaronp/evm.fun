@@ -59,7 +59,16 @@ export function createKv(): Kv {
     if (usable && db) {
       try {
         const d = await db
-        return await idbOp(d.transaction(OS, write ? 'readwrite' : 'readonly').objectStore(OS))
+        const tx = d.transaction(OS, write ? 'readwrite' : 'readonly')
+        // strict: done only once the transaction commits (a quota failure often surfaces as an abort)
+        const committed = strict && new Promise<void>((res, rej) => {
+          tx.oncomplete = () => res()
+          tx.onabort = tx.onerror = () => rej(tx.error ?? new Error('IndexedDB transaction aborted'))
+        })
+        if (committed) committed.catch(() => {}) // a failed request rejects first; don't leave this unhandled
+        const r = await idbOp(tx.objectStore(OS))
+        if (committed) await committed
+        return r
       } catch (e) {
         if (strict) throw e
         fail()

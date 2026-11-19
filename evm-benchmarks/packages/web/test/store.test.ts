@@ -132,3 +132,41 @@ test('kv: a strict set that fails throws and leaves kv persistent', async () => 
     delete g.indexedDB
   }
 })
+
+// A fake IndexedDB whose put succeeds but whose transaction then aborts (how a quota failure usually shows up).
+const abortingIdb = () => {
+  const ok = (result: unknown) => { const r: any = { result }; setTimeout(() => r.onsuccess?.(), 0); return r }
+  const db = {
+    transaction: () => {
+      const tx: any = { error: null }
+      tx.objectStore = () => ({
+        get: () => ok(undefined),
+        put: (_v: unknown, k: string) => {
+          setTimeout(() => {
+            if (k.startsWith('snapshots\0')) { tx.error = Object.assign(new Error('aborted: quota'), { name: 'QuotaExceededError' }); tx.onabort?.() }
+            else tx.oncomplete?.()
+          }, 5)
+          return ok(k)
+        },
+      })
+      return tx
+    },
+  }
+  return { open: () => ok(db) }
+}
+
+test('kv: a strict set waits for the transaction and rejects when it aborts', async () => {
+  const g = globalThis as any
+  g.indexedDB = abortingIdb()
+  try {
+    const kv = createKv()
+    await kv.ready
+    await expect(kv.set('snapshots', 'x', 1, { strict: true })).rejects.toThrow('aborted: quota')
+    expect(kv.persistent).toBe(true)
+    await kv.set('chains', 'c', 1, { strict: true }) // resolves on complete
+    await kv.set('snapshots', 'y', 1) // non-strict: unchanged, resolves on the request's success
+    expect(kv.persistent).toBe(true)
+  } finally {
+    delete g.indexedDB
+  }
+})
