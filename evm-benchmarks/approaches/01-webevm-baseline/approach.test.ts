@@ -210,3 +210,17 @@ test('pending() is 0 for the baseline', async () => {
   expect(ap.pending!()).toBe(0);
   await ap.dispose();
 });
+
+test('restore wakes an in-flight awaitSettled instead of orphaning it', async () => {
+  const ap = create();
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  const dump = await ap.snapshot!();
+  const raw = await sign(0);
+  let done = false;
+  const p = ap.awaitSettled([keccak256(raw)]).then(() => (done = true));
+  await ap.restore!(dump);
+  await ap.submit([raw]);
+  await p;
+  expect(done).toBe(true);
+  await ap.dispose();
+});

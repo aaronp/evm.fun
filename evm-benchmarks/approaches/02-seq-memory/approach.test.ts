@@ -258,10 +258,39 @@ test('pending() counts txs between submit and settled, then 0', async () => {
   const ap = create(opts);
   await ap.setup({prefund: {[a.address]: 10n ** 21n}});
   expect(ap.pending!()).toBe(0);
-  const raws = await snapRaws(0, 6);
+  const raws = [...(await snapRaws(0, 6)), '0x1234' as Hex]; // one malformed: rejected txs settle too
   await ap.submit(raws);
-  expect(ap.pending!()).toBe(6);
+  expect(ap.pending!()).toBe(7);
   await ap.awaitSettled(raws.map((r) => keccak256(r)));
   expect(ap.pending!()).toBe(0);
+  await ap.dispose();
+});
+
+test('restore refuses while txs are pending, and they still settle', async () => {
+  const ap = create(opts);
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  const dump = await ap.snapshot!();
+  const raws = await snapRaws(0, 5);
+  await ap.submit(raws);
+  await expect(ap.restore!(dump)).rejects.toThrow('02-seq-memory: restore refused, 5 txs pending');
+  const rs = await ap.awaitSettled(raws.map((r) => keccak256(r)));
+  expect(rs.map((r) => r.status)).toEqual(Array(5).fill('success'));
+  await ap.dispose();
+});
+
+// webevm's loadState does NOT clear its manual-mining queue (`pending`). The pipeline mines every
+// queued tx before it settles, so restore() (which requires pending() === 0) never sees a stale queue.
+test('after restore the next block holds only new txs', async () => {
+  const ap = create(opts);
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  const raws = await snapRaws(0, 4);
+  await settle(ap, raws.slice(0, 2));
+  const dump = await ap.snapshot!();
+  await settle(ap, raws.slice(2));
+  await ap.restore!(dump);
+  await settle(ap, [raws[2]!]);
+  const b: any = await ap.request!('eth_getBlockByNumber', ['latest', false]);
+  expect(b.transactions).toEqual([keccak256(raws[2]!)]);
+  expect(await ap.getBalance(B)).toBe(3n);
   await ap.dispose();
 });

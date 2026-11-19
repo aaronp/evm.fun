@@ -147,8 +147,9 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
       return run!.node.dumpState();
     },
 
-    // ponytail: assumes idle (callers refuse while pending() > 0); in-flight txs would be rejected or lost
     async restore(dump) {
+      // the executor is the node's only caller while txs are in flight
+      if (submitted !== settled) throw new Error(`02-seq-memory: restore refused, ${submitted - settled} txs pending`);
       await run!.node.loadState(dump as any);
       receipts = new Map(); // blocks after the dump are gone, and so are their receipts
       notify();

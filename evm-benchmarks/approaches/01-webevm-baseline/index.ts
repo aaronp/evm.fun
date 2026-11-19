@@ -14,11 +14,14 @@ const factory: ApproachFactory = (_opts, host = {}) => {
   let waiters: (() => void)[] = [];
   let submitMs = 0;
 
-  const record = (r: Receipt) => {
-    receipts.set(r.hash, r);
+  const notify = () => {
     const w = waiters;
     waiters = [];
     w.forEach((f) => f());
+  };
+  const record = (r: Receipt) => {
+    receipts.set(r.hash, r);
+    notify();
   };
 
   async function start(p: PersistenceAdapter | undefined, initialBalances?: Record<Address, bigint>) {
@@ -58,7 +61,7 @@ const factory: ApproachFactory = (_opts, host = {}) => {
     async restore(dump) {
       await node!.loadState(dump as any);
       receipts = new Map(); // blocks after the dump are gone, and so are their receipts
-      waiters = [];
+      notify();
       if (persistence) await persistence.save(await node!.dumpState());
     },
 
