@@ -1,5 +1,7 @@
 # evm-benchmarks
 
+**▶ [Try the playground](https://aaronp.github.io/evm.fun/)**: zero-install, runs entirely in your browser.
+
 Benchmark harness for EVM settlement architectures (Bun + TypeScript).
 
     bun install

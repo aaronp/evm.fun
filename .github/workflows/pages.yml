@@ -1,4 +1,6 @@
-# Builds the EVM playground (evm-benchmarks/packages/web) and publishes it to GitHub Pages.
+# Builds the EVM playground (evm-benchmarks/packages/web) and publishes it to GitHub Pages
+# (https://aaronp.github.io/evm.fun/). evm-benchmarks/.github/workflows/pages.yml is the same job
+# for a repo rooted at evm-benchmarks/.
 # One-time setup: repo Settings → Pages → Source: "GitHub Actions".
 # The app uses HashRouter and relative asset URLs, so it works under https://<user>.github.io/<repo>/.
 name: Playground → GitHub Pages

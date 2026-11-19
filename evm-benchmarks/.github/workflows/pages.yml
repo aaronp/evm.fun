@@ -1,0 +1,46 @@
+# Builds the EVM playground (packages/web) and publishes it to GitHub Pages:
+#   https://aaronp.github.io/evm.fun/
+# For a repo whose root is evm-benchmarks/. (chain-perf/.github/workflows/pages.yml is the
+# same job for a repo rooted one level up.)
+# One-time setup: repo Settings → Pages → Source: "GitHub Actions".
+# HashRouter + relative asset URLs, so the site works under the /evm.fun/ sub-path as-is.
+name: Playground → GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run web:build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
