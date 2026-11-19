@@ -88,7 +88,6 @@ for (const type of ['plain', 'sequencer'] as ChainType[]) {
       expect(await reg.list()).toEqual([])
       expect(reg.liveCount()).toBe(0)
       expect(await e.kv.list('chains')).toEqual([])
-      expect(await e.kv.list('contracts:' + 'anything')).toEqual([])
       expect(e.stores.size).toBe(0)
     })
 
@@ -133,6 +132,39 @@ for (const type of ['plain', 'sequencer'] as ChainType[]) {
       expect(await height(h)).toBe(1)
       expect((await snaps.list(h.info.id)).length).toBe(1) // no save-first either
       await h.dispose()
+    })
+
+    test('createFrom: storage failing after contracts are written leaves no trace', async () => {
+      const e = env()
+      const stores: string[] = []
+      const kv = {
+        ...e.kv,
+        set: async (st: string, k: string, v: unknown) => {
+          if (st.startsWith('contracts:')) stores.push(st)
+          if (st === 'chains') throw new Error('disk full')
+          return e.kv.set(st, k, v)
+        },
+      } as typeof e.kv
+      const reg = createChainRegistry({ ...e.deps(), kv })
+      const e2 = env() // the dump comes from a separate world so e's kv and stores start empty
+      const s0 = await createSnapshotStore(e2.kv).take(await createChainRegistry(e2.deps()).create('o', type, []))
+      await expect(reg.createFrom(s0.dump, { name: 'x', type, contracts: [rec(5)], source })).rejects.toThrow('disk full')
+      expect(stores.length).toBe(1)
+      expect(await e.kv.list(stores[0]!)).toEqual([])
+      expect(await e.kv.list('chains')).toEqual([])
+      expect(e.stores.size).toBe(0)
+      expect(reg.liveCount()).toBe(0)
+    })
+
+    test('restoreTo refuses another chain\'s snapshot', async () => {
+      const e = env()
+      const reg = createChainRegistry(e.deps())
+      const h = await reg.create('one', type, [])
+      const g = await reg.create('two', type, [])
+      const s = await createSnapshotStore(e.kv).take(g)
+      const { restoreTo } = reg // works destructured
+      await expect(restoreTo(h.info.id, s, { saveFirst: false })).rejects.toThrow('snapshot belongs to another chain')
+      await h.dispose(); await g.dispose()
     })
 
     test('remove deletes the chain\'s snapshots only', async () => {

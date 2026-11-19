@@ -20,10 +20,11 @@ export function createSnapshotStore(kv: Kv) {
     async take(handle: ChainHandle, name?: string): Promise<Snapshot> {
       const dump = await handle.approach.snapshot!()
       const height = Number(BigInt((await handle.request('eth_blockNumber', [])) as string))
+      const recs = await contracts.list(handle.info.id)
       const snap: Snapshot = {
         id: crypto.randomUUID(), chainId: handle.info.id, name: name || defaultSnapshotName(handle.info.name, height),
-        height, createdAt: new Date().toISOString(), dump, contracts: await contracts.list(handle.info.id),
-        bytes: JSON.stringify(dump, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)).length,
+        height, createdAt: new Date().toISOString(), dump, contracts: recs,
+        bytes: new TextEncoder().encode(JSON.stringify({ dump, contracts: recs }, (_k, v) => (typeof v === 'bigint' ? v.toString() : v))).length,
       }
       await kv.set(STORE, snap.id, snap)
       return snap

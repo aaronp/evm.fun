@@ -19,8 +19,10 @@ export const createContractsRegistry = (kv: Kv) => ({
   remove: (chainId: string, address: string) => kv.del(store(chainId), key(address)),
   /** Make the chain's records exactly `records`. */
   async replace(chainId: string, records: DeployedContract[]) {
-    for (const r of await kv.list<Row>(store(chainId))) await kv.del(store(chainId), key(r.address))
+    // write first, then drop stale: a mid-way failure never leaves the chain with none
     for (const r of records) await kv.set(store(chainId), key(r.address), { ...r, chainId })
+    const keep = new Set(records.map(r => key(r.address)))
+    for (const r of await kv.list<Row>(store(chainId))) if (!keep.has(key(r.address))) await kv.del(store(chainId), key(r.address))
   },
 })
 

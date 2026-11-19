@@ -32,7 +32,7 @@ export function createChainRegistry(deps: {
   const contracts = createContractsRegistry(deps.kv)
   const track = (h: ChainHandle) => (live.set(h.info.id, h), h)
 
-  return {
+  const self = {
     async list(): Promise<ChainInfo[]> {
       const stored = await deps.kv.list<ChainInfo>(STORE)
       const ephemeral = [...live.values()].map(h => h.info).filter(i => i.ephemeral)
@@ -83,13 +83,14 @@ export function createChainRegistry(deps: {
     },
     /** Rewind chain `id` to `snap`. Refused while txs are pending (nothing saved or lost). */
     async restoreTo(id: string, snap: Snapshot, o: { saveFirst: boolean }): Promise<{ saved?: Snapshot }> {
-      const h = await this.open(id)
+      const h = await self.open(id)
+      if (snap.chainId !== id) throw new Error('snapshot belongs to another chain')
       const n = h.approach.pending?.() ?? 0
       if (n > 0) throw new Error(`Wait for ${n} pending transactions to settle`)
       const saved = o.saveFirst ? await snapshots.take(h) : undefined
       await h.approach.restore!(snap.dump)
       await contracts.replace(id, snap.contracts)
-      await this.recordHeight(id)
+      await self.recordHeight(id)
       return { saved }
     },
     open(id: string): Promise<ChainHandle> {
@@ -127,4 +128,5 @@ export function createChainRegistry(deps: {
       live.set(handle.info.id, handle)
     },
   }
+  return self
 }
