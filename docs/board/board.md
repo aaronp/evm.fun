@@ -6,6 +6,55 @@ theme: paper
 
 ## To Do
 
+### assets: AssetToken contract
+- id: t-54
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+
+### assets: package registry, identity, detection, calldata
+- id: t-55
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+
+### assets: live reads (token info, balances, allowances)
+- id: t-56
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+
+### assets: travel with snapshots, forks and files
+- id: t-57
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+
+### assets: Assets page list, header, balances, Send
+- id: t-58
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+
+### assets: allowances, import token, launch asset
+- id: t-59
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+
+### assets: README, ADR, risks, browser checklist
+- id: t-60
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+
 ### Approach 03: seq-stateroot
 - id: t-09
 - owner:
