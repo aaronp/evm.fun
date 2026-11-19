@@ -24,6 +24,7 @@ test('target line lists only approaches at or above 1000', () => {
 test('header uses the newest result env; notes are kept verbatim', () => {
   const md = renderReport(results, 'my  notes\n- x');
   expect(md).toContain('Test CPU');
+  expect(md).toContain('Snapshot of the local `results/*.json` at generation time');
   expect(md).toContain('<!-- notes -->\nmy  notes\n- x');
 });
 
