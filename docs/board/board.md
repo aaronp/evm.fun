@@ -79,13 +79,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
   - To Do @ 2026-11-19T09:38:00Z
 
 
-### web: chains and accounts pages
-- id: t-22
-- owner:
-- tags: web, plan3
-- history:
-  - To Do @ 2026-11-19T12:33:12Z
-
 ### web: solc worker and Studio
 - id: t-23
 - owner:
@@ -125,6 +118,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 
 ## Done
+
+### web: chains and accounts pages
+- id: t-22
+- owner: Claude
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+  - Doing @ 2026-11-19T13:01:32Z by Claude
+  - Done @ 2026-11-19T13:01:34Z by Claude
 
 ### web: scaffold and stores
 - id: t-21
