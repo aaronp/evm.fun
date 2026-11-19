@@ -7,13 +7,6 @@ theme: paper
 ## To Do
 
 
-### cli: bench command writing results JSON
-- id: t-06
-- owner:
-- tags: cli
-- history:
-  - To Do @ 2026-11-19T09:38:00Z
-
 ### Approach 02: seq-memory
 - id: t-08
 - owner:
@@ -106,6 +99,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### cli: bench command writing results JSON
+- id: t-06
+- owner: Claude
+- tags: cli
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Doing @ 2026-11-19T10:32:27Z by Claude
+  - Done @ 2026-11-19T10:41:43Z by Claude
 
 ### core: Approach interface, trade-off schema, metrics
 - id: t-04
