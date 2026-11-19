@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### contracts: MintableToken + AtomicSwap compiled with solc-js
-- id: t-03
-- owner:
-- tags: contracts
-- history:
-  - To Do @ 2026-11-19T09:38:00Z
-
 ### core: Approach interface, trade-off schema, metrics
 - id: t-04
 - owner:
@@ -137,6 +130,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### contracts: MintableToken + AtomicSwap compiled with solc-js
+- id: t-03
+- owner: Claude
+- tags: contracts
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Doing @ 2026-11-19T10:00:44Z by Claude
+  - Done @ 2026-11-19T10:04:25Z by Claude
 
 ### Design evm-benchmarks
 - id: t-00
