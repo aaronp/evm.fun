@@ -10,7 +10,8 @@ export function parseArg(type: string, input: string): Parsed {
   const arr = type.match(/^(.*)\[(\d*)\]$/)
   if (arr) {
     let j: unknown
-    try { j = JSON.parse(s) } catch { return fail(`${type} expects a JSON array, e.g. [1,2]`) }
+    // quote bare numbers first so integers never pass through a JS double
+    try { j = JSON.parse(s.replace(/"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g, m => (m[0] === '"' ? m : `"${m}"`))) } catch { return fail(`${type} expects a JSON array, e.g. [1,2]`) }
     if (!Array.isArray(j)) return fail(`${type} expects a JSON array`)
     if (arr[2] && j.length !== +arr[2]) return fail(`${type} expects ${arr[2]} elements`)
     const out: unknown[] = []

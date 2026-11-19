@@ -29,6 +29,13 @@ describe('parseArg', () => {
     expect(ok('uint256[]', '[1,2]')).toEqual([1n, 2n])
     bad('uint256[]', '[1,"x"]'); bad('uint256[]', 'nope')
   })
+  test('integer arrays stay exact', () => {
+    expect(ok('uint256[]', '[9007199254740993]')).toEqual([9007199254740993n])
+    expect(ok('int256[]', '[-9007199254740993]')).toEqual([-9007199254740993n])
+    bad('uint256[]', '[1.5]'); bad('uint256[]', '[1e3]'); bad('uint256[2]', '[1]')
+    expect(ok('uint256[][]', '[[1],[2,3]]')).toEqual([[1n], [2n, 3n]])
+    expect(ok('uint256[][]', '[[9007199254740993]]')).toEqual([[9007199254740993n]])
+  })
   test('encodeArgs collects every error', () => {
     const r = encodeArgs([{ name: 'a', type: 'address' }, { name: 'b', type: 'uint8' }], ['0x1', '300'])
     expect(r.ok).toBe(false)
