@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
-import { keccak256 } from 'viem'
+import { encodeDeployData, encodeFunctionData, keccak256 } from 'viem'
+import { privateKeyToAccount } from 'viem/accounts'
+import { MintableToken } from '@evmb/contracts'
+import { createKv } from '../src/store/kv'
+import { createChainRegistry } from '../src/chain/registry'
+import { signAndSend } from '../src/tx/send'
 import approach02Factory from '@evmb/approach-02-seq-memory'
 import { deriveAccounts, signTx } from '@evmb/core'
 import { makeHandle, type ChainHandle } from '../src/chain/handle'
@@ -24,13 +29,18 @@ beforeAll(async () => {
 afterAll(() => h.dispose())
 
 describe('explorer data', () => {
-  test('600 txs land in block 1, paged by 50', async () => {
-    const b = (await block(h, 1, 0))!
-    expect(b.txTotal).toBe(600)
-    expect(b.txs).toHaveLength(50)
-    expect((await block(h, 1, 11))!.txs).toHaveLength(50)
-    expect((await block(h, 1, 12))!.txs).toHaveLength(0)
-    expect(b.txs[0]!.hash).toBe(firstHash)
+  // The sequencer drains its ring as txs arrive, so how the 600 split into blocks varies run to run
+  // (observed: one block of 600, or 250 + the rest). Assert against what actually landed.
+  test('600 txs land across blocks; the largest pages by 50', async () => {
+    const all = await latestBlocks(h, 0, 100)
+    expect(all.reduce((n, b) => n + b.txCount, 0)).toBe(600)
+    const big = all.reduce((a, b) => (b.txCount > a.txCount ? b : a))
+    const pages = Math.ceil(big.txCount / 50)
+    const counts = await Promise.all(Array.from({ length: pages + 1 }, async (_, p) => (await block(h, big.number, p))!.txs.length))
+    expect(counts).toEqual([...Array(pages - 1).fill(50), big.txCount - 50 * (pages - 1), 0])
+    expect((await block(h, big.number, 0))!.txTotal).toBe(big.txCount)
+    expect((await block(h, big.number, 0))!.txs[0]!.hash).toMatch(/^0x[0-9a-f]{64}$/)
+    expect(await tx(h, firstHash, [])).not.toBeNull()
   })
   test('block out of range is null', async () => {
     expect(await block(h, 999, 0)).toBeNull()
@@ -61,7 +71,47 @@ describe('explorer data', () => {
     const l = await latestBlocks(h, 0)
     expect(l.map(x => x.number)).toEqual([...l.map(x => x.number)].sort((a, b) => b - a))
     expect(l[0]!.number).toBeGreaterThanOrEqual(1)
-    expect(l.find(x => x.number === 1)!.txCount).toBe(600)
+    expect(l.reduce((n, b) => n + b.txCount, 0)).toBe(600)
     expect(await latestBlocks(h, 50)).toEqual([])
+  })
+})
+
+describe('tolerance and decoding', () => {
+  test('malformed node data never throws', async () => {
+    const stub = (r: unknown) => ({ request: async () => r }) as unknown as ChainHandle
+    const b = await block(stub({ number: '0x1', hash: '0x1', timestamp: '0x0', transactions: [{ hash: '0xaa', from: '0xbb' }, null, 'junk'] }), 1, 0)
+    expect(b!.txs).toEqual([{ hash: '0xaa', from: '0xbb', to: null, value: 0n }])
+    expect(await block(stub('garbage'), 1, 0)).toBeNull()
+    const l = await latestBlocks({ request: async (m: string) => (m === 'eth_blockNumber' ? '0x0' : { hash: '0x1' }) } as any, 0)
+    expect(l).toEqual([{ number: 0, hash: '0x1', timestamp: 0, txCount: 0 }])
+    expect(await tx(stub({ input: 5, logs: 'x' }), `0x${'ab'.repeat(32)}`, [])).toMatchObject({ decodedLogs: [] })
+    expect(await address(stub('zz'), `0x${'ab'.repeat(20)}`, [])).toMatchObject({ balance: 0n, nonce: 0, isContract: true })
+  })
+
+  test('decodes transfer input, Transfer log and token balances', async () => {
+    const a = privateKeyToAccount(`0x${'11'.repeat(32)}`)
+    const b = privateKeyToAccount(`0x${'22'.repeat(32)}`)
+    const acct = { label: 'a', address: a.address, privateKey: `0x${'11'.repeat(32)}` as const }
+    const stores = new Map<string, any>()
+    const reg = createChainRegistry({
+      kv: createKv(),
+      host: id => ({ persistence: { load: async () => stores.get(id) ?? null, save: async (s: any) => void stores.set(id, structuredClone(s)) } }),
+    })
+    const p = await reg.create('p', 'plain', [a.address])
+    const dep = await signAndSend(p, acct, { data: encodeDeployData({ abi: MintableToken.abi, bytecode: MintableToken.bytecode, args: ['T', 'T'] }) })
+    const to = dep.contractAddress!
+    const call = (fn: string, args: unknown[]) => signAndSend(p, acct, { to, data: encodeFunctionData({ abi: MintableToken.abi, functionName: fn, args } as any) })
+    await call('mint', [a.address, 100n])
+    const r = await call('transfer', [b.address, 30n])
+    expect(r.status).toBe('success')
+    const t = (await tx(p, r.hash, [MintableToken.abi]))!
+    expect(t.decodedInput!.functionName).toBe('transfer')
+    expect(t.decodedInput!.args).toEqual([b.address, 30n])
+    const ev = t.decodedLogs.find(l => l?.eventName === 'Transfer')!
+    expect(ev.args).toMatchObject({ from: a.address, to: b.address, value: 30n })
+    const ad = await address(p, b.address, [{ address: to, name: 'T', abi: MintableToken.abi }])
+    expect(ad!.tokenBalances).toEqual([{ token: to, name: 'T', balance: 30n }])
+    expect((await address(p, to, []))!.isContract).toBe(true)
+    await p.dispose()
   })
 })
