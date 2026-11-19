@@ -1,0 +1,20 @@
+{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "devDependencies": {
+        "@pritzlaff/adr": "^1.1.1",
+        "@pritzlaff/agile": "^1.0.3",
+        "@pritzlaff/risk-register": "^0.2.0",
+      },
+    },
+  },
+  "packages": {
+    "@pritzlaff/adr": ["@pritzlaff/adr@1.1.1", "", { "bin": { "adr": "bin/adr.mjs" } }, "sha512-y3Y/WaddeY8AGZIKt5GhLIkbhl7fkLMqIDGZkkW6wDQnOOlqTVCZNTapjAN+4qE2mepMGXoK76EUTMLopQR23Q=="],
+
+    "@pritzlaff/agile": ["@pritzlaff/agile@1.0.3", "", { "bin": { "agile": "bin/agile.mjs" } }, "sha512-rxt4Q+uGKRpXHXSP79Ivpff/o8bdYY4PEkG5YwKuvRQsxTzLbkqxCrq1wXezUbQpFMQCmMfk9JHna6jMdEH8sg=="],
+
+    "@pritzlaff/risk-register": ["@pritzlaff/risk-register@0.2.0", "", { "bin": { "risk-register": "bin/risk-register.mjs" } }, "sha512-vSx7uN5Wapiljf6fppWZcIeImiFDMZcMaothe3G7iWLvAoGu77l74ZtrujPy0w5P49BBGM8MD+Sg05hOPXi0Nw=="],
+  }
+}

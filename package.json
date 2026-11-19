@@ -1,0 +1,13 @@
+{
+  "dependencies": {},
+  "devDependencies": {
+    "@pritzlaff/adr": "^1.1.1",
+    "@pritzlaff/agile": "^1.0.3",
+    "@pritzlaff/risk-register": "^0.2.0"
+  },
+  "scripts": {
+    "agile": "agile docs/board/board.md",
+    "adr": "adr docs/adr/decisions.md",
+    "risks": "risk-register docs/risks/risks.md"
+  }
+}

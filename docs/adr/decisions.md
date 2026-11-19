@@ -1,0 +1,301 @@
+---
+title: Keep project docs as markdown next to the code
+status: accepted
+date: 2026-11-19
+tags: process
+decision: md
+---
+
+## Goal
+Keep tasks, risks and decisions current without a separate tool.
+
+## People
+- Aaron — decider
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| upkeep | Easy to keep current | 5 | Higher = less effort. |
+| review | Reviewed with the code | 4 | Higher = shows up in pull requests. |
+
+## Solution: md — Markdown in the repo
+| criterion | score |
+| --- | --- |
+| upkeep | 4 |
+| review | 5 |
+
+## Solution: wiki — Team wiki
+| criterion | score |
+| --- | --- |
+| upkeep | 3 |
+| review | 1 |
+
+## Decision
+Markdown in the repo (docs/board, docs/risks, docs/adr): it changes in the same commit as the code it describes.
+
+---
+title: Build our own sequencer + EVM rather than tuning Besu
+status: accepted
+date: 2026-11-19
+tags: architecture
+decision: own
+---
+
+## Goal
+Find an architecture that settles Solidity-compatible transactions (tuned for ERC-20s) at 1,000+ TPS, and can also be shipped as a zero-install browser playground.
+
+## Hypothesis
+A single-writer sequencer with signatures checked in parallel ahead of it, feeding one hot execution loop that runs blocks in batches, can reach 1k TPS on one machine. A tuned general-purpose node is bounded by its mempool, consensus and per-block overhead.
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| headroom | Throughput headroom | 5 | Higher = more room to reach and exceed 1k TPS. |
+| browser | Runs in the browser | 4 | Higher = the same architecture can be the zero-install playground. |
+| control | Control over the pipeline | 4 | Higher = we can change sequencing, verification and execution freely. |
+| realism | Real-chain realism | 2 | Higher = numbers transfer to a production node. |
+| effort | Effort to first number | 3 | Higher = less work. |
+
+## Solution: own — Own sequencer + EVM (webevm/revm), TS/Bun
+| criterion | score |
+| --- | --- |
+| headroom | 5 |
+| browser | 5 |
+| control | 5 |
+| realism | 2 |
+| effort | 3 |
+
+## Solution: both — Generic harness + tuned Besu and own sequencer
+| criterion | score |
+| --- | --- |
+| headroom | 4 |
+| browser | 4 |
+| control | 4 |
+| realism | 5 |
+| effort | 1 |
+
+## Solution: besu — Single tuned Besu node only
+| criterion | score |
+| --- | --- |
+| headroom | 2 |
+| browser | 1 |
+| control | 2 |
+| realism | 5 |
+| effort | 4 |
+
+## Decision
+Own sequencer + EVM. Besu doesn't need to be the node, but it must stay benchmarkable: the harness only takes signed transactions, and a JSON-RPC approach (06) can point at Besu or anvil later. See the design: evm-benchmarks/docs/superpowers/specs/2026-11-19-evm-benchmarks-design.md.
+
+---
+title: Benchmark input is N pre-signed raw transactions
+status: accepted
+date: 2026-11-19
+tags: architecture, benchmark
+decision: rawtx
+---
+
+## Goal
+Compare any implementation (ours, webevm, anvil, Besu) on identical input.
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| neutral | Engine neutral | 5 | Higher = no implementation is favoured by the input format. |
+| fair | Fair comparison | 4 | Higher = every implementation does the same work. |
+| simple | Simple adapter | 3 | Higher = less code per implementation. |
+
+## Solution: rawtx — Signed RLP raw transactions (eth_sendRawTransaction shape)
+| criterion | score |
+| --- | --- |
+| neutral | 5 |
+| fair | 5 |
+| simple | 4 |
+
+## Solution: calls — Engine-specific calls (e.g. direct EVM runCall)
+| criterion | score |
+| --- | --- |
+| neutral | 1 |
+| fair | 2 |
+| simple | 5 |
+
+## Decision
+N signed raw transactions, generated and signed before the clock starts. Approaches implement setup / submit / awaitSettled / call / dispose and nothing else.
+
+---
+title: TypeScript on Bun for harness, approaches and playground
+status: accepted
+date: 2026-11-19
+tags: tooling
+decision: ts
+---
+
+## Goal
+One language for the CLI benchmark, the approaches and the browser playground.
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| browser | Same code runs in the browser | 5 | Higher = less duplication with the playground. |
+| reuse | Reuses starter projects | 3 | Higher = more of chain-as-a-service / nanochain reusable. |
+| raw | Raw single-thread speed | 3 | Higher = faster hot loop. |
+
+## Solution: ts — TypeScript / Bun
+| criterion | score |
+| --- | --- |
+| browser | 5 |
+| reuse | 5 |
+| raw | 3 |
+
+## Solution: jvm — JVM (disruptor, Besu-adjacent)
+| criterion | score |
+| --- | --- |
+| browser | 1 |
+| reuse | 1 |
+| raw | 4 |
+
+## Solution: rust — Rust (revm native, wasm for browser)
+| criterion | score |
+| --- | --- |
+| browser | 3 |
+| reuse | 1 |
+| raw | 5 |
+
+## Decision
+TypeScript on Bun. revm is still reachable as wasm through webevm/revm.
+
+---
+title: Treat architectural trade-offs as separate, comparable approaches
+status: accepted
+date: 2026-11-19
+tags: architecture, process
+decision: approaches
+---
+
+## Goal
+State roots, durability, signature checking, parallel execution and the success bar each trade throughput and latency for something. Show those costs rather than picking one up front.
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| insight | Shows the cost of each choice | 5 | Higher = the report explains what each sacrifice buys. |
+| effort | Effort | 2 | Higher = less work. |
+
+## Solution: approaches — One package per approach, with declared trade-offs
+| criterion | score |
+| --- | --- |
+| insight | 5 |
+| effort | 3 |
+
+## Solution: upfront — Decide each question once, build one architecture
+| criterion | score |
+| --- | --- |
+| insight | 1 |
+| effort | 5 |
+
+## Decision
+evm-benchmarks/approaches/NN-name packages, each with a README and a `tradeoffs` declaration (evm, stateRoot, log, sigVerify, execution) that the report shows as columns. 1k TPS is a target line, not a gate.
+
+---
+title: Settlement means executed in a block with a receipt
+status: proposed
+date: 2026-11-19
+tags: benchmark
+decision: receipt
+---
+
+## Goal
+One definition of "settled" used for TPS and latency across all approaches.
+
+## People
+- Claude — author
+- Aaron — decider
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| comparable | Comparable across approaches | 5 | Higher = every approach can report it. |
+| meaningful | Meaningful as settlement | 4 | Higher = closer to irrevocable. |
+
+## Solution: receipt — Executed, receipt available
+| criterion | score |
+| --- | --- |
+| comparable | 5 |
+| meaningful | 3 |
+
+## Solution: durable — Executed and durably logged
+| criterion | score |
+| --- | --- |
+| comparable | 2 |
+| meaningful | 4 |
+
+## Decision
+Receipt available. Durability is shown as a trade-off column (`log`) instead (approach 04). Signing is excluded from timing. Runs that fail final-state verification report no TPS.
+
+---
+title: Which EVM engine backs the sequencer
+status: proposed
+date: 2026-11-19
+tags: architecture, engine
+---
+
+## Goal
+Fastest EVM that stays Solidity-compatible and runs in the browser.
+
+## People
+- Claude — author
+- Aaron — decider
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| speed | Execution speed | 5 | Higher = more TPS. |
+| bundle | Browser bundle size | 2 | Higher = smaller. |
+| fit | Supports trusted sender + manual mining | 4 | Higher = less glue code. |
+
+## Solution: webevm — webevm default engine (@ethereumjs/evm)
+
+## Solution: revm — webevm/revm (revm-wasm)
+
+## Solution: ejs — @ethereumjs/vm directly
+
+## Decision
+Open. Settled by spike t-01 and approaches 02 vs 05.
+
+---
+title: State root per block, deferred, or none
+status: proposed
+date: 2026-11-19
+tags: architecture, engine
+---
+
+## Goal
+Know what a verifiable state root costs in throughput.
+
+## People
+- Claude — author
+- Aaron — decider
+
+## Solution: none — No state root (approach 02)
+
+## Solution: per-block — Merkle state root every block (approach 03)
+
+## Solution: deferred — State root every K blocks (approach 03, option)
+
+## Decision
+Open. Measured by approaches 02 vs 03.
