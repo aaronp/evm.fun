@@ -6,13 +6,6 @@ theme: paper
 
 ## To Do
 
-### assets: package registry, identity, detection, calldata
-- id: t-55
-- owner: Claude
-- tags: web, plan7
-- history:
-  - To Do @ 2026-11-19T22:03:42Z
-
 ### assets: live reads (token info, balances, allowances)
 - id: t-56
 - owner: Claude
@@ -108,6 +101,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 ## Doing
 
 ## Done
+
+### assets: package registry, identity, detection, calldata
+- id: t-55
+- owner: Claude
+- tags: web, plan7
+- history:
+  - To Do @ 2026-11-19T22:03:42Z
+  - Doing @ 2026-11-19T22:11:07Z by Claude
+  - Done @ 2026-11-19T22:15:18Z by Claude
 
 ### assets: AssetToken contract
 - id: t-54

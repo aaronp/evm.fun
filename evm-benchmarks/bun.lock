@@ -31,6 +31,16 @@
         "webevm": "0.9.1",
       },
     },
+    "packages/assets": {
+      "name": "@evmb/assets",
+      "dependencies": {
+        "viem": "^2.58.1",
+      },
+      "devDependencies": {
+        "@evmb/contracts": "workspace:*",
+        "webevm": "0.9.1",
+      },
+    },
     "packages/cli": {
       "name": "@evmb/cli",
       "dependencies": {
@@ -223,6 +233,8 @@
     "@evmb/approach-01-webevm-baseline": ["@evmb/approach-01-webevm-baseline@workspace:approaches/01-webevm-baseline"],
 
     "@evmb/approach-02-seq-memory": ["@evmb/approach-02-seq-memory@workspace:approaches/02-seq-memory"],
+
+    "@evmb/assets": ["@evmb/assets@workspace:packages/assets"],
 
     "@evmb/cli": ["@evmb/cli@workspace:packages/cli"],
 
