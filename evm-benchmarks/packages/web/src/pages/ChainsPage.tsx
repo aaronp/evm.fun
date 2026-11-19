@@ -26,12 +26,13 @@ const tabs: { value: ChainTab; content: string }[] = [
 /** Live height if the chain is already running (never opens one), else the last saved height. */
 function Height({ info, tick }: { info: ChainInfo; tick: number }) {
   const [live, setLive] = useState<number>()
+  const running = !!registry.peek(info.id)
   useEffect(() => {
     let on = true
     const h = registry.peek(info.id)
     if (h) Promise.resolve(h.request('eth_blockNumber', [])).then(x => on && typeof x === 'string' && setLive(parseInt(x, 16)), () => {})
     return () => { on = false }
-  }, [info.id, tick])
+  }, [info.id, tick, running])
   return <span className="font-mono text-xs text-text-2" title="Block height">{rowHeight(info, live)}</span>
 }
 
@@ -79,6 +80,9 @@ export function Chains() {
     </Button>
   )
 
+  /** Switching chain drops a block/tx URL that belongs to the old one. */
+  function pick(id?: string) { if (id !== chain?.info.id) nav('/chains'); return selectChain(id) }
+
   async function remove(c: ChainInfo) {
     if (!confirm(`Delete chain "${c.name}"?`)) return
     if (c.id === chain?.info.id) await selectChain(undefined)
@@ -92,10 +96,10 @@ export function Chains() {
       {error && <Notice>{error}</Notice>}
       {registry.liveCount() >= LIVE_WARN && <Notice>{`${registry.liveCount()} chains are running in this tab — this uses memory and CPU. Delete chains you don't need, or reload to stop them.`}</Notice>}
       <NewChainDialog dialogRef={dialog} />
-      <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
         {!wide && <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <Select aria-label="Chain" className="min-w-0 flex-1" value={chain?.info.id ?? ''} onChange={e => selectChain(e.target.value || undefined)}>
+            <Select aria-label="Chain" className="min-w-0 flex-1" value={chain?.info.id ?? ''} onChange={e => pick(e.target.value || undefined)}>
               <option value="">Select a chain</option>
               {chains.map(c => <option key={c.id} value={c.id}>{c.name}{c.ephemeral ? ' (benchmark)' : ''}</option>)}
             </Select>
@@ -117,7 +121,7 @@ export function Chains() {
                   <button
                     type="button"
                     aria-current={sel}
-                    onClick={() => selectChain(c.id)}
+                    onClick={() => pick(c.id)}
                     className={`w-full rounded-lg border bg-surface p-3 text-left hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent ${sel ? 'border-accent' : 'border-line'}`}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -136,7 +140,7 @@ export function Chains() {
             })}
           </ul>
         </aside>}
-        <section className="min-w-0 space-y-4 lg:col-start-2 lg:row-start-1">
+        <section className="@container min-w-0 space-y-4 lg:col-start-2 lg:row-start-1">
           {chains.length === 0 ? (
             <Card className="text-sm text-muted">No chains yet. Use the round + button to create one.</Card>
           ) : chain && (
