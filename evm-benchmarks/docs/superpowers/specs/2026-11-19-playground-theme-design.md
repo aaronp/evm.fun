@@ -190,3 +190,29 @@ The exact Light and Paper values (subject to the contrast test), component APIs,
 
 **Out of scope:** p90/p99.9 tiles, hover tooltips, chart export.
 Theme switcher: icon toggles (user request) — moon=Dark, sun=Light, page=Paper; each keeps an accessible name (sr-only text) and a title tooltip; radio semantics and focus ring unchanged.
+
+## Addendum 2: combined Chains + Explorer page (user request, approved 2026-11-19)
+
+**What:** one "Chains" page replaces the separate Chains and Explorer pages and their two nav entries.
+
+**Layout:**
+- **Left column, the chain list:**
+  - a "Filter chains" text input (filters by name, case-insensitive)
+  - filter tabs **All / Saved / Benchmark runs**, from the designer's Workspace mockup (Saved = persisted chains, Benchmark runs = ephemeral chains)
+  - rows showing the name, a plain/sequencer Badge, the block height, and a "benchmark" Badge for ephemeral chains
+  - Clicking a row makes it the global current chain (the context box, Studio, Transact and Accounts all follow), and the selected row is marked by more than colour.
+  - Below `lg`, the list becomes a compact picker above the explorer.
+- **The "+" button:** round, in the list header, `aria-label="New chain"`. It opens a native `<dialog>` modal (`showModal()`) containing the existing create form: name, the plain/sequencer option cards with ChainTypeHelp, and the prefund checkboxes defaulting to all. Esc and a Cancel button close it. Create closes it and selects the new chain. Focus returns to the "+" button.
+- **Right side, the explorer for the selected chain:**
+  - a header with the name, type Badge and created time, plus a Delete button (danger, with the existing `confirm()`, deselecting first)
+  - below that, the existing Explorer: search, latest blocks, and the block/tx/address detail
+  - With no chains, an empty state points at the "+" button.
+
+**Routes:**
+- The page lives at `/chains`, `/chains/block/:n`, `/chains/tx/:hash` and `/chains/address/:addr`.
+- The old `/explorer`, `/explorer/*` and any other links redirect to the matching `/chains` routes.
+- All internal links use the new routes: ReceiptView's block link, Benchmark's "Open in Explorer", Studio's links and the Explorer's own links.
+
+**Kept:** every Chains and Explorer behaviour, including paging, Not-found handling, the never-throws data layer, registry names, ephemeral chains, StorageNotice, KEYS_WARNING where relevant, and the datalist.
+
+**Out of scope:** renaming chains, bulk delete, per-row menus.
