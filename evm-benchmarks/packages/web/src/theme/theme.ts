@@ -4,7 +4,7 @@ const KEY = 'evmb.theme'
 
 // Keep in sync with the inline pre-paint script in index.html.
 export function initialTheme(stored: string | null, prefersDark: boolean): Theme {
-  return (THEMES as string[]).includes(stored ?? '') ? (stored as Theme) : prefersDark ? 'dark' : 'light'
+  return (THEMES as readonly string[]).includes(stored ?? '') ? (stored as Theme) : prefersDark ? 'dark' : 'light'
 }
 
 let current: Theme | undefined
