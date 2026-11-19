@@ -79,13 +79,6 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
   - To Do @ 2026-11-19T09:38:00Z
 
 
-### web: scaffold and stores
-- id: t-21
-- owner:
-- tags: web, plan3
-- history:
-  - To Do @ 2026-11-19T12:33:12Z
-
 ### web: chains and accounts pages
 - id: t-22
 - owner:
@@ -132,6 +125,15 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 
 ## Done
+
+### web: scaffold and stores
+- id: t-21
+- owner: Claude
+- tags: web, plan3
+- history:
+  - To Do @ 2026-11-19T12:33:12Z
+  - Doing @ 2026-11-19T12:42:18Z by Claude
+  - Done @ 2026-11-19T12:47:18Z by Claude
 
 ### Playground core and approach extensions
 - id: t-20

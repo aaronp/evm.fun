@@ -2,11 +2,16 @@
   "name": "evm-benchmarks",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "approaches/*"],
+  "workspaces": [
+    "packages/*",
+    "approaches/*"
+  ],
   "scripts": {
     "test": "bun test",
     "bench": "bun packages/cli/src/main.ts bench",
-    "report": "bun packages/cli/src/main.ts report"
+    "report": "bun packages/cli/src/main.ts report",
+    "web:dev": "bun run --cwd packages/web dev",
+    "web:build": "bun run --cwd packages/web build"
   },
   "dependencies": {
     "revm-wasm": "0.3.1",

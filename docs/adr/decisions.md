@@ -352,3 +352,39 @@ Use webevm's own `persistence` option (IndexedDB adapter in the browser). Spike 
 - `initialBalances` do not override restored state: the restored balance wins on reopen.
 - revm via `createNode({engine: await createRevmEngine({wasm})})` runs a transfer; `node.engine.id` is `revm-wasm`.
 - Consequence: the whole state is re-serialised on every save, so cost grows with chain size (risk R10). `save()` must not call back into the node. Playground chain ids must stay 31337 for a persisted chain to load.
+
+---
+title: Web bundler
+status: accepted
+date: 2026-11-19
+tags: architecture, web
+decision: vite
+---
+
+## Goal
+Bundle the browser playground so module Workers, the revm `.wasm` and static solc/OpenZeppelin files work from any static path.
+
+## People
+- Claude — author
+- Aaron — decider
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| assets | Worker and wasm emitted correctly | 5 | Higher = `new Worker(new URL(..))` and `.wasm` work without hand wiring. |
+| effort | Little glue code | 3 | Higher = fewer moving parts. |
+
+## Solution: bun — Bun HTML bundler (Bun.build on index.html)
+| criterion | score |
+| --- | --- |
+| assets | 1 |
+| effort | 4 |
+
+## Solution: vite — Vite
+| criterion | score |
+| --- | --- |
+| assets | 5 |
+| effort | 4 |
+
+## Decision
+Use Vite. Bun 1.3.13 was tried first with a throwaway worker and revm-wasm: the worker chunk was not emitted (the bundle kept `new URL("./probe.worker.ts", import.meta.url)`, a `.ts` file that is not in dist) and `revm-wasm/wasm-url` stayed `new URL("../wasm/revm.wasm", import.meta.url)` with no such file emitted. Vite 7 emitted `assets/probe.worker-*.js`, rewrote the URL to it relative to `import.meta.url`, and emitted `assets/revm-*.wasm` for both import forms. `base: './'` gives relative URLs. soljson and the OpenZeppelin `.sol` tree are copied by `packages/web/build.ts` into `public/` (so dev and dist both serve them). Tailwind 4 via `@tailwindcss/vite`.
