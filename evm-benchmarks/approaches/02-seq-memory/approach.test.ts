@@ -324,3 +324,29 @@ test('restore replaces state: an account funded and a contract deployed after th
   expect(BigInt((await ap.request!('eth_getStorageAt', [K, '0x0', 'latest'])) as string)).toBe(0n);
   await ap.dispose();
 });
+
+test('a failed restore (bad dump) leaves the live chain untouched', async () => {
+  const ap = create(opts, {persistence: memPersist()});
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  await settle(ap, await snapRaws(0, 2));
+  const head = await ap.request!('eth_blockNumber');
+  const bal = await ap.getBalance(a.address);
+  await expect(ap.restore!({} as any)).rejects.toThrow();
+  expect(await ap.request!('eth_blockNumber')).toBe(head);
+  expect(await ap.getBalance(a.address)).toBe(bal);
+  expect((await settle(ap, await snapRaws(2, 1)))[0]!.status).toBe('success');
+  await ap.dispose();
+});
+
+test('submit during a restore is refused and leaves pending() at 0', async () => {
+  const ap = create(opts);
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  const dump = await ap.snapshot!();
+  const raw = await sign(0);
+  const p = ap.restore!(dump);
+  await expect(ap.submit([raw])).rejects.toThrow('02-seq-memory: restore in progress');
+  await p;
+  expect(ap.pending!()).toBe(0);
+  expect((await settle(ap, [raw]))[0]!.status).toBe('success');
+  await ap.dispose();
+});

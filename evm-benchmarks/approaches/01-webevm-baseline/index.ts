@@ -13,6 +13,8 @@ const factory: ApproachFactory = (_opts, host = {}) => {
   let receipts = new Map<Hex, Receipt>();
   let waiters: (() => void)[] = [];
   let submitMs = 0;
+  let generation = 0; // bumped on every node swap
+  let restoring: Promise<void> | undefined;
 
   const notify = () => {
     const w = waiters;
@@ -24,20 +26,64 @@ const factory: ApproachFactory = (_opts, host = {}) => {
     notify();
   };
 
-  async function start(p: PersistenceAdapter | undefined, initialBalances?: Record<Address, bigint>) {
-    await node?.dispose();
-    receipts = new Map(); // blocks after a restored dump are gone, and so are their receipts
-    notify(); // in-flight awaitSettled calls re-check against the new map instead of being orphaned
-    submitMs = 0;
-    node = await createNode({
+  /** A new node whose saves only reach `p` while it is the live node (a replaced node can't clobber). */
+  async function build(p: PersistenceAdapter | undefined, initialBalances?: Record<Address, bigint>) {
+    let me: Node | undefined;
+    me = await createNode({
       chainId: 31337,
       miningConfig: {type: 'auto'},
       initialBalances,
       ...(host.createEngine && {engine: (await host.createEngine()) as any}),
-      ...(p && {persistence: p}),
+      ...(p && {persistence: {load: () => p.load(), save: (s) => (node === me ? p.save(s) : Promise.resolve())}}),
     });
+    return me;
+  }
+
+  /** Make `next` live in one tick (no await), then return the old node for the caller to dispose. */
+  function swap(next: Node) {
+    const old = node;
+    generation++;
+    node = next;
+    receipts = new Map(); // blocks after a restored dump are gone, and so are their receipts
+    submitMs = 0;
+    notify(); // in-flight awaitSettled calls re-check against the new map instead of being orphaned
+    return old;
+  }
+
+  /** Swap in `next`; `state` (if any) is saved in the same tick, so no older save can land after it. */
+  async function goLive(next: Node, state: unknown) {
+    const old = swap(next);
+    const saved = state !== undefined && persistence ? persistence.save(state as any) : undefined;
+    await old?.dispose();
+    await saved;
+  }
+
+  async function start(p: PersistenceAdapter | undefined, initialBalances?: Record<Address, bigint>) {
+    const next = await build(p, initialBalances);
     // webevm only saves after a mine/auto send; make the reset durable now
-    if (initialBalances && persistence) await persistence.save(await node!.dumpState());
+    await goLive(next, initialBalances && persistence ? await next.dumpState() : undefined);
+  }
+
+  /** Replace the chain with `dump`. The new node is built and loaded first, so a bad dump leaves the live chain untouched. */
+  async function replace(dump: unknown) {
+    let done = () => {};
+    restoring = new Promise<void>((r) => (done = r));
+    try {
+      // a fresh node: webevm's loadState only puts the dump's state, it never clears newer state
+      const next = await build(persistence && fresh(persistence));
+      try {
+        await next.loadState(dump as any);
+      } catch (e) {
+        await next.dispose().catch(() => {});
+        throw e;
+      }
+      const state = persistence ? await next.dumpState() : undefined;
+      await node?.dumpState().catch(() => {}); // drain: webevm serialises requests, so in-flight sends (and saves) land first
+      await goLive(next, state);
+    } finally {
+      restoring = undefined;
+      done();
+    }
   }
 
   const approach: Approach = {
@@ -50,11 +96,8 @@ const factory: ApproachFactory = (_opts, host = {}) => {
     },
 
     async setup({prefund, dump}) {
-      await start(persistence && fresh(persistence), dump ? undefined : prefund);
-      if (!dump) return;
-      // into a fresh node: webevm's loadState only puts the dump's state, it never clears newer state
-      await node!.loadState(dump as any);
-      if (persistence) await persistence.save(await node!.dumpState());
+      if (dump) await replace(dump);
+      else await start(persistence && fresh(persistence), prefund);
     },
 
     async snapshot() {
@@ -62,7 +105,7 @@ const factory: ApproachFactory = (_opts, host = {}) => {
     },
 
     async restore(dump) {
-      await approach.setup({prefund: {}, dump});
+      await replace(dump);
     },
 
     pending: () => 0,
@@ -79,20 +122,19 @@ const factory: ApproachFactory = (_opts, host = {}) => {
     async submit(rawTxs) {
       const t0 = performance.now();
       for (const raw of rawTxs) {
+        if (restoring) await restoring; // new sends go to the restored node
         const hash = keccak256(raw);
-        const n = node!;
+        const g = generation;
+        let rc: Receipt;
         try {
-          const r: any = await n.request({method: 'eth_sendRawTransactionSync', params: [raw]});
-          if (n !== node) throw new Error('chain was restored while the tx was in flight');
-          record({
-            hash,
-            status: r.status === '0x1' ? 'success' : 'reverted',
-            settledAt: performance.now(),
-            contractAddress: r.contractAddress ?? undefined,
-          });
+          const r: any = await node!.request({method: 'eth_sendRawTransactionSync', params: [raw]});
+          rc = {hash, status: r.status === '0x1' ? 'success' : 'reverted', settledAt: performance.now(), contractAddress: r.contractAddress ?? undefined};
         } catch (e) {
-          record({hash, status: 'rejected', settledAt: performance.now(), error: e instanceof Error ? e.message : String(e)});
+          rc = {hash, status: 'rejected', settledAt: performance.now(), error: e instanceof Error ? e.message : String(e)};
         }
+        if (restoring) await restoring; // record into the map that survives the swap, so awaitSettled resolves
+        if (g !== generation) rc = {hash, status: 'rejected', settledAt: performance.now(), error: 'chain was restored while the tx was in flight'};
+        record(rc);
       }
       submitMs += performance.now() - t0;
     },

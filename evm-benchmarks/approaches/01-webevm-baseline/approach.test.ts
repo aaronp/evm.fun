@@ -256,16 +256,37 @@ test('restore replaces state: an account funded and a contract deployed after th
   await ap.dispose();
 });
 
-test('a send in flight across restore settles (rejected) instead of hanging', async () => {
-  const ap = create();
+test('a send in flight across restore comes back rejected and never clobbers the restored persisted state', async () => {
+  const host = {persistence: memPersist()};
+  const ap = create({}, host);
   await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  await settle(ap, await snapRaws(0, 1));
   const dump = await ap.snapshot!();
-  const raw = await sign(0);
-  const sent = ap.submit([raw]);
+  const head = await ap.request!('eth_blockNumber');
+  const raw = await sign(1);
+  const sent = ap.submit([raw]); // in flight on the old node while restore runs
   await ap.restore!(dump);
   await sent;
   const [r] = await ap.awaitSettled([keccak256(raw)]);
-  expect(['rejected', 'success']).toContain(r!.status);
-  expect(await ap.getBalance(B)).toBe(0n);
+  expect(r!.status).toBe('rejected');
+  expect(await ap.getBalance(B)).toBe(1n);
+  await ap.dispose();
+  const two = create({}, host);
+  await two.open!();
+  expect(await two.request!('eth_blockNumber')).toBe(head);
+  expect(await two.getBalance(B)).toBe(1n);
+  await two.dispose();
+});
+
+test('a failed restore (bad dump) leaves the live chain untouched', async () => {
+  const ap = create({}, {persistence: memPersist()});
+  await ap.setup({prefund: {[a.address]: 10n ** 21n}});
+  await settle(ap, await snapRaws(0, 2));
+  const head = await ap.request!('eth_blockNumber');
+  const bal = await ap.getBalance(a.address);
+  await expect(ap.restore!({} as any)).rejects.toThrow();
+  expect(await ap.request!('eth_blockNumber')).toBe(head);
+  expect(await ap.getBalance(a.address)).toBe(bal);
+  expect((await settle(ap, await snapRaws(2, 1)))[0]!.status).toBe('success');
   await ap.dispose();
 });

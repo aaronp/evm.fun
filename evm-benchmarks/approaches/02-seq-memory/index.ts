@@ -32,6 +32,7 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
   let submitted = 0; // txs handed to submit(); pending = submitted - settled
   let settled = 0;
   let executeMs = 0;
+  let restoring = false; // submit is refused while true
   let mineMs = 0;
 
   const notify = () => {
@@ -84,33 +85,42 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
     }
   }
 
+  const stopRun = (r: NonNullable<typeof run>) => {
+    r.stop = true;
+    r.wake?.();
+    r.seq.terminate();
+    return r.node.dispose();
+  };
+
   async function teardown() {
     if (!run) return;
-    run.stop = true;
-    run.wake?.();
-    run.seq.terminate();
-    await run.node.dispose();
+    const r = run;
     run = undefined;
+    await stopRun(r);
   }
 
-  async function start(p: PersistenceAdapter | undefined, initialBalances?: Record<Address, bigint>) {
-    await teardown();
-    receipts = new Map(); // blocks after a restored dump are gone, and so are their receipts
-    notify(); // in-flight awaitSettled calls re-check against the new map instead of being orphaned
-    fatal = undefined;
-    submitted = settled = 0;
-    executeMs = mineMs = 0;
-    const node = await createNode({
+  /** A new node whose saves only reach `p` while it is the live node (a replaced node can't clobber). */
+  async function build(p: PersistenceAdapter | undefined, initialBalances?: Record<Address, bigint>) {
+    let me: Node | undefined;
+    me = await createNode({
       chainId: 31337,
       senderMode: 'trusted',
       miningConfig: {type: 'manual'},
       blockGasLimit: BigInt(block) * MAX_TX_GAS, // a full block of the heaviest tx always fits
       initialBalances,
       ...(host.createEngine && {engine: (await host.createEngine()) as any}),
-      ...(p && {persistence: p}),
+      ...(p && {persistence: {load: () => p.load(), save: (s) => (run?.node === me ? p.save(s) : Promise.resolve())}}),
     });
-    // webevm only saves after a mine/auto send; make the reset durable now
-    if (initialBalances && persistence) await persistence.save(await node.dumpState());
+    return me;
+  }
+
+  /** Make `node` live with a new pipeline in one tick (no await); returns the old run for the caller to stop. */
+  function swap(node: Node) {
+    const old = run;
+    receipts = new Map(); // blocks after a restored dump are gone, and so are their receipts
+    fatal = undefined;
+    submitted = settled = 0;
+    executeMs = mineMs = 0;
     // ponytail: 4 blocks of headroom; more only matters if verify bursts outrun the executor for long
     const ring = new RingBuffer<Sequenced>(block * 4);
     const r: NonNullable<typeof run> = {
@@ -127,6 +137,42 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
     execute(r).catch((e) => {
       if (run === r) fail(e instanceof Error ? e : new Error(String(e)));
     });
+    notify(); // in-flight awaitSettled calls re-check against the new map instead of being orphaned
+    return old;
+  }
+
+  /** Swap in `next`; `state` (if any) is saved in the same tick, so no older save can land after it. */
+  async function goLive(next: Node, state: unknown) {
+    const old = swap(next);
+    const saved = state !== undefined && persistence ? persistence.save(state as any) : undefined;
+    if (old) await stopRun(old);
+    await saved;
+  }
+
+  async function start(p: PersistenceAdapter | undefined, initialBalances?: Record<Address, bigint>) {
+    const next = await build(p, initialBalances);
+    // webevm only saves after a mine/auto send; make the reset durable now
+    await goLive(next, initialBalances && persistence ? await next.dumpState() : undefined);
+  }
+
+  /** Replace the chain with `dump`. The new node is built and loaded first, so a bad dump leaves the live chain untouched. */
+  async function replace(dump: unknown) {
+    restoring = true;
+    try {
+      // a fresh node: webevm's loadState only puts the dump's state, it never clears newer state
+      const next = await build(persistence && fresh(persistence));
+      try {
+        await next.loadState(dump as any);
+      } catch (e) {
+        await next.dispose().catch(() => {});
+        throw e;
+      }
+      const state = persistence ? await next.dumpState() : undefined;
+      await run?.node.dumpState().catch(() => {}); // drain: webevm serialises requests, so anything in flight lands first
+      await goLive(next, state);
+    } finally {
+      restoring = false;
+    }
   }
 
   const approach: Approach = {
@@ -139,11 +185,8 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
     },
 
     async setup({prefund, dump}) {
-      await start(persistence && fresh(persistence), dump ? undefined : prefund);
-      if (!dump) return;
-      // into a fresh node: webevm's loadState only puts the dump's state, it never clears newer state
-      await run!.node.loadState(dump as any);
-      if (persistence) await persistence.save(await run!.node.dumpState());
+      if (dump) await replace(dump);
+      else await start(persistence && fresh(persistence), prefund);
     },
 
     async snapshot() {
@@ -153,7 +196,7 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
     async restore(dump) {
       // the executor is the node's only caller while txs are in flight
       if (submitted !== settled) throw new Error(`02-seq-memory: restore refused, ${submitted - settled} txs pending`);
-      await approach.setup({prefund: {}, dump});
+      await replace(dump);
     },
 
     pending: () => submitted - settled,
@@ -168,6 +211,8 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
     },
 
     async submit(rawTxs) {
+      // checked before counting, so a refused submit never leaves pending() > 0
+      if (restoring) throw new Error('02-seq-memory: restore in progress');
       submitted += rawTxs.length;
       run!.seq.submit(rawTxs);
     },
