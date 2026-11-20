@@ -4,24 +4,29 @@ import { Button } from '../ui/button'
 import { FuseNext } from './FuseNext'
 import { adoptAuto } from '../walkthrough/auto'
 import { Notice } from '../ui/notice'
+import { idText } from '../orderbook/ui'
 import { checkTone, useWizard, type CheckResult } from '../walkthrough/wizard'
 import type { Check, Outputs, Step } from '../walkthrough/types'
 
 const TONE = { pass: 'text-success-text', fail: 'text-danger', differs: 'text-warn-text' }
 
-const describe = (c: Check) =>
+export const checkText = (c: Check) =>
   'balance' in c ? `${c.balance} has at least ${c.has}`
   : 'escrowed' in c ? `The swap holds ${c.escrowed}`
   : 'offer' in c ? `${c.offer} is ${c.status}`
+  : 'order' in c ? `${c.order} is ${c.status}${c.filled ? `, ${c.filled} filled` : ''}`
+  : 'trades' in c ? `${c.trades} has ${c.count} ${c.count === 1 ? 'trade' : 'trades'}`
   : `The take was ${c.outcome}${c.error ? ` (${c.error})` : ''}`
 
-/** One-line summary of what a done step made: the account, chain, token or offer. */
-function made(v: Outputs[keyof Outputs] | undefined) {
+/** One-line summary of what a done step made: the account, chain, token, offer, venue or resting order. */
+export function made(v: Outputs[keyof Outputs] | undefined) {
   if (!v) return undefined
   if ('label' in v) return v.label
   if ('symbol' in v) return v.symbol
   if ('name' in v) return v.name
   if ('offerId' in v) return `offer #${v.offerId}`
+  if ('venue' in v) return v.venue === 'onchain' ? 'OrderBook' : 'Settlement'
+  if ('orderId' in v && v.orderId) return `order ${idText(v.orderId)}`
   return undefined
 }
 
@@ -94,7 +99,7 @@ export function Ribbon() {
               const tone = checkTone(r.pass, run.edited)
               return (
                 <li key={i} className={TONE[tone]}>
-                  {tone === 'pass' ? '✓' : '✗'} {describe(r.check)} — found {r.actual}{tone === 'differs' && ' · Differs from the walkthrough'}
+                  {tone === 'pass' ? '✓' : '✗'} {checkText(r.check)} — found {r.actual}{tone === 'differs' && ' · Differs from the walkthrough'}
                 </li>
               )
             })}

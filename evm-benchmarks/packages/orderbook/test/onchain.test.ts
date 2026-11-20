@@ -139,3 +139,9 @@ test('cancel returns the escrow, empties the level, and the report says cancelle
   expect(rep.cancelled?.tx).toMatch(/^0x/)
   await expect(v.cancel(c.walletOf(taker), r.order!.id)).rejects.toThrow(/OrderNotOpen/)
 }), T)
+
+test('committed is 0: an on-chain order escrows its give when placed', () => withChain(async c => {
+  const { v, m } = setup(c)
+  await v.place(c.walletOf(maker), { market: m, side: 'sell', type: 'limit', price: P('1.28'), amount: G(50) })
+  expect(await v.committed(maker.address, c.gbp)).toBe(0n)
+}), 60_000)

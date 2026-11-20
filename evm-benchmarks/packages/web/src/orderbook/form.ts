@@ -76,9 +76,10 @@ export function priceAway(price: bigint, side: Side, quoteDecimals: number) {
 export const submitText = (side: Side, amount: bigint | undefined, base: Token) =>
   `${side === 'buy' ? 'Buy' : 'Sell'} ${amount ? `${sizeText(amount, base.decimals)} ` : ''}${base.symbol}`
 
-/** The allowance warning's first sentence. */
-export const allowanceNote = (spender: string, allowance: bigint, need: bigint, give: Token) =>
-  `${spender} can spend ${amountText(allowance, give)} of yours; this order needs ${amountText(need, give)}.`
+/** The allowance warning's first sentence; `committed`: what the maker's other live off-chain orders already claim. */
+export const allowanceNote = (spender: string, allowance: bigint, need: bigint, give: Token, committed = 0n) =>
+  `${spender} can spend ${amountText(allowance, give)} of yours; this order needs ${amountText(need, give)}${
+    committed ? `; with your other open orders, ${amountText(need + committed, give)}` : ''}.`
 
 /** What "Approve more" approves when the allowance is short: `approve` sets the allowance, so `need` raises it by
  * exactly the shortfall. */

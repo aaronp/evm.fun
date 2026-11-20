@@ -106,13 +106,13 @@
       }
     },
     {
-      "id": "aliceOk",
+      "id": "aliceOk1",
       "do": "approve",
       "title": "Alice allows the settlement contract to move her pounds",
-      "text": "Alice will offer 2,000 pounds in two parts. Her pounds stay in her account until someone buys, so she allows the settlement contract to take up to 2,000 of them then.",
+      "text": "Before a program can move your tokens, you must say it may, and how many. Alice allows the settlement contract to take up to 1,000 of her pounds when someone buys her first offer.",
       "args": {
         "from": "$alice",
-        "amount": "2000 $GBP",
+        "amount": "1000 $GBP",
         "before": "ask1"
       }
     },
@@ -130,6 +130,17 @@
         "price": "1.27",
         "amount": "1000 $GBP",
         "quote": "$USD"
+      }
+    },
+    {
+      "id": "aliceOk2",
+      "do": "approve",
+      "title": "Alice raises her permission to cover both offers",
+      "text": "Her pounds stay with her until someone buys, so her first offer still counts against her permission. Alice raises it to 2,000, enough for both offers.",
+      "args": {
+        "from": "$alice",
+        "amount": "2000 $GBP",
+        "before": "ask2"
       }
     },
     {

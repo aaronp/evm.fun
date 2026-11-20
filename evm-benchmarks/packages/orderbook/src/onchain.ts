@@ -139,6 +139,8 @@ export function onchainVenue(o: {
       }
     },
 
+    committed: async () => 0n,
+
     async orders(q) {
       if (!q.owner) throw new Error('On-chain orders are listed per owner')
       const owner = getAddress(q.owner)

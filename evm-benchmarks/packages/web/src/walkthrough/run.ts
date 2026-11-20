@@ -66,13 +66,7 @@ export function initialInputs(w: Walkthrough, step: Step, run: Run, taken: strin
       return { 'order.side': arg(step, 'side'), 'order.type': arg(step, 'type'), 'order.price': arg(step, 'price') ?? '', 'order.amount': formatUnits(raw, asset.decimals) }
     }
     case 'cancelOrder': return { 'cancel.order': (ref(run, arg(step, 'order'), step.id) as Outputs['placeOrder']).orderId ?? '' }
-    case 'approve': {
-      const before = w.steps.find(s => s.id === arg(step, 'before'))!
-      if (before.do !== 'placeOrder') return initialInputs(w, before, run, taken)
-      // the step's own amount: an order's need alone may not cover the orders after it (two asks, one approve)
-      const { asset, raw } = amount(run, arg(step, 'amount'), step.id)
-      return { ...initialInputs(w, before, run, taken), 'approve.amount': formatUnits(raw, asset.decimals) }
-    }
+    case 'approve': return initialInputs(w, w.steps.find(s => s.id === arg(step, 'before'))!, run, taken)
     default: return {}
   }
 }

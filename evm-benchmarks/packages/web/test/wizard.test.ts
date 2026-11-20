@@ -121,6 +121,16 @@ describe('check tone', () => {
 })
 
 describe('Ribbon', () => {
+  test('check lines and made-summaries for the order-book steps', async () => {
+    const { checkText, made } = await import('../src/components/Ribbon')
+    expect(checkText({ order: '$ask2', status: 'partial', filled: '500 $GBP' })).toBe('$ask2 is partial, 500 $GBP filled')
+    expect(checkText({ order: '$ask1', status: 'filled' })).toBe('$ask1 is filled')
+    expect(checkText({ trades: '$book', count: 2 })).toBe('$book has 2 trades')
+    expect(checkText({ outcome: 'reverted', error: 'X' })).toBe('The take was reverted (X)')
+    expect(made({ address: `0x${'1'.repeat(40)}`, venue: 'offchain' })).toBe('Settlement')
+    expect(made({ orderId: '7', filled: '0' })).toBe('order #7')
+    expect(made({ filled: '150000', tx: `0x${'ab'.repeat(32)}` })).toBeUndefined()
+  })
   test('stepper, current step text and the ribbon buttons while a walkthrough is active', async () => {
     const { Ribbon } = await import('../src/components/Ribbon')
     const html = render(h(Ribbon), { run: fullRun(), index: 2 })

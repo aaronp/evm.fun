@@ -201,6 +201,8 @@ test('form text: slippage (bps, clamped 0–50%), worst price rounded away from 
   expect(submitText('sell', 50n, GBP)).toBe('Sell 0.50 GBP')
   expect(submitText('buy', undefined, GBP)).toBe('Buy GBP')
   expect(allowanceNote('OrderBook', 5_000_000_000n, 6_352_500_000n, USD)).toBe('OrderBook can spend 5,000.00 USD of yours; this order needs 6,352.50 USD.')
+  expect(allowanceNote('Settlement', 5_000_000_000n, 6_352_500_000n, USD, 1_000_000_000n))
+    .toBe('Settlement can spend 5,000.00 USD of yours; this order needs 6,352.50 USD; with your other open orders, 7,352.50 USD.')
   expect(approveFor(6_352_500_000n, 5_000_000_000n)).toBe(6_352_500_000n) // approve sets the allowance: up by exactly the shortfall
   expect(approveFor(5n, 5n)).toBeUndefined()
 })

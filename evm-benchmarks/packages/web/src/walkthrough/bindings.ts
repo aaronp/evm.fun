@@ -74,7 +74,7 @@ export function binding(step: Step, w: Walkthrough): Binding {
     case 'cancelOrder': return b(tradePath(step, w), ['cancel.order'], ['order.cancel'], 'orders.card')
     case 'approve': {
       const before = w.steps.find(s => s.id === step.args?.before)
-      if (before?.do === 'placeOrder') return b(tradePath(step, w), [...ORDER, 'approve.amount'], ['order.approve'], 'order.card')
+      if (before?.do === 'placeOrder') return b(tradePath(step, w), ORDER, ['order.approve'], 'order.card')
       const side = before?.do === 'take' ? 'take' : 'offer'
       return b(swapPath, binding(before ?? { ...step, do: 'makeOffer' }, w).fields, [`${side}.approve`], `${side}.card`)
     }

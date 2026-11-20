@@ -188,8 +188,8 @@ describe('order-book walkthroughs', () => {
         run = (await loadRun(w.id))!
         expect(await done(w, w.steps[at(w, 'ask1')]!, e, run)).toBe(true)
         run = await runSteps(w, e, run)
-        // on-chain: ask2, bobOk, buy; off-chain: ask2 is only signed, so bobOk and the settle
-        expect(await height(e, run) - h0).toBe(kind === 'onchain' ? 3 : 2)
+        // on-chain: aliceOk2, ask2, bobOk, buy; off-chain: ask2 is only signed, so aliceOk2, bobOk and the settle
+        expect(await height(e, run) - h0).toBe(kind === 'onchain' ? 4 : 3)
         const mine = await aliceOrders(e, run)
         expect(mine.map(o => [o.status, o.filled])).toEqual([['filled', 100000n], ['partial', 50000n]])
         expect(run.steps.buy!.outputs).toMatchObject({ filled: '150000', tx: expect.stringMatching(/^0x/) })
@@ -224,7 +224,7 @@ describe('order-book walkthroughs', () => {
       const run = await runSteps(w, e, newRun(w), at(w, 'book') + 1)
       const order = { 'order.side': 'buy', 'order.type': 'limit', 'order.price': '1.28', 'order.amount': '1500' }
       expect(initialInputs(w, w.steps[at(w, 'buy')]!, run)).toEqual(order)
-      expect(initialInputs(w, w.steps[at(w, 'bobOk')]!, run)).toEqual({ ...order, 'approve.amount': '2000' })
+      expect(initialInputs(w, w.steps[at(w, 'bobOk')]!, run)).toEqual(order)
       expect(await done(w, w.steps[at(w, 'book')]!, e, run)).toBe(true)
       expect(await done(w, w.steps[at(w, 'ask1')]!, e, run)).toBe(false)
     } finally { await disposeAll(e) }

@@ -94,7 +94,7 @@ describe('Trade in an order-book walkthrough', () => {
   test('paths come from the actual venue kind and pair', () => {
     const run = beforeBuy()
     const q = `venue=offchain&base=${GBP.address}&quote=${USD.address}`
-    for (const id of ['book', 'aliceOk', 'ask1', 'bobOk', 'buy', 'view']) expect(binding(bw.steps[bat(id)]!, bw).path(run)).toBe(`/trade?${q}`)
+    for (const id of ['book', 'aliceOk1', 'ask1', 'aliceOk2', 'ask2', 'bobOk', 'buy', 'view']) expect(binding(bw.steps[bat(id)]!, bw).path(run)).toBe(`/trade?${q}`)
     expect(binding(bw.steps[bat('book')]!, bw).path(newRun(bw))).toBe('/trade?venue=offchain')
     expect(binding(bw.steps[bat('buy')]!, bw)).toMatchObject({ fields: ['order.side', 'order.type', 'order.price', 'order.amount'], actions: ['order.submit'], report: 'order.submit' })
     expect(binding(bw.steps[bat('bobOk')]!, bw)).toMatchObject({ actions: ['order.approve'], report: 'order.approve' })
@@ -112,18 +112,22 @@ describe('Trade in an order-book walkthrough', () => {
     const ok = render(form(10n ** 12n), { run: beforeBuy(), index: bat('buy') }, bw)
     expect(ok).toMatch(/<button[^>]*data-wizard="order.submit"[^>]*data-wz-pulse=""[^>]*>Buy 1,500 GBP<\/button>/)
   })
-  test('at an approve before a placeOrder, Approve more approves the step\'s own amount, not just this order\'s need', async () => {
+  test('off-chain, at Alice\'s second approve: the note and Approve more count her first ask (committed) too', async () => {
     let c: Wizard | null = null, approved: bigint | undefined
     const Probe = () => { c = useWizard(); return null }
-    const el = h(OrderForm, {
-      base: asset(GBP), quote: asset(USD), venue: 'onchain', funds: { base: { bal: 10n ** 8n, alw: 0n }, quote: {} }, busy: false,
+    const el = (venue: 'onchain' | 'offchain') => h(OrderForm, {
+      base: asset(GBP), quote: asset(USD), venue, funds: { base: { bal: 10n ** 8n, alw: 100000n, committed: 100000n }, quote: {} }, busy: false,
       onApprove: async (_a: Asset, n: bigint) => { approved = n; return undefined }, onPlace: async () => ({ placed: true }),
     })
-    const html = render(h('div', null, el, h(Probe)), { run: beforeBuy(), index: bat('aliceOk') }, bw)
+    const html = render(h('div', null, el('offchain'), h(Probe)), { run: beforeBuy(), index: bat('aliceOk2') }, bw)
     expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>Sell GBP/)
-    expect(binding(bw.steps[bat('aliceOk')]!, bw).fields).toContain('approve.amount')
+    expect(html).toContain('Settlement can spend 1,000.00 GBP of yours; this order needs 1,000.00 GBP; with your other open orders, 2,000.00 GBP.')
+    expect(binding(bw.steps[bat('aliceOk2')]!, bw).fields).not.toContain('approve.amount')
     await c!.actions.get('order.approve')!()
     expect(approved).toBe(200000n) // 2,000 GBP: covers both asks
+    // on-chain the first ask is escrowed: committed doesn't apply (and is 0 there anyway)
+    const on = render(el('onchain'), { run: beforeBuy(), index: bat('aliceOk2') }, bw)
+    expect(on).not.toContain('Approve more')
   })
   test('a failed submit rejects with the form\'s own message', async () => {
     let c: Wizard | null = null

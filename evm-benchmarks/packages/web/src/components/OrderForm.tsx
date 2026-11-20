@@ -8,7 +8,8 @@ import { card, solid } from './TakePanel'
 import { venueName, type VenueKind } from '../orderbook/locate'
 import { orThrow, useWizardAction, useWizardField, useWizardMark } from '../walkthrough/wizard'
 
-export type Funds = { bal?: bigint; alw?: bigint }
+/** `committed`: what the acting account's other live off-chain orders already claim of this asset (`Venue.committed`) */
+export type Funds = { bal?: bigint; alw?: bigint; committed?: bigint }
 type Outcome = string | undefined
 
 const label = 'text-xs font-medium text-muted'
@@ -43,9 +44,6 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
   useWizardField('order.type', type, v => (v === 'limit' || v === 'market') && setType(v))
   useWizardField('order.price', priceIn, setPriceIn)
   useWizardField('order.amount', amountIn, setAmountIn)
-  // a walkthrough's approve step: its own amount, which may cover more than this order (cleared once approved)
-  const [allowIn, setAllowIn] = useState('')
-  useWizardField('approve.amount', allowIn, setAllowIn)
   const mark = useWizardMark()
   useEffect(() => setError(undefined), [base, quote])
   useEffect(() => { if (picked) { setPriceIn(priceText(picked.price, quote.decimals)); setType('limit'); setError(undefined) } }, [picked]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -62,8 +60,9 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
   const shape = { side, type, price, slippageBps: bps ?? 100 }
   const p = amount && (type === 'market' ? bps !== undefined : price !== undefined) ? plan({ ...shape, amount }, levels, base.decimals, venue) : undefined
   const give = buy ? quote : base, f = buy ? funds.quote : funds.base
-  const want = (x => ('ok' in x ? x.ok : 0n))(parseAmount(allowIn, give.decimals))
-  const toApprove = p?.need !== undefined && f.alw !== undefined ? approveFor(want > p.need ? want : p.need, f.alw) : undefined
+  // off-chain orders share one balance and allowance: this one must fit on top of the maker's other live orders
+  const held = venue === 'offchain' ? f.committed ?? 0n : 0n
+  const toApprove = p?.need !== undefined && f.alw !== undefined ? approveFor(p.need + held, f.alw) : undefined
   const thin = p?.thin ? `Book too thin: only ${amountText(p.filled, base)} of ${amountText(amount!, base)} can fill` : undefined
   const total = !p || p.bound === undefined ? '—'
     : type === 'limit' ? amountText(p.bound, quote)
@@ -87,7 +86,6 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
     if (toApprove === undefined) return
     const e = await onApprove(give, toApprove)
     setError(e)
-    if (!e) setAllowIn('')
     return e
   }
   useWizardAction('order.approve', toApprove !== undefined && !busy ? () => orThrow(approve()) : undefined)
@@ -148,7 +146,7 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
         <div className="flex gap-2.5 rounded-[10px] border border-warn/40 bg-warn-soft p-3 text-[13px] leading-[1.45] text-warn-text">
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-0.5 flex-none text-warn"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>
           <span>
-            {allowanceNote(spender, f.alw!, p!.need!, give)}{' '}
+            {allowanceNote(spender, f.alw!, p!.need!, give, held)}{' '}
             <button type="button" {...mark('order.approve')} disabled={busy} onClick={approve} className="font-semibold underline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-45">Approve more</button> or lower the amount.
           </span>
         </div>

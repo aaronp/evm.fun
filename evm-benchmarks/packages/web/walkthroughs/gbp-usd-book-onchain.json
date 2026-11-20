@@ -106,13 +106,13 @@
       }
     },
     {
-      "id": "aliceOk",
+      "id": "aliceOk1",
       "do": "approve",
       "title": "Alice allows the order book to move her pounds",
-      "text": "Alice will offer 2,000 pounds in two parts, so she allows the order book to take up to 2,000 of them.",
+      "text": "Before a program can move your tokens, you must say it may, and how many. Alice allows the order book to take up to 1,000 of her pounds for her first offer.",
       "args": {
         "from": "$alice",
-        "amount": "2000 $GBP",
+        "amount": "1000 $GBP",
         "before": "ask1"
       }
     },
@@ -130,6 +130,17 @@
         "price": "1.27",
         "amount": "1000 $GBP",
         "quote": "$USD"
+      }
+    },
+    {
+      "id": "aliceOk2",
+      "do": "approve",
+      "title": "Alice gives permission again for her second offer",
+      "text": "The order book already holds the 1,000 pounds of her first offer, which used up her permission, so Alice gives it again for the second.",
+      "args": {
+        "from": "$alice",
+        "amount": "2000 $GBP",
+        "before": "ask2"
       }
     },
     {

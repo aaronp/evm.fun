@@ -37,7 +37,7 @@ an order that fills in full rests nothing (off-chain it then has no id), so a ta
 | `chain` | chain | `prefund`: list of `$account` (their actual addresses). |
 | `launchAsset` | asset | `supply` (whole units, number string), `issuer` (`$account`). |
 | `deploySwap` | swap | `from` (`$account`). |
-| `approve` | none | `from`, `amount` (`"<amount> $ASSET"`), `before` (id of a later `makeOffer`, `take` or `placeOrder` step). Before a `placeOrder` the spender is that order's venue contract and `amount` must be in what the order gives (the base for a sell, the quote for a buy); in the app, Approve more approves this amount, so one approve can cover several orders. |
+| `approve` | none | `from`, `amount` (`"<amount> $ASSET"`), `before` (id of a later `makeOffer`, `take` or `placeOrder` step). Before a `placeOrder` the spender is that order's venue contract and `amount` must be in what the order gives (the base for a sell, the quote for a buy); in the app, Approve more approves what the order needs (off-chain, plus what the maker's other open orders already claim), so give each order its own approve. |
 | `makeOffer` | offer | `from`, `sell`, `for` (both `"<amount> $ASSET"`). Price `for/sell` must be exact at the `for` asset's decimals. |
 | `take` | none | `from`, `offer` (`$offer`). |
 | `deployVenue` | venue | `from`, `venue` (`onchain` or `offchain`, matching the key's). |

@@ -94,6 +94,18 @@ export function offchainVenue(o: { request: Request; chainId: number; scope: str
     }
   }
 
+  /** the remaining give of `owner`'s live orders whose give asset is `asset` (filled and cancelled read live) */
+  async function committed(owner: Address, asset: Address) {
+    const { rows, state } = await states([getAddress(owner)])
+    let n = 0n
+    for (const r of rows) {
+      const s = state.get(r.id)!, rem = r.amount - s.filled
+      if (s.cancelled || rem <= 0n || giveOf(r) !== getAddress(asset)) continue
+      n += r.side === 'sell' ? rem : quoteFor(rem, r.price, (await token(r.base)).decimals, 'up')
+    }
+    return n
+  }
+
   const toOrder = (r: Row, s: State): Order => ({
     id: r.id, venue: 'offchain', owner: r.owner, market: { base: r.base, quote: r.quote }, side: r.side, price: r.price,
     amount: r.amount, filled: s.filled, placedAt: { time: r.time },
@@ -140,9 +152,11 @@ export function offchainVenue(o: { request: Request; chainId: number; scope: str
 
       const give = s === 'buy' ? m.quote : m.base, giveT = s === 'buy' ? quote : base
       const need = s === 'buy' ? mt.fills.reduce((n, f) => n + quoteOf(f), 0n) + (rest ? quoteFor(rest, limit!, base.decimals, 'up') : 0n) : mt.filled + rest
-      const [allowance, balance] = await Promise.all([erc20(give, 'allowance', [owner, venue]), erc20(give, 'balanceOf', [owner])])
-      if (allowance < need) throw new Error(`Settlement can spend ${amountText(allowance, giveT)} of yours; this order needs ${amountText(need, giveT)}. Approve more or lower the amount.`)
-      if (balance < need) throw new Error(`You hold ${amountText(balance, giveT)}; this order needs ${amountText(need, giveT)}.`)
+      // the maker's other live orders draw on the same balance and allowance: this one must fit on top of them
+      const [allowance, balance, held] = await Promise.all([erc20(give, 'allowance', [owner, venue]), erc20(give, 'balanceOf', [owner]), committed(owner, give)])
+      const total = need + held, also = held ? `; with your other open orders, ${amountText(total, giveT)}` : ''
+      if (allowance < total) throw new Error(`Settlement can spend ${amountText(allowance, giveT)} of yours; this order needs ${amountText(need, giveT)}${also}. Approve more or lower the amount.`)
+      if (balance < total) throw new Error(`You hold ${amountText(balance, giveT)}; this order needs ${amountText(need, giveT)}${also}.`)
 
       let fills: Trade[] = [], tx: Hash | undefined
       if (mt.fills.length) {
@@ -191,6 +205,8 @@ export function offchainVenue(o: { request: Request; chainId: number; scope: str
       }
       await o.store.put('orders', key(id), { ...r, closed: { filled: await read('filled', r.id as Hex), cancelled: true } })
     },
+
+    committed,
 
     async orders(q) {
       if (!q.owner) throw new Error('Off-chain orders are listed per owner')

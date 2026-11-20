@@ -99,7 +99,9 @@ export function Trade() {
     let live = true
     const read = (t: Address, fn: 'balanceOf' | 'allowance', args: Address[]) =>
       readContract(chain, t, erc20Abi, fn, args).then(v => v as bigint, () => undefined)
-    const of = (t: Address) => Promise.all([read(t, 'balanceOf', [acting.address]), read(t, 'allowance', [acting.address, venue.address])]).then(([bal, alw]) => ({ bal, alw }))
+    const of = (t: Address) => Promise.all([
+      read(t, 'balanceOf', [acting.address]), read(t, 'allowance', [acting.address, venue.address]), venue.committed(acting.address, t).catch(() => undefined),
+    ]).then(([bal, alw, committed]) => ({ bal, alw, committed }))
     Promise.all([of(market.base), of(market.quote)]).then(([b, q]) => live && setFunds({ base: b, quote: q }))
     venue.orders({ owner: acting.address, market }).then(o => { if (live) { setOrders(o); readFailed('orders') } }, e => live && readFailed('orders', msg(e)))
     return () => { live = false }

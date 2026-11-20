@@ -28,11 +28,13 @@ test('settleCall / settlementCancelCall encode Settlement.settle / cancel', () =
 test('Review Focus 1: two 5,000 asks on 6,000 GBP show 5,000 + 1,000; a 7,000 buy fills 6,000 in one settle and rests 1,000', () => withChain(async c => {
   const { v, m, store } = venue(c)
   expect(v.kind).toBe('offchain')
-  await holdGbp(c, G(6000))
-  const before = await c.blockNumber()
+  const signedAt = await c.blockNumber()
   const a1 = await v.place(c.walletOf(other), { market: m, side: 'sell', type: 'limit', price: P('1.27'), amount: G(5000) })
   await v.place(c.walletOf(other), { market: m, side: 'sell', type: 'limit', price: P('1.28'), amount: G(5000) })
-  expect(await c.blockNumber()).toBe(before) // signing costs no gas
+  expect(await c.blockNumber()).toBe(signedAt) // signing costs no gas
+  // the balance drops after both were placed (placing checks need + committed, so it can't start short)
+  await holdGbp(c, G(6000))
+  const before = await c.blockNumber()
   expect(a1).toMatchObject({ fills: [], order: { venue: 'offchain', owner: other.address, status: 'open', amount: G(5000), filled: 0n } })
   expect(a1.order!.id).toMatch(/^0x[0-9a-f]{64}$/)
   expect((await v.book(m)).asks).toEqual([
@@ -222,4 +224,24 @@ test('a reverted cancel attempt is journaled but never listed as a failed order 
   expect((await store.scan<any>('attempts', 'owner', {})).map(a => [a.status, 'cancel' in a.input])).toEqual([['reverted', true]])
   expect((await v.orders({ owner: maker.address })).map(o => o.status)).toEqual(['cancelled'])
   expect((await v.orders({ owner: maker.address, market: m })).map(o => o.status)).toEqual(['cancelled'])
+}), T)
+
+test('committed: the remaining give of the owner\'s live orders per asset; place checks need + committed against balance and allowance', () => withChain(async c => {
+  const { v, m } = venue(c)
+  const sell = await v.place(c.walletOf(maker), { market: m, side: 'sell', type: 'limit', price: P('1.27'), amount: G(100) })
+  await v.place(c.walletOf(maker), { market: m, side: 'buy', type: 'limit', price: P('1.2001'), amount: G(10.01) })
+  expect(await v.committed(maker.address, c.gbp)).toBe(G(100))
+  expect(await v.committed(maker.address, c.usd)).toBe(U(12.013001)) // 10.01 × 1.2001 = 12.013001
+  await v.place(c.walletOf(taker), { market: m, side: 'buy', type: 'limit', price: P('1.27'), amount: G(40) })
+  expect(await v.committed(maker.address, c.gbp)).toBe(G(60)) // the remaining, read live
+  // allowance 100 GBP: 60 still committed, so a 50 GBP ask is refused before sending, naming both amounts
+  await c.call(maker, c.gbp, AssetToken.abi, 'approve', [c.settlement, G(100)])
+  const before = await c.blockNumber()
+  await expect(v.place(c.walletOf(maker), { market: m, side: 'sell', type: 'limit', price: P('1.30'), amount: G(50) }))
+    .rejects.toThrow('Settlement can spend 100.00 GBP of yours; this order needs 50.00 GBP; with your other open orders, 110.00 GBP. Approve more or lower the amount.')
+  expect(await c.blockNumber()).toBe(before)
+  await v.place(c.walletOf(maker), { market: m, side: 'sell', type: 'limit', price: P('1.30'), amount: G(40) }) // 60 + 40 fits
+  await v.cancel(c.walletOf(maker), sell.order!.id)
+  expect(await v.committed(maker.address, c.gbp)).toBe(G(40))
+  expect(await v.committed(other.address, c.gbp)).toBe(0n)
 }), T)
