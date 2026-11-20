@@ -10,3 +10,11 @@ Persistence API for the off-chain venue; one conformance suite runs against both
 - `memoryStore(schema)`: sorted arrays that clone rows on put/get/scan (like IndexedDB), for tests and benchmarks.
 - `idbStore(name, schema, idb = indexedDB)`: one IndexedDB object store per table with explicit keys (needs the global `IDBKeyRange`: native in browsers, `fake-indexeddb/auto` in tests); each index is a compound index over a stored `__ix_<name>` array field.
 - `bookSchema`: `orders` (`book`, `owner` indexes), `attempts` (`owner`), `meta` (holds the `seq` counter). `priceKey(side, price)` gives the zero-padded key so both sides scan best first ascending.
+
+## EIP-712 (off-chain orders)
+
+Typed data for `Settlement.sol` (`@evmb/contracts`). An off-chain order is a `SignedOrder` `{maker, base, quote, side, price, amount, nonce, expiry}` (`side` 0 = buy, 1 = sell, of the maker; `expiry` unix seconds); its id is its typed-data hash.
+
+- `orderTypes`, `domainOf(chainId, settlement)` (`EVMB Settlement`, version `1`).
+- `hashOrder(o, domain)`: equals the contract's `hashOrder`.
+- `signOrder(wallet, o, domain)`: signs with `wallet.signTypedData`; the taker passes the order and signature to `settle`.

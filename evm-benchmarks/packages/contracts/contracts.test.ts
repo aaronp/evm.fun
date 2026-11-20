@@ -2,7 +2,7 @@ import {expect, test} from 'bun:test'
 import {createNode} from 'webevm'
 import {createPublicClient, createWalletClient, custom, getAddress, parseEventLogs, type Address} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {AssetToken, AtomicSwap, MintableToken, OrderBook, Swap} from './index.ts'
+import {AssetToken, AtomicSwap, MintableToken, OrderBook, Settlement, Swap, type Contract} from './index.ts'
 
 const fnNames = (abi: readonly {type: string; name?: string}[]) =>
   abi.filter((x) => x.type === 'function').map((x) => x.name)
@@ -88,6 +88,7 @@ async function withSwap(
     /** simulate a call and return the decoded revert error */
     revertOf: (from: Account, functionName: string, args: unknown[]) => Promise<{errorName: string; args?: readonly unknown[]}>
   }) => Promise<void>,
+  venue: Contract = OrderBook,
 ) {
   const node = await createNode({
     chainId: 31337,
@@ -246,6 +247,7 @@ async function withBook(
     call: (from: Account, address: Address, abi: any, functionName: string, args: unknown[]) => Promise<any>
     revertOf: (from: Account, functionName: string, args: unknown[]) => Promise<{errorName: string; args?: readonly unknown[]}>
   }) => Promise<void>,
+  venue: Contract = OrderBook,
 ) {
   const node = await createNode({
     chainId: 31337,
@@ -262,7 +264,7 @@ async function withBook(
     }
     const gbp = await deploy(AssetToken, ['British Pound', 'GBP', 2, 100_000_000n, issuer.address])
     const usd = await deploy(AssetToken, ['US Dollar', 'USD', 6, 100_000_000_000n, issuer.address])
-    const book = await deploy(OrderBook, [])
+    const book = await deploy(venue, [])
     const call = async (from: Account, address: Address, abi: any, functionName: string, args: unknown[]) => {
       const h = await wallet(from).writeContract({address, abi, functionName, args, chain: null, gas: 3_000_000n} as any)
       return pub.waitForTransactionReceipt({hash: h})
@@ -274,13 +276,13 @@ async function withBook(
     for (const a of [issuer, other, third])
       for (const t of [gbp, usd]) await call(a, t, AssetToken.abi, 'approve', [book, 2n ** 255n])
     const read = (functionName: string, args: unknown[] = []) =>
-      pub.readContract({address: book, abi: OrderBook.abi, functionName, args} as any) as Promise<any>
+      pub.readContract({address: book, abi: venue.abi, functionName, args} as any) as Promise<any>
     const bal = (token: Address, who: Address) =>
       pub.readContract({address: token, abi: AssetToken.abi, functionName: 'balanceOf', args: [who]}) as Promise<bigint>
-    const place = (from: Account, args: unknown[]) => call(from, book, OrderBook.abi, 'place', args)
+    const place = (from: Account, args: unknown[]) => call(from, book, venue.abi, 'place', args)
     const revertOf = async (from: Account, functionName: string, args: unknown[]) => {
       try {
-        await pub.simulateContract({account: from, address: book, abi: [...OrderBook.abi, ...AssetToken.abi], functionName, args} as any)
+        await pub.simulateContract({account: from, address: book, abi: [...venue.abi, ...AssetToken.abi], functionName, args} as any)
       } catch (e: any) {
         const err = e.walk?.((x: any) => x?.data?.errorName)
         if (err) return err.data
@@ -553,4 +555,100 @@ test('OrderBook: a self-match trades with maker = taker and nets to zero', () =>
     ])
     expect([await bal(usd, maker.address), await bal(gbp, maker.address)]).toEqual([mU, mG])
     expect([await bal(usd, book), await bal(gbp, book)]).toEqual([0n, 0n])
+  }), 60_000)
+
+// ---- Settlement ----
+const orderTypes = {
+  Order: [
+    {name: 'maker', type: 'address'}, {name: 'base', type: 'address'}, {name: 'quote', type: 'address'},
+    {name: 'side', type: 'uint8'}, {name: 'price', type: 'uint256'}, {name: 'amount', type: 'uint256'},
+    {name: 'nonce', type: 'uint256'}, {name: 'expiry', type: 'uint256'},
+  ],
+} as const
+type SOrder = {maker: Address; base: Address; quote: Address; side: number; price: bigint; amount: bigint; nonce: bigint; expiry: bigint}
+const FAR = 2n ** 40n
+const sign = (by: Account, o: SOrder, settlement: Address) =>
+  by.signTypedData({domain: {name: 'EVMB Settlement', version: '1', chainId: 31337, verifyingContract: settlement}, types: orderTypes, primaryType: 'Order', message: o})
+const sTrades = (r: any) => parseEventLogs({abi: Settlement.abi, logs: r.logs, eventName: 'Trade'}).map((l: any) => l.args)
+const withSettlement = (fn: Parameters<typeof withBook>[0]) => withBook(fn, Settlement)
+
+test('Settlement: one maker sell, partially filled: exact balances at ceil, Trade event, filled recorded', () =>
+  withSettlement(async ({book, gbp, usd, maker, taker, read, bal, call}) => {
+    const o: SOrder = {maker: maker.address, base: gbp, quote: usd, side: Sell, price: 1_273_301n, amount: 1_000n, nonce: 1n, expiry: FAR}
+    const h = await read('hashOrder', [o])
+    const [mU, mG, tU, tG] = [await bal(usd, maker.address), await bal(gbp, maker.address), await bal(usd, taker.address), await bal(gbp, taker.address)]
+    const r = await call(taker, book, Settlement.abi, 'settle', [[o], [await sign(maker, o, book)], [333n]])
+    expect(r.status).toBe('success')
+    const q = ceilQ(333n, o.price)
+    expect(q).toBe(4_240_093n)
+    expect(sTrades(r)).toEqual([{orderHash: h, maker: maker.address, taker: taker.address, price: o.price, amount: 333n, quoteAmount: q}])
+    expect([await bal(usd, maker.address), await bal(gbp, maker.address)]).toEqual([mU + q, mG - 333n])
+    expect([await bal(usd, taker.address), await bal(gbp, taker.address)]).toEqual([tU - q, tG + 333n])
+    expect([await bal(usd, book), await bal(gbp, book)]).toEqual([0n, 0n])
+    expect(await read('filled', [h])).toBe(333n)
+  }), 60_000)
+
+test('Settlement: two maker buys (taker sells), second partial: floor per fill, filled per hash', () =>
+  withSettlement(async ({book, gbp, usd, maker, taker, third, read, bal, call}) => {
+    const a: SOrder = {maker: maker.address, base: gbp, quote: usd, side: Buy, price: 1_280_101n, amount: 333n, nonce: 1n, expiry: FAR}
+    const b: SOrder = {...a, maker: third.address, price: 1_273_301n, amount: 500n}
+    const snap = () => Promise.all([maker, third, taker].flatMap((x) => [bal(usd, x.address), bal(gbp, x.address)]))
+    const before = await snap()
+    const r = await call(taker, book, Settlement.abi, 'settle', [[a, b], [await sign(maker, a, book), await sign(third, b, book)], [333n, 111n]])
+    expect(r.status).toBe('success')
+    const q1 = floorQ(333n, a.price), q2 = floorQ(111n, b.price)
+    expect([q1, q2]).toEqual([4_262_736n, 1_413_364n])
+    expect(await snap()).toEqual([before[0]! - q1, before[1]! + 333n, before[2]! - q2, before[3]! + 111n, before[4]! + q1 + q2, before[5]! - 444n])
+    expect(sTrades(r).map((t: any) => [t.maker, t.amount, t.quoteAmount])).toEqual([[maker.address, 333n, q1], [third.address, 111n, q2]])
+    expect(await read('filled', [await read('hashOrder', [a])])).toBe(333n)
+    expect(await read('filled', [await read('hashOrder', [b])])).toBe(111n)
+  }), 60_000)
+
+test('Settlement: BadSignature, Expired, Overfill, OrderNotOpen after cancel, NotMaker, BadOrder', () =>
+  withSettlement(async ({book, gbp, usd, maker, taker, third, read, call, revertOf}) => {
+    const o: SOrder = {maker: maker.address, base: gbp, quote: usd, side: Sell, price: P('1.27'), amount: 100n, nonce: 7n, expiry: FAR}
+    const sig = await sign(maker, o, book)
+    expect(await revertOf(taker, 'settle', [[o], [await sign(third, o, book)], [10n]])).toMatchObject({errorName: 'BadSignature', args: [0n]})
+    expect(await revertOf(taker, 'settle', [[o], [sig], [10n]]).catch(() => 'ok')).toBe('ok') // sanity: valid order settles
+    const old = {...o, expiry: 1n}
+    expect(await revertOf(taker, 'settle', [[o, old], [sig, await sign(maker, old, book)], [10n, 10n]])).toMatchObject({errorName: 'Expired', args: [1n]})
+    expect(await revertOf(taker, 'settle', [[o], [sig], [101n]])).toMatchObject({errorName: 'Overfill', args: [0n, 100n]})
+    expect(await revertOf(taker, 'settle', [[o, o], [sig, sig], [60n, 60n]])).toMatchObject({errorName: 'Overfill', args: [1n, 40n]})
+    const mixed = {...o, side: Buy}
+    expect(await revertOf(taker, 'settle', [[o, mixed], [sig, await sign(maker, mixed, book)], [1n, 1n]])).toMatchObject({errorName: 'BadOrder'})
+    expect(await revertOf(taker, 'settle', [[o], [sig, sig], [1n]])).toMatchObject({errorName: 'BadOrder'})
+    expect(await revertOf(taker, 'settle', [[o], [sig], [0n]])).toMatchObject({errorName: 'BadOrder'})
+    expect(await revertOf(taker, 'cancel', [o])).toMatchObject({errorName: 'NotMaker'})
+    const h = await read('hashOrder', [o])
+    const r = await call(maker, book, Settlement.abi, 'cancel', [o])
+    expect(parseEventLogs({abi: Settlement.abi, logs: r.logs, eventName: 'OrderCancelled'}).map((l: any) => l.args)).toEqual([{orderHash: h}])
+    expect(await read('cancelled', [h])).toBe(true)
+    expect(await revertOf(taker, 'settle', [[o], [sig], [10n]])).toMatchObject({errorName: 'OrderNotOpen', args: [h]})
+    expect(await revertOf(maker, 'cancel', [o])).toMatchObject({errorName: 'OrderNotOpen', args: [h]})
+  }), 60_000)
+
+test('Settlement: a maker short of allowance or balance reverts with the ERC-20 error and moves nothing', () =>
+  withSettlement(async ({book, gbp, usd, maker, taker, third, read, bal, call, revertOf}) => {
+    const a: SOrder = {maker: third.address, base: gbp, quote: usd, side: Sell, price: P('1.27'), amount: 100n, nonce: 1n, expiry: FAR}
+    const b: SOrder = {...a, maker: maker.address}
+    const args = [[a, b], [await sign(third, a, book), await sign(maker, b, book)], [100n, 100n]]
+    await call(maker, gbp, AssetToken.abi, 'approve', [book, 99n])
+    expect(await revertOf(taker, 'settle', args)).toMatchObject({errorName: 'ERC20InsufficientAllowance', args: [book, 99n, 100n]})
+    const snap = () => Promise.all([maker, third, taker].flatMap((x) => [bal(usd, x.address), bal(gbp, x.address)]))
+    const before = await snap()
+    expect((await call(taker, book, Settlement.abi, 'settle', args)).status).toBe('reverted')
+    expect(await snap()).toEqual(before)
+    expect(await read('filled', [await read('hashOrder', [a])])).toBe(0n)
+    await call(maker, gbp, AssetToken.abi, 'approve', [book, 2n ** 255n])
+    const mG = await bal(gbp, maker.address)
+    await call(maker, gbp, AssetToken.abi, 'transfer', [taker.address, mG - 50n])
+    expect(await revertOf(taker, 'settle', args)).toMatchObject({errorName: 'ERC20InsufficientBalance', args: [maker.address, 50n, 100n]})
+  }), 60_000)
+
+test('Settlement: a self-match (taker is the maker) settles and nets to zero', () =>
+  withSettlement(async ({book, gbp, usd, maker, bal, call}) => {
+    const o: SOrder = {maker: maker.address, base: gbp, quote: usd, side: Sell, price: P('1.27'), amount: 100n, nonce: 1n, expiry: FAR}
+    const before = [await bal(usd, maker.address), await bal(gbp, maker.address)]
+    expect((await call(maker, book, Settlement.abi, 'settle', [[o], [await sign(maker, o, book)], [100n]])).status).toBe('success')
+    expect([await bal(usd, maker.address), await bal(gbp, maker.address)]).toEqual(before)
   }), 60_000)
