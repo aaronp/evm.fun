@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../ui/button'
-import { autoDelay } from '../walkthrough/auto'
+import { autoDelay, DEFAULT_AUTO, setAutoDelay } from '../walkthrough/auto'
 
 const typing = (el: Element | null) => !!el && (el.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]'))
 
@@ -10,8 +10,11 @@ const typing = (el: Element | null) => !!el && (el.matches('input, textarea, sel
 export function FuseNext({ step, busy, disabled, error, onNext, size, className = '' }: {
   step: string; busy: boolean; disabled: boolean; error?: string; onNext(): void; size?: 'sm'; className?: string
 }) {
+  const [, rerender] = useState(0)
   const total = autoDelay()
   const [paused, setPaused] = useState(false)
+  /** No `?auto`: ▶ starts it at the default delay, for the rest of the walkthrough. */
+  const play = () => { setAutoDelay(DEFAULT_AUTO); setPaused(false); rerender(n => n + 1) }
   const wrap = useRef<HTMLSpanElement>(null), left = useRef<HTMLSpanElement>(null)
   const latest = useRef(onNext)
   latest.current = onNext
@@ -48,6 +51,10 @@ export function FuseNext({ step, busy, disabled, error, onNext, size, className 
           className="rounded px-1 font-mono text-xs text-muted tabular-nums hover:text-text focus-visible:outline-2 focus-visible:outline-accent">
           {paused ? '▶ auto' : <>⏸ <span ref={left}>{`${Math.ceil(total! / 1000)}s`}</span></>}
         </button>
+      )}
+      {!total && !disabled && (
+        <button type="button" onClick={play} aria-label="Auto-advance" title={`Auto-advance: press Next every ${DEFAULT_AUTO / 1000}s`}
+          className="rounded px-1 text-xs text-muted hover:text-text focus-visible:outline-2 focus-visible:outline-accent">▶</button>
       )}
       <span ref={wrap} className="relative inline-flex" data-wz-fuse={on && !paused ? '' : undefined}>
         <Button type="button" size={size} disabled={disabled} onClick={onNext}>Next</Button>

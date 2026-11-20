@@ -1,5 +1,7 @@
 /** `?auto=5s` — press the ribbon's Next after a delay. Accepts `5s`, `3` (seconds), `1500ms`, `0.5m`; `off` or `0` turns it off. */
 const KEY = 'evmb.walkthrough.auto'
+/** The delay ▶ starts when the address has no `?auto`. */
+export const DEFAULT_AUTO = 5000
 
 /** Milliseconds, `null` for "off", `undefined` when the text isn't a delay. */
 export function parseAuto(text: string | null | undefined): number | null | undefined {

@@ -71,14 +71,22 @@ main[data-wz-focus] > :not(:has([data-wz-on])):not([data-wz-on]):not([data-wz-ri
 /* ...and the sidebar, as one block (no compounding); it brightens while pointed at or focused, so it stays usable. */
 :has(> main[data-wz-focus]) > aside:not(:hover, :focus-within) { opacity: var(--wz-dim); transition: opacity 150ms; }
 
-/* Walkthrough pulse: a solid ring on the control Next would press now, with a halo that pings outwards. */
+/* Walkthrough pulse: a bold ring on the control Next would press now, with a glow and a halo that pings outwards
+   on each beat, cycling through the accent and chart colours (tokens only). */
 @keyframes wz-pulse {
-  0% { box-shadow: 0 0 0 2px var(--c-accent), 0 0 0 2px color-mix(in srgb, var(--c-accent) 60%, transparent); }
-  70%, 100% { box-shadow: 0 0 0 2px var(--c-accent), 0 0 0 12px color-mix(in srgb, var(--c-accent) 0%, transparent); }
+  0% { box-shadow: 0 0 0 3px var(--c-accent), 0 0 0 3px color-mix(in srgb, var(--c-accent) 75%, transparent), 0 0 18px 2px color-mix(in srgb, var(--c-accent) 45%, transparent); }
+  18% { box-shadow: 0 0 0 3px var(--c-accent), 0 0 0 16px color-mix(in srgb, var(--c-accent) 0%, transparent), 0 0 18px 2px color-mix(in srgb, var(--c-accent) 25%, transparent); }
+  25% { box-shadow: 0 0 0 3px var(--c-series-2), 0 0 0 3px color-mix(in srgb, var(--c-series-2) 75%, transparent), 0 0 18px 2px color-mix(in srgb, var(--c-series-2) 45%, transparent); }
+  43% { box-shadow: 0 0 0 3px var(--c-series-2), 0 0 0 16px color-mix(in srgb, var(--c-series-2) 0%, transparent), 0 0 18px 2px color-mix(in srgb, var(--c-series-2) 25%, transparent); }
+  50% { box-shadow: 0 0 0 3px var(--c-series-3), 0 0 0 3px color-mix(in srgb, var(--c-series-3) 75%, transparent), 0 0 18px 2px color-mix(in srgb, var(--c-series-3) 45%, transparent); }
+  68% { box-shadow: 0 0 0 3px var(--c-series-3), 0 0 0 16px color-mix(in srgb, var(--c-series-3) 0%, transparent), 0 0 18px 2px color-mix(in srgb, var(--c-series-3) 25%, transparent); }
+  75% { box-shadow: 0 0 0 3px var(--c-series-4), 0 0 0 3px color-mix(in srgb, var(--c-series-4) 75%, transparent), 0 0 18px 2px color-mix(in srgb, var(--c-series-4) 45%, transparent); }
+  93% { box-shadow: 0 0 0 3px var(--c-series-4), 0 0 0 16px color-mix(in srgb, var(--c-series-4) 0%, transparent), 0 0 18px 2px color-mix(in srgb, var(--c-series-4) 25%, transparent); }
+  100% { box-shadow: 0 0 0 3px var(--c-accent), 0 0 0 3px color-mix(in srgb, var(--c-accent) 75%, transparent), 0 0 18px 2px color-mix(in srgb, var(--c-accent) 45%, transparent); }
 }
-[data-wz-pulse] { animation: wz-pulse 1.3s ease-out infinite; }
+[data-wz-pulse] { animation: wz-pulse 4.8s ease-out infinite; position: relative; z-index: 1; }
 @media (prefers-reduced-motion: reduce) {
-  [data-wz-pulse] { animation: none; box-shadow: 0 0 0 2px var(--c-accent), 0 0 0 6px color-mix(in srgb, var(--c-accent) 35%, transparent); }
+  [data-wz-pulse] { animation: none; box-shadow: 0 0 0 3px var(--c-accent), 0 0 0 7px color-mix(in srgb, var(--c-accent) 40%, transparent); }
 }
 
 /* Walkthrough auto-advance (?auto=5s): a ring around Next drains as --fuse goes 1 → 0 (set each frame), then Next is pressed.

@@ -38,10 +38,13 @@ test('FuseNext: a plain, non-submitting Next without auto; ring and countdown wi
   const plain = fuse()
   expect(plain).toContain('type="button"')
   expect(plain).not.toContain('data-wz-fuse')
+  expect(plain).toContain('aria-label="Auto-advance"') // ▶ to start it
+  expect(fuse({ disabled: true })).not.toContain('aria-label="Auto-advance"') // not at the end
   setAutoDelay(5000)
   const on = fuse()
   expect(on).toContain('data-wz-fuse')
   expect(on).toContain('5s')
+  expect(on).not.toContain('aria-label="Auto-advance"') // already running: ⏸ instead
   expect(fuse({ error: 'nope' })).not.toContain('data-wz-fuse') // stops on an error
   expect(fuse({ disabled: true })).not.toContain('data-wz-fuse') // and at the end
 })
