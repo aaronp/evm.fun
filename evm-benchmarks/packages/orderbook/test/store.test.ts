@@ -70,4 +70,39 @@ for (const [name, make] of factories) describe(name, () => {
     await s.put('attempts', 'h', { chainId: 1, venue: 'v', owner: '0xa', seq: 1 })
     expect(await s.scan('attempts', 'owner', { from: [1, 'v', '0xa'], to: [1, 'v', '0xa'] })).toHaveLength(1)
   })
+
+  test('mutating returned rows cannot corrupt the indexes', async () => {
+    const s = make()
+    await s.put('orders', 'a', order('a', 'v', 'sell', 5n, 1))
+    await s.put('orders', 'b', order('b', 'v', 'sell', 6n, 2))
+    const got: any = await s.get('orders', 'a')
+    got.priceKey = 'zzz'; got.price = 99n
+    const [sc]: any[] = await s.scan('orders', 'book', book('v', 'sell'))
+    sc.priceKey = 'zzz'; sc.seq = 77
+    await s.put('orders', 'a', order('a', 'v', 'sell', 9n, 1))
+    await s.del('orders', 'b')
+    expect(ids(await s.scan('orders', 'book', book('v', 'sell')))).toEqual(['a'])
+    expect(await s.scan('orders', 'owner', {})).toHaveLength(1)
+    expect((await s.get<any>('orders', 'a'))?.price).toBe(9n)
+  })
+
+  test('reverse + limit take the top of the range', async () => {
+    const s = make()
+    for (let i = 1; i <= 5; i++) await s.put('orders', `o${i}`, order(`o${i}`, 'v', 'sell', 10n, i))
+    const a = { from: [1, 'v', '0xa'], to: [1, 'v', '0xa'] }
+    expect(ids(await s.scan('orders', 'owner', { ...a, reverse: true, limit: 2 }))).toEqual(['o5', 'o4'])
+    expect(ids(await s.scan('orders', 'owner', { ...a, limit: 0 }))).toEqual([])
+  })
+
+  test('no __ix_ fields in returned rows', async () => {
+    const s = make()
+    await s.put('orders', 'a', order('a', 'v', 'sell', 5n, 1))
+    const rows = [await s.get<any>('orders', 'a'), ...(await s.scan<any>('orders', 'book', {}))]
+    for (const r of rows) expect(Object.keys(r).filter(k => k.startsWith('__ix_'))).toEqual([])
+  })
+
+  test('priceKey rejects out-of-range prices', () => {
+    expect(() => priceKey('sell', -1n)).toThrow()
+    expect(() => priceKey('buy', 2n ** 256n)).toThrow()
+  })
 })

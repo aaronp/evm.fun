@@ -11,8 +11,10 @@ export interface Store {
 
 const MAX = 2n ** 256n - 1n
 /** Zero-padded so string order = numeric order; bids are inverted so both sides scan best first ascending. */
-export const priceKey = (side: 'buy' | 'sell', price: bigint): string =>
-  (side === 'sell' ? price : MAX - price).toString().padStart(78, '0')
+export const priceKey = (side: 'buy' | 'sell', price: bigint): string => {
+  if (price < 0n || price > MAX) throw new Error(`Price out of range: ${price}`)
+  return (side === 'sell' ? price : MAX - price).toString().padStart(78, '0')
+}
 
 export const bookSchema: Schema = {
   orders: {
@@ -60,10 +62,10 @@ export function memoryStore(schema: Schema): Store {
     }
   }
   return {
-    async get(t, key) { return table(t).get(key) },
+    async get(t, key) { const v = table(t).get(key); return v === undefined ? v : structuredClone(v) },
     async put(t, key, value) {
       unindex(t, key)
-      table(t).set(key, value)
+      table(t).set(key, structuredClone(value)) // clone: callers can't mutate stored rows behind the indexes
       for (const [i, fn] of Object.entries(schema[t]!.indexes)) {
         const arr = entries(t, i), e = { ik: fn(value), key }
         arr.splice(lower(arr, x => cmpEntry(x, e) < 0), 0, e)
@@ -74,10 +76,10 @@ export function memoryStore(schema: Schema): Store {
       const arr = entries(t, i), m = table(t)
       const start = from ? lower(arr, e => cmpPrefix(e.ik, from) < 0) : 0
       const end = to ? lower(arr, e => cmpPrefix(e.ik, to) <= 0) : arr.length
-      let part = arr.slice(start, Math.max(start, end))
-      if (reverse) part.reverse()
-      if (limit !== undefined) part = part.slice(0, limit)
-      return part.map(e => m.get(e.key))
+      const out: any[] = []
+      for (let n = Math.max(start, end) - start, k = 0; k < n && (limit === undefined || out.length < limit); k++)
+        out.push(structuredClone(m.get(arr[reverse ? end - 1 - k : start + k]!.key)))
+      return out
     },
   }
 }
