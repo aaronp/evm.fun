@@ -304,14 +304,14 @@ The orphan prune at startup is per tab: it knows only this tab's stored and live
 
 ## R16 · Allowance discovery scans all Approval logs from block 0
 - impact: 2
-- likelihood: 3
+- likelihood: 4
 - target: 2x2
 - appetite: 4
 - category: Technology
 - driver: Claude
 - approver: Aaron
 
-The Allowances card finds (owner, spender) pairs with `eth_getLogs` for the token's `Approval` event from block 0 to latest, on every open and refresh, then re-reads each pair with `allowance()`. The cost grows with chain history and with the number of distinct pairs, so a long-lived or busy playground chain makes the card slow.
+The Allowances card finds (owner, spender) pairs with `eth_getLogs` for the token's `Approval` event from block 0 to latest, on every open and after every transaction (it re-runs on each balance tick), then re-reads each pair with `allowance()`. The cost grows with chain history and with the number of distinct pairs, so a long-lived or busy playground chain makes the card slow.
 
 ### Controls
 | Control | Type | Effectiveness |

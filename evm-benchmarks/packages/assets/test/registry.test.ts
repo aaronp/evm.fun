@@ -84,6 +84,14 @@ describe('hardening', () => {
     expect(t.id).toBe(assetId('c2', A))
     expect(await r.get(assetId('c2', A))).toEqual(t)
   })
+  test('replace keeps only known fields', async () => {
+    const r = fresh()
+    const hostile = { ...tok('c1', A), extra: 'x'.repeat(10) } as Asset
+    await r.replace('c1', [hostile])
+    const [t] = await r.list('c1')
+    expect('extra' in t).toBe(false)
+    expect(t.symbol).toBe('TKN')
+  })
   test('memoryStore clones on set, get and list', async () => {
     const s = memoryStore()
     const v = { n: { x: 1 } }

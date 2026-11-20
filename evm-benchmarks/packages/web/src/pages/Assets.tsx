@@ -32,6 +32,7 @@ export function Assets() {
   const { chain, balanceTick, bumpBalance } = useApp()
   const [params, setParams] = useSearchParams()
   const [assets, setAssets] = useState<Asset[]>([])
+  const [listErr, setListErr] = useState<string>()
   const [supply, setSupply] = useState<bigint>()
   const [bals, setBals] = useState<Map<Address, bigint>>()
   const [sender, setSender] = useState<Account>()
@@ -56,6 +57,7 @@ export function Assets() {
   useEffect(() => {
     if (prevId.current !== chainId) setAssets([]) // never act on the previous chain's tokens while the new list loads
     prevId.current = chainId
+    setListErr(undefined)
     if (!chain || !chainId) return
     let live = true
     ;(async () => {
@@ -65,7 +67,7 @@ export function Assets() {
       }
       const list = await assetRegistry.list(chainId)
       if (live) setAssets(list)
-    })().catch(() => {})
+    })().catch(e => live && setListErr(e instanceof Error ? e.message : String(e)))
     return () => { live = false }
   }, [chain, chainId])
 
@@ -78,8 +80,8 @@ export function Assets() {
   useEffect(() => {
     if (!chain || !cur) return
     let live = true
-    totalSupply(chain.request, cur).then(v => live && setSupply(v), () => {})
-    readBalances(chain.request, cur, people.map(p => p.address)).then(v => live && setBals(v), () => {})
+    totalSupply(chain.request, cur).then(v => live && setSupply(v), () => live && setSupply(undefined))
+    readBalances(chain.request, cur, people.map(p => p.address)).then(v => live && setBals(v), () => live && setBals(undefined))
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chain, cur?.id, addrKey, balanceTick])
@@ -94,7 +96,7 @@ export function Assets() {
   const barShares = useMemo(() => shares(people.map(p => bals?.get(p.address) ?? 0n)), [bals, addrKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!chain) return <p className="text-sm text-muted">Select a chain first.</p>
-  if (!cur) return null
+  if (!cur) return listErr ? <p role="alert" className="text-sm text-danger">Couldn’t load assets: {listErr}</p> : null
 
   const dp = cur.kind === 'native' ? NATIVE_DP : undefined
   const native = cur.kind === 'native'
@@ -153,7 +155,7 @@ export function Assets() {
           })}
         </section>
 
-        {!native && <AllowancesCard chain={chain} asset={cur} people={people} tick={balanceTick} onSent={bumpBalance} />}
+        {!native && <AllowancesCard key={cur.id} chain={chain} asset={cur} people={people} tick={balanceTick} onSent={bumpBalance} />}
 
         {native && (
           <section className="flex gap-3 rounded-2xl border border-dashed border-input-line bg-surface px-[22px] py-5 text-[13px] leading-[1.55] text-text-2">

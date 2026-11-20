@@ -169,7 +169,7 @@ As in earlier steps:
 - **Ephemeral (benchmark) chains** get no asset writes, as with `recordHeight`.
 - **Reconcile** runs once per chain per page mount. The issuer comes from the contract record's `deployer`.
 - **Signers:** "your accounts" means the global `accounts.list()`.
-- **Amounts:** Send and Approve take decimal units, parsed with viem `parseUnits` against the token's decimals, with an inline error if invalid.
+- **Amounts:** Send and Approve take decimal units, parsed by a custom `parseAmount` (not viem `parseUnits`; see the ADR) against the token's decimals, with an inline error if invalid. Decimals 0 to 255 are accepted.
 - **"Other address…"** works as a spender: a checksum-validated address input.
 - **Test dependency:** `@evmb/assets` has webevm as a **devDependency** only, for tests against a real node.
 - **`isErc20Abi`** is the package's 7-function check. Transact's own `isErc20` (Erc20Card.tsx) is left alone.

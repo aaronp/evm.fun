@@ -28,6 +28,7 @@ export function AllowancesCard({ chain, asset, people, tick, onSent }: {
   const [err, setErr] = useState<string>() // amount-field validation / approve failure
   const [revokeErr, setRevokeErr] = useState<string>()
   const [flash, setFlash] = useState<string>()
+  const [revokeFlash, setRevokeFlash] = useState<string>()
   const who = (a: string) => people.find(p => p.address.toLowerCase() === a.toLowerCase())?.label ?? shortAddress(a)
   const spenderAddr = spender === OTHER ? other.trim() : spender
   const ownerAcc = people.find(p => p.address === owner)
@@ -35,7 +36,7 @@ export function AllowancesCard({ chain, asset, people, tick, onSent }: {
   useEffect(() => { setRows(undefined); setReadErr(undefined) }, [chain, asset.id])
   useEffect(() => {
     let live = true
-    readAllowances(chain.request, asset).then(r => live && (setRows(r), setReadErr(undefined)), e => live && setReadErr(e instanceof Error ? e.message : String(e)))
+    readAllowances(chain.request, asset).then(r => live && (setRows(r), setReadErr(undefined)), e => live && (setRows(undefined), setReadErr(e instanceof Error ? e.message : String(e))))
     return () => { live = false }
   }, [chain, asset, tick])
 
@@ -47,12 +48,12 @@ export function AllowancesCard({ chain, asset, people, tick, onSent }: {
     return () => { live = false }
   }, [chain, asset, owner, spenderAddr, tick])
 
-  async function send(acc: Account, to: Address, value: bigint, done: string, fail: (m: string) => void) {
-    setBusy(true); setErr(undefined); setRevokeErr(undefined); setFlash(undefined)
+  async function send(verb: 'Approve' | 'Revoke', acc: Account, to: Address, value: bigint, done: string, ok: (m: string) => void, fail: (m: string) => void) {
+    setBusy(true); setErr(undefined); setRevokeErr(undefined); setFlash(undefined); setRevokeFlash(undefined)
     try {
       const r = await signAndSend(chain, acc, approveCall(asset, to, value), onSent)
-      if (r.status !== 'success') throw new Error(`Approve ${r.status}${r.error ? `: ${r.error}` : ''}`)
-      setFlash(done)
+      if (r.status !== 'success') throw new Error(`${verb} ${r.status}${r.error ? `: ${r.error}` : ''}`)
+      ok(done)
       return true
     } catch (e) {
       fail(e instanceof Error ? e.message : String(e))
@@ -72,7 +73,7 @@ export function AllowancesCard({ chain, asset, people, tick, onSent }: {
       if (p.ok === 0n) return setErr('Amount must be more than 0 (use Revoke to remove an allowance).')
       value = p.ok
     }
-    if (await send(ownerAcc, spenderAddr, value, `Approved — approve(${who(spenderAddr)}, ${allowanceLabel(value, asset.decimals, asset.symbol)}) sent by ${ownerAcc.label}.`, setErr)) setAmount('')
+    if (await send('Approve', ownerAcc, spenderAddr, value, `Approved — approve(${who(spenderAddr)}, ${allowanceLabel(value, asset.decimals, asset.symbol)}) sent by ${ownerAcc.label}.`, setFlash, setErr)) setAmount('')
   }
 
   return (
@@ -95,12 +96,13 @@ export function AllowancesCard({ chain, asset, people, tick, onSent }: {
                 <span className="text-right font-mono">{allowanceLabel(r.amount, asset.decimals, asset.symbol)}</span>
                 <span title={acc ? undefined : 'The owner is not one of your accounts, so it cannot sign the revoke.'} className="inline-flex justify-end">
                 <Button variant="danger-outline" size="chip" disabled={!acc || busy} aria-label={`Revoke ${who(r.spender)} as spender for ${who(r.owner)}`}
-                  onClick={() => acc && send(acc, r.spender, 0n, `Revoked — approve(${who(r.spender)}, 0) sent by ${acc.label}.`, setRevokeErr)}>Revoke</Button>
+                  onClick={() => acc && send('Revoke', acc, r.spender, 0n, `Revoked — approve(${who(r.spender)}, 0) sent by ${acc.label}.`, setRevokeFlash, setRevokeErr)}>Revoke</Button>
                 </span>
               </div>
             )
           })}
           {readErr && <div role="alert" className="border-t border-line p-[22px] text-[13px] text-danger">Couldn’t read allowances: {readErr}</div>}
+          {revokeFlash && <div role="status" className="border-t border-line px-[22px] py-3 text-xs text-success-text">{revokeFlash}</div>}
           {revokeErr && <div role="alert" className="border-t border-line px-[22px] py-3 text-xs text-danger">{revokeErr}</div>}
           {!readErr && rows?.length === 0 && <div className="border-t border-line p-[22px] text-[13px] text-muted">No allowances on {asset.symbol} yet.</div>}
         </div>

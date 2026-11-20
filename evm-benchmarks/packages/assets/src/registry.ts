@@ -13,6 +13,12 @@ export const nativeAsset = (chainId: string): Asset => ({
 export const rebase = (a: Asset, newChainId: string): Asset =>
   ({ ...a, chainId: newChainId, id: assetId(newChainId, a.address) })
 
+/** Untrusted files: keep only the known fields. */
+const pick = (a: Asset): Asset => ({
+  id: a.id, chainId: a.chainId, kind: a.kind, address: a.address, symbol: a.symbol, name: a.name,
+  decimals: a.decimals, origin: a.origin, issuer: a.issuer, mintable: a.mintable, addedAt: a.addedAt,
+})
+
 const ns = (chainId: string) => `assets:${chainId}`
 const key = (address: string) => address.toLowerCase()
 const split = (id: AssetId): [string, string] => {
@@ -46,7 +52,7 @@ export function createAssetRegistry(store: KeyValueStore) {
     },
     /** Make the chain's stored tokens exactly `assets` (native ignored). Writes first, then prunes. */
     async replace(chainId: string, assets: Asset[]) {
-      const keep = assets.filter(isStored).map(a => rebase(a, chainId) as Asset & { address: Address })
+      const keep = assets.filter(isStored).map(a => pick(rebase(a, chainId)) as Asset & { address: Address })
       for (const a of keep) await store.set(ns(chainId), key(a.address), a)
       const ids = new Set(keep.map(a => key(a.address)))
       for (const a of await stored(chainId)) if (!ids.has(key(a.address!))) await store.del(ns(chainId), key(a.address!))

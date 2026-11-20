@@ -632,7 +632,7 @@ A. Store only identity and metadata (symbol, name, decimals, origin, issuer, min
 
 - **Identity.** `AssetId` is `<chainId>:native` or `<chainId>:<lowercase address>`, where `chainId` is the playground `ChainInfo.id` (a UUID), not the EVM chain id 31337, which every chain shares. Fork and import call `rebase` so the new chain's assets carry the new id in both `id` and `chainId`; the parent's list is unchanged. Native is never stored.
 - **Allowance discovery.** Approval logs from block 0 give the (owner, spender) pairs; each pair is re-read with `allowance()`, because OpenZeppelin 5 `transferFrom` emits no `Approval` when it spends, so the last log would show a stale amount. Zero allowances are dropped.
-- **Amounts.** A custom `parseAmount` replaces viem `parseUnits`: `parseUnits` rounds extra decimals instead of refusing them, and `parseAmount` also accepts `.5`. It refuses extra fractional digits, negatives and non-numbers inline before signing.
+- **Amounts.** A custom `parseAmount` replaces viem `parseUnits`: `parseUnits` rounds extra decimals instead of refusing them and accepts negatives. `parseAmount` refuses extra fractional digits, negatives and non-numbers inline before signing.
 - **Imported tokens** also get a contract record, with `txHash` zeroHash and deployer `owner()` or zeroAddress (ruling R1: the real deploy tx is unknown), written only if no record exists for that address, so a real deployment record is never overwritten.
 - **Decimals** 0 to 255 are accepted (uint8).
 
