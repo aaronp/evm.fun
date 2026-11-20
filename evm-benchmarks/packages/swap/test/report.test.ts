@@ -167,6 +167,9 @@ test('same block (approach 02, manual mining): the second take reports filled by
     expect(r).toMatchObject({ outcome: 'reverted', reason: 'filled', txIndex: 1 })
     expect(r.winner).toEqual({ taker: other.address, block: b1, tx: keccak256(first), sameBlock: true })
     expect(r.steps[1]!.evidence).toBe(`earlier in block ${b1}`)
+    // the winner is the offer's own stored taker and block, not a log reconstruction
+    expect(r.winner!.taker).toBe(r.offer.taker)
+    expect(r.winner!.block).toBe(r.offer.filledBlock!)
   } finally {
     await a.dispose()
   }

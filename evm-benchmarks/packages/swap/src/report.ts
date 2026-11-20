@@ -138,14 +138,16 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
   let since: string | undefined // the latest replay hit OfferNotOpen: the status changed after this tx
   const [taken, cancelled] = (['OfferTaken', 'OfferCancelled'] as const).map(eventName => encodeEventTopics({ abi: swapAbi, eventName })[0]!)
   const status = (await request('eth_getLogs', [{
-    address: swap, fromBlock: '0x0', toBlock: toHex(at.block), topics: [[taken, cancelled], toHex(id, { size: 32 })],
+    // filled: the offer stores its block, so one block is enough; cancelled keeps no block, so scan up to this tx
+    address: swap, topics: [[taken, cancelled], toHex(id, { size: 32 })],
+    ...(offer.filledBlock !== undefined ? { fromBlock: toHex(offer.filledBlock), toBlock: toHex(offer.filledBlock) } : { fromBlock: '0x0', toBlock: toHex(at.block) }),
   }])) as RpcLog[]
   const prior = status.find(l => precedes(logAt(l), at))
   if (prior) {
     const wasTaken = prior.topics[0] === taken
     error = { name: 'OfferNotOpen', args: { id, status: wasTaken ? 2 : 3 } }
     winner = {
-      ...(wasTaken && { taker: offer.taker ?? getAddress(`0x${prior.topics[2]!.slice(26)}`) }),
+      ...(wasTaken && { taker: offer.taker }),
       block: BigInt(prior.blockNumber), tx: prior.transactionHash, sameBlock: BigInt(prior.blockNumber) === at.block,
     }
   } else {
