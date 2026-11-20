@@ -27,6 +27,9 @@ export function rowOf(o: Offer, base: Asset, quote: Asset): BookRow | undefined 
 /** Who took a filled offer, from the offer itself (stored by the contract), named by `name`. */
 export const takenBy = (o: Offer, name: (a: string) => string) => (t => t && name(t))(takerOf(o))
 
+/** A typed price as the book reads it: '.5' → '0.5', '2.' → '2'. */
+const normPrice = (p: string) => p.trim().replace(/^\./, '0.').replace(/\.$/, '')
+
 type Leg = { asset: Asset; amount: bigint }
 const POSITIVE = 'Amount and price must be positive numbers.'
 
@@ -34,6 +37,7 @@ const POSITIVE = 'Amount and price must be positive numbers.'
 export function formQuote(side: Side, amount: string, price: string, base: Asset, quote: Asset): { give: Leg; get: Leg } | { error: string } {
   const text = amount.replace(/,/g, '').trim()
   if (!text || !price.trim()) return { error: 'Enter both an amount and a price.' }
+  price = normPrice(price)
   const positive = (t: string) => /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(t) && /[1-9]/.test(t)
   if (!positive(text) || !positive(price.trim())) return { error: POSITIVE }
   if ((text.split('.')[1] ?? '').length > base.decimals) return { error: `${base.symbol} has ${base.decimals} decimals — use at most ${base.decimals} after the point.` }
@@ -48,7 +52,7 @@ export function formQuote(side: Side, amount: string, price: string, base: Asset
 
 /** The advisory note when a new offer at `price` would cross the book's best opposite offer. */
 export function crosses(side: Side, price: string, b: Book): string | undefined {
-  const m = /^(\d+)(?:\.(\d{1,18}))?$/.exec(price.trim())
+  const m = /^(\d+)(?:\.(\d{1,18}))?$/.exec(normPrice(price))
   const best = side === 'ask' ? b.bestBid : b.bestAsk
   if (!m || !best) return
   const frac = m[2] ?? ''
@@ -64,7 +68,7 @@ const reasonText = (r: Reason, paySymbol = 'token') => (r === 'allowance' || r =
 
 /** The Swap page's flash after a take; the reason comes from the take's report. */
 export const takeFlash = (id: bigint, status: 'success' | 'reverted', reason?: Reason, paySymbol?: string) =>
-  status === 'success' ? `Offer #${id} settled in one transaction.` : `Take #${id} reverted${reason ? ` — ${reasonText(reason, paySymbol)}` : ''}.`
+  status === 'success' ? `Offer #${id} settled in one transaction.` : `Take #${id} reverted${reason && reason !== 'other' ? ` — ${reasonText(reason, paySymbol)}` : ''}.`
 
 /** One Activity line, as in the mockup. */
 export function activityText(i: ActivityItem, l: { name(a: string): string; offer(id: bigint): Offer | undefined; base: Asset; quote: Asset }): string {
@@ -128,16 +132,23 @@ export function reportLabels(r: TakeReport, accounts: { label: string; address: 
 /** The "Download JSON" content: the report plus the labels the page used, bigints as decimal strings. */
 export const reportJson = (r: TakeReport, labels: Record<string, string>) => JSON.stringify({ ...r, labels }, bigints, 2)
 
-/** Fills a report's placeholders: labels, the chain's token symbols, amounts at 2 dp, price at 4 dp. */
-export function reportFmt(labels: Record<string, string>, tokens: { address?: string; symbol: string; decimals: number }[]): Fmt {
+/** Fills a report's placeholders: labels, the chain's token symbols, amounts at 2 dp, price at 4 dp in quote per base
+ * of `pair` (without a pair, or for another pair, get per give). */
+export function reportFmt(labels: Record<string, string>, tokens: { address?: string; symbol: string; decimals: number }[], pair?: { base: string }): Fmt {
   const t = (a: Address) => tokens.find(x => same(x.address, a))
+  const sym = (a: Address) => t(a)?.symbol ?? shortAddress(a)
+  // [base, quote] of an offer giving `give` for `get`: the pair's base when it's one of them, else give is the base
+  const orient = <T>(give: T, get: T, getToken: Address): [T, T] => (same(getToken, pair?.base) ? [get, give] : [give, get])
   return {
     name: a => labels[a] ?? Object.entries(labels).find(([k]) => same(k, a))?.[1] ?? shortAddress(a),
-    symbol: a => t(a)?.symbol ?? shortAddress(a),
+    symbol: sym,
     amount: (v, a) => { const x = t(a); return x ? `${amountText(v, x.decimals)} ${x.symbol}` : `${v} ${shortAddress(a)}` },
+    number: (v, a) => { const x = t(a); return x ? amountText(v, x.decimals) : String(v) },
     price: (g, gAmt, q, qAmt) => {
-      const [x, y] = [t(g), t(q)]
-      return x && y ? priceText({ num: qAmt * 10n ** BigInt(x.decimals), den: gAmt * 10n ** BigInt(y.decimals) }) : '—'
+      const [[b, bAmt], [qt, qtAmt]] = orient([g, gAmt] as const, [q, qAmt] as const, q)
+      const [x, y] = [t(b), t(qt)]
+      return x && y ? priceText({ num: qtAmt * 10n ** BigInt(x.decimals), den: bAmt * 10n ** BigInt(y.decimals) }) : '—'
     },
+    unit: (g, q) => { const [b, qt] = orient(g, q, q); return `${sym(qt)} per ${sym(b)}` },
   }
 }

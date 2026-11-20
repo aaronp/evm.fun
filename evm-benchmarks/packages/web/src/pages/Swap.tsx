@@ -42,7 +42,9 @@ export function Swap() {
   const [deploying, setDeploying] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
-  const [flash, setFlash] = useState<{ text: string; tone: 'success' | 'danger'; tx?: Hex }>()
+  // the chain it belongs to: a tx that lands after a chain switch must not flash on the new chain
+  const [flash, setFlashOn] = useState<{ text: string; tone: 'success' | 'danger'; tx?: Hex; chainId?: string }>()
+  const setFlash = (f?: { text: string; tone: 'success' | 'danger'; tx?: Hex }) => setFlashOn(f && { ...f, chainId: chain?.info.id })
   const reconciled = useRef(new Set<string>())
   const chainId = chain?.info.id
 
@@ -109,8 +111,9 @@ export function Swap() {
       : undefined,
   })
 
+  const working = busy || deploying // no chain or pair switch while a tx is in flight
   const picker = (
-    <Select aria-label="Chain" className="w-full" value={chainId ?? ''} onChange={e => { setParams({}, { replace: true }); void selectChain(e.target.value || undefined) }}>
+    <Select aria-label="Chain" className="w-full" disabled={working} value={chainId ?? ''} onChange={e => { setParams({}, { replace: true }); void selectChain(e.target.value || undefined) }}>
       <option value="">Select a chain</option>
       {chains.map(c => <option key={c.id} value={c.id}>{c.name}{c.ephemeral ? ' (benchmark)' : ''}</option>)}
     </Select>
@@ -172,6 +175,7 @@ export function Swap() {
   const isMine = (maker: string) => same(maker, acting?.address)
   const mine = acting && offers?.filter(o => isMine(o.maker)).map(inPair).filter((r): r is BookRow => !!r).reverse()
   const pairItems = offers && items?.filter(i => i.kind === 'approved' || inPair(offerOf(i.id))) // approvals are already pair-filtered
+  const pairQuery = base && quote ? `&base=${base.address}&quote=${quote.address}` : '' // reports open in this pair
   const amt = (v: bigint | undefined, a?: Asset) => (v === undefined || !a ? undefined : amountText(v, a.decimals))
 
   const row = (o: BookRow) => {
@@ -194,12 +198,12 @@ export function Swap() {
         <div className="w-[260px] max-w-full">{picker}</div>
         {pair.tokens.length >= 2 && (
           <div className="flex items-center gap-2">
-            <Select aria-label="Base" value={base?.address ?? ''} onChange={e => setPair(e.target.value, quote?.address ?? '')}>
+            <Select aria-label="Base" disabled={working} value={base?.address ?? ''} onChange={e => setPair(e.target.value, quote?.address ?? '')}>
               {pair.tokens.map(t => <option key={t.id} value={t.address} disabled={t.address === quote?.address}>{t.symbol}</option>)}
             </Select>
-            <Button variant="outline" size="field" aria-label="Swap base and quote" title="Swap base and quote" disabled={!base || !quote}
+            <Button variant="outline" size="field" aria-label="Swap base and quote" title="Swap base and quote" disabled={working || !base || !quote}
               onClick={() => base && quote && setPair(quote.address!, base.address!)}>⇄</Button>
-            <Select aria-label="Quote" value={quote?.address ?? ''} onChange={e => setPair(base?.address ?? '', e.target.value)}>
+            <Select aria-label="Quote" disabled={working} value={quote?.address ?? ''} onChange={e => setPair(base?.address ?? '', e.target.value)}>
               {pair.tokens.map(t => <option key={t.id} value={t.address} disabled={t.address === base?.address}>{t.symbol}</option>)}
             </Select>
           </div>
@@ -227,7 +231,7 @@ export function Swap() {
           <div className={stat}><span className={statLabel}>{acting?.label ?? 'No account'} · Swap may spend</span>{two(base && allow(wallet.allowBase, base), quote && allow(wallet.allowQuote, quote))}</div>
         </div>
 
-        {flash && <Notice tone={flash.tone} action={flash.tx && <Link to={`/swap/report?tx=${flash.tx}`} className="ml-auto font-semibold">View report →</Link>}>{flash.text}</Notice>}
+        {flash && flash.chainId === chainId && <Notice tone={flash.tone} action={flash.tx && <Link to={`/swap/report?tx=${flash.tx}${pairQuery}`} className="ml-auto font-semibold">View report →</Link>}>{flash.text}</Notice>}
 
         <div className="flex flex-wrap items-stretch gap-4">
           <section aria-labelledby="bk-h" className={`${card} flex max-w-[420px] flex-[1_1_340px] flex-col overflow-hidden`}>
@@ -259,7 +263,7 @@ export function Swap() {
           {base && quote && <>
             <MyOffers who={acting?.label ?? 'No account'} rows={mine} base={base} busy={busy}
               name={name} onCancel={r => cancel(r.id)} />
-            <Activity items={pairItems} text={i => activityText(i, { name, offer: offerOf, base, quote })} />
+            <Activity items={pairItems} pairQuery={pairQuery} text={i => activityText(i, { name, offer: offerOf, base, quote })} />
           </>}
         </div>
       </div>

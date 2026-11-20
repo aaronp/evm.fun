@@ -58,6 +58,10 @@ test('formQuote: GBP 2dp base, USD 6dp quote, amounts exact and half-up; errors 
   expect(exactText(308_641_972_530_864_195n, 18)).toBe('0.308641972530864195')
   for (const [amt, price] of [['0', '1.27'], ['-1', '1.27'], ['1', '0'], ['1', 'x'], ['0.00', '1']])
     expect(formQuote('ask', amt!, price!, GBP, USD)).toEqual({ error: 'Amount and price must be positive numbers.' })
+  // a leading or trailing point in the price is normalised, not refused
+  expect(formQuote('ask', '1', '.5', GBP, USD)).toMatchObject({ get: { amount: 500_000n } })
+  expect(formQuote('ask', '1', '1.', GBP, USD)).toMatchObject({ get: { amount: 1_000_000n } })
+  expect(formQuote('ask', '1', '.', GBP, USD)).toEqual({ error: 'Amount and price must be positive numbers.' })
   expect(exactText(1_271_234_000n, 6)).toBe('1,271.234')
   expect(exactText(1_271_000_000n, 6)).toBe('1,271.00')
   expect(exactText(100_050n, 2)).toBe('1,000.50')
@@ -69,6 +73,7 @@ test('takeFlash: settled, or reverted with the reason', () => {
   expect(takeFlash(5n, 'reverted', 'allowance', 'USD')).toBe('Take #5 reverted — USD allowance too low.')
   expect(takeFlash(5n, 'reverted', 'filled', 'USD')).toBe('Take #5 reverted — already taken.')
   expect(takeFlash(5n, 'reverted')).toBe('Take #5 reverted.')
+  expect(takeFlash(5n, 'reverted', 'other', 'USD')).toBe('Take #5 reverted.') // no "— reverted" tail
 })
 
 test('crosses: selling at or below the best bid, buying at or above the best ask; exact at equality', () => {
@@ -83,6 +88,9 @@ test('crosses: selling at or below the best bid, buying at or above the best ask
   expect(crosses('bid', '2', b)).toBe(selling)
   expect(crosses('bid', 'x', b)).toBeUndefined()
   expect(crosses('ask', '1', book([], GBP as any, USD as any))).toBeUndefined()
+  // '.5' and '2.' are read as 0.5 and 2
+  expect(crosses('ask', '.5', b)).toBe(buying)
+  expect(crosses('bid', '2.', b)).toBe(selling)
 })
 
 test('rowOf: an offer of any status seen in the pair, undefined outside it', () => {
@@ -114,16 +122,16 @@ test('activityText: one line per kind, as in the mockup', () => {
 })
 
 test('takenBy names the taker stored on the filled offer, nothing otherwise', () => {
-  const o: Offer = { id: 1n, maker: a(7), giveToken: GBP.address as Address, giveAmt: 100n, getToken: USD.address as Address, getAmt: 127_000n, status: 'filled', taker: a(8), filledBlock: 5n }
+  const o: Offer = { id: 1n, maker: a(7), giveToken: GBP.address as Address, giveAmt: 100n, getToken: USD.address as Address, getAmt: 127_000n, status: 'filled', taker: a(8), closedBlock: 5n }
   const name = (x: string) => (x === a(8) ? 'tester' : x)
   expect(takenBy(o, name)).toBe('tester')
   expect(takenBy(rowOf(o, GBP, USD)!, name)).toBe('tester')
-  expect(takenBy({ ...o, status: 'open', taker: undefined, filledBlock: undefined }, name)).toBeUndefined()
+  expect(takenBy({ ...o, status: 'open', taker: undefined, closedBlock: undefined }, name)).toBeUndefined()
 })
 
 const report = (over: Partial<TakeReport> = {}) => ({
   outcome: 'taken', tx: `0x${'ab'.repeat(32)}`, block: 7n, txIndex: 0, gasUsed: 91_234n, swap: a(5), taker: a(8),
-  offer: { ...offer(4, GBP, 50_000n, USD, 635_000_000n, 'filled'), taker: a(8), filledBlock: 7n },
+  offer: { ...offer(4, GBP, 50_000n, USD, 635_000_000n, 'filled'), taker: a(8), closedBlock: 7n },
   title: 'Offer #4 taken', pill: 'Settled · 1 transaction', summary: `{name:${a(8)}} paid {amount:${a(2)}:635000000}, {name:${a(6)}} watched`,
   kpis: [], steps: [], balanceChanges: [{ holder: a(5), token: a(1), delta: -50_000n }, { holder: a(8), token: a(2), delta: -635_000_000n }],
   balanceNote: '', logs: [], ...over,
@@ -138,7 +146,7 @@ test('reportJson: the report plus labels, bigints as decimal strings, round-trip
   const labels = { [a(8)]: 'tester' }
   const j = JSON.parse(reportJson(report(), labels))
   expect(j.labels).toEqual(labels)
-  expect([j.block, j.gasUsed, j.offer.id, j.offer.giveAmt, j.offer.filledBlock, j.balanceChanges[1].delta]).toEqual(['7', '91234', '4', '50000', '7', '-635000000'])
+  expect([j.block, j.gasUsed, j.offer.id, j.offer.giveAmt, j.offer.closedBlock, j.balanceChanges[1].delta]).toEqual(['7', '91234', '4', '50000', '7', '-635000000'])
   expect(j.summary).toBe(report().summary)
   expect(JSON.parse(JSON.stringify(j))).toEqual(j)
 })
@@ -150,4 +158,15 @@ test('reportFmt fills names, symbols, 2 dp amounts and the 4 dp price per the mo
   expect([f.symbol(a(2)), f.amount(635_000_000n, a(2)), f.amount(50_000n, a(1))]).toEqual(['USD', '635.00 USD', '500.00 GBP'])
   expect(f.price(a(1), 50_000n, a(2), 635_000_000n)).toBe('1.2700')
   expect(f.amount(5n, a(3))).toBe('5 0x0000…0003') // unknown token: raw units and its address
+  expect(f.number(635_000_000n, a(2))).toBe('635.00')
+})
+
+test('reportFmt orients the price by the pair: quote per base for asks and bids', () => {
+  const f = reportFmt({}, [GBP, USD], { base: a(1) })
+  // ask: gives 500 GBP, gets 635 USD
+  expect([f.price(a(1), 50_000n, a(2), 635_000_000n), f.unit(a(1), a(2))]).toEqual(['1.2700', 'USD per GBP'])
+  // bid: gives 1,270 USD, gets 1,000 GBP
+  expect([f.price(a(2), 1_270_000_000n, a(1), 100_000n), f.unit(a(2), a(1))]).toEqual(['1.2700', 'USD per GBP'])
+  // no pair: get per give
+  expect(reportFmt({}, [GBP, USD]).unit(a(2), a(1))).toBe('GBP per USD')
 })

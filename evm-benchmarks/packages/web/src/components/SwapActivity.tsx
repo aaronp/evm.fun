@@ -33,15 +33,15 @@ export function MyOffers({ who, rows, base, name, busy, onCancel }: {
 }
 
 /** Swap activity in this pair, newest first; "Report" on takes (success or revert). */
-export function Activity({ items, text }: { items?: ActivityItem[]; text(i: ActivityItem): string }) {
+export function Activity({ items, pairQuery = '', text }: { items?: ActivityItem[]; /** `&base=…&quote=…` for Report links */ pairQuery?: string; text(i: ActivityItem): string }) {
   return (
     <section aria-labelledby="ac-h" className={`${card} flex-[1_1_420px] overflow-hidden`}>
       <div className={head}><h2 id="ac-h" className="text-sm font-semibold">Activity</h2></div>
       {items?.map(i => (
         <div key={`${i.tx}:${i.kind}:${i.id ?? i.token}`} className="flex items-center gap-3 border-t border-line px-[18px] py-2.5 text-[13px]">
-          <Badge variant={pill[i.kind]} className="w-[76px] flex-none justify-center">{i.kind}</Badge>
+          <Badge variant={pill[i.kind]} className="w-[76px] flex-none justify-center text-[11px]!">{i.kind}</Badge>
           <span className="min-w-0 flex-1">{text(i)}</span>
-          {(i.kind === 'taken' || i.kind === 'reverted') && <Link to={`/swap/report?tx=${i.tx}`} className="font-medium text-accent hover:text-accent-hover">Report</Link>}
+          {(i.kind === 'taken' || i.kind === 'reverted') && <Link to={`/swap/report?tx=${i.tx}${pairQuery}`} className="font-medium text-accent hover:text-accent-hover">Report</Link>}
         </div>
       ))}
     </section>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { Address, Hash } from 'viem'
-import type { Asset } from '@evmb/assets'
+import type { Asset, Request } from '@evmb/assets'
 import { fillText, takeReport, type ReportStep, type TakeReport } from '@evmb/swap'
 import { useApp } from '../state'
 import { useAppBar } from '../state/appBar'
@@ -15,14 +15,25 @@ import { DownloadIcon } from '../ui/icons'
 
 type Token = Pick<Asset, 'address' | 'symbol' | 'decimals'>
 type People = { label: string; address: string }[]
+/** The pair the report was opened from (`base`/`quote` in its link), when known. */
+type Hint = { base?: string | null; quote?: string | null }
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-/** The offer's two tokens in the chain's asset order (the Swap page's default pair), and the link back to that pair. */
-function pairOf(r: TakeReport, tokens: Token[]) {
+/** The offer's base and quote: the linked pair when it is the offer's, else the chain's asset order (the Swap page's
+ * default pair); and the link back to that pair. */
+function pairOf(r: TakeReport, tokens: Token[], hint: Hint = {}) {
+  const { giveToken: g, getToken: q } = r.offer
   const at = (a: Address) => { const i = tokens.findIndex(t => same(t.address, a)); return i < 0 ? Infinity : i }
-  const [base, quote] = at(r.offer.getToken) < at(r.offer.giveToken) ? [r.offer.getToken, r.offer.giveToken] : [r.offer.giveToken, r.offer.getToken]
+  const [base, quote] = same(hint.base, q) && same(hint.quote, g) ? [q, g]
+    : same(hint.base, g) && same(hint.quote, q) ? [g, q]
+    : at(q) < at(g) ? [q, g] : [g, q]
   return { base, quote, href: `/swap?base=${base}&quote=${quote}` }
 }
+
+/** The report and the chain's assets, or the error to show. */
+export const loadReport = (request: Request, chainId: string, tx: string): Promise<{ report: TakeReport; assets: Asset[] } | { error: string }> =>
+  Promise.all([takeReport(request, tx as Hash), assetRegistry.list(chainId)])
+    .then(([report, assets]) => ({ report, assets }), e => ({ error: msg(e) }))
 
 const MARK = { ok: '✓', fail: '✕', undo: '↺', skip: '–' }
 const DOT = {
@@ -35,12 +46,13 @@ const h2 = 'text-[15px] font-semibold'
 const big = 'flex min-h-11 items-center justify-center rounded-[10px] text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent'
 
 /** The report itself, success or failure layout, as in the mockup; everything comes from `report`. */
-export function ReportView({ report: r, people, assets }: { report: TakeReport; people: People; assets: Token[] }) {
+export function ReportView({ report: r, people, assets, hint }: { report: TakeReport; people: People; assets: Token[]; hint?: Hint }) {
   const labels = reportLabels(r, people)
-  const f = reportFmt(labels, assets)
+  const pair = pairOf(r, assets, hint)
+  const f = reportFmt(labels, assets, pair)
   const fill = (s: string) => fillText(s, f)
   const ok = r.outcome === 'taken'
-  const o = r.offer, pair = pairOf(r, assets)
+  const o = r.offer
   const tok = (a: Address) => assets.find(t => same(t.address, a))
   // balances: the taker first, gains before losses; a revert shows what stayed put
   const rank = (h: Address) => [r.taker, o.maker, r.swap].findIndex(x => same(x, h))
@@ -54,7 +66,7 @@ export function ReportView({ report: r, people, assets }: { report: TakeReport; 
   const step = (s: ReportStep, i: number, all: ReportStep[]) => (
     <li key={i} className="flex gap-3.5">
       <div className="flex w-6 flex-none flex-col items-center">
-        <span aria-label={s.mark} className={`flex size-6 items-center justify-center rounded-full text-xs font-bold ${DOT[s.mark]}`}>{MARK[s.mark]}</span>
+        <span role="img" aria-label={s.mark} className={`flex size-6 items-center justify-center rounded-full text-xs font-bold ${DOT[s.mark]}`}>{MARK[s.mark]}</span>
         {i < all.length - 1 && <span aria-hidden="true" className="min-h-4 w-0.5 flex-1 bg-line-strong" />}
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1 pb-4">
@@ -81,7 +93,7 @@ export function ReportView({ report: r, people, assets }: { report: TakeReport; 
         </div>
         <div className="flex flex-col gap-1 text-[13px] text-muted sm:text-right">
           <span>Offer #{String(o.id)} · {f.name(o.maker)} sells {f.amount(o.giveAmt, o.giveToken)} for {f.amount(o.getAmt, o.getToken)}</span>
-          <span>Taker {f.name(r.taker)} · price {f.price(o.giveToken, o.giveAmt, o.getToken, o.getAmt)} {f.symbol(o.getToken)}/{f.symbol(o.giveToken)}</span>
+          <span>Taker {f.name(r.taker)} · price {f.price(o.giveToken, o.giveAmt, o.getToken, o.getAmt)} {f.symbol(pair.quote)}/{f.symbol(pair.base)}</span>
         </div>
       </section>
 
@@ -140,24 +152,33 @@ export function ReportView({ report: r, people, assets }: { report: TakeReport; 
   )
 }
 
-/** `/swap/report?tx=<hash>` on the current chain: the take's report, read from the chain each time. */
+/** The page once the report has been asked for: loading, its error, or the report. */
+export function ReportState({ chainName, tx, got, people, hint }: {
+  chainName: string; tx: string; got?: Awaited<ReturnType<typeof loadReport>>; people: People; hint?: Hint
+}) {
+  if (!got) return <p className="text-sm text-muted">Reading the report from {chainName}…</p>
+  if ('error' in got) return <Notice tone="danger">{`No report for ${shortAddress(tx)} on ${chainName}: ${got.error}.`}</Notice>
+  return <ReportView report={got.report} people={people} assets={got.assets} hint={hint} />
+}
+
+/** `/swap/report?tx=<hash>[&base=…&quote=…]` on the current chain: the take's report, read from the chain each time. */
 export function SwapReport() {
   const { chain } = useApp()
   const [params] = useSearchParams()
   const tx = params.get('tx')
+  const hint = { base: params.get('base'), quote: params.get('quote') }
   const people = accountStore.list()
-  const [got, setGot] = useState<{ report: TakeReport; assets: Asset[] } | { error: string }>()
+  const [got, setGot] = useState<Awaited<ReturnType<typeof loadReport>>>()
   useEffect(() => {
     setGot(undefined)
     if (!chain || !tx) return
     let live = true
-    Promise.all([takeReport(chain.request, tx as Hash), assetRegistry.list(chain.info.id)])
-      .then(([report, assets]) => live && setGot({ report, assets }), e => live && setGot({ error: msg(e) }))
+    loadReport(chain.request, chain.info.id, tx).then(g => live && setGot(g))
     return () => { live = false }
   }, [chain, tx])
 
   const r = got && 'report' in got ? got : undefined
-  const pair = r && pairOf(r.report, r.assets)
+  const pair = r && pairOf(r.report, r.assets, hint)
   const f = r && reportFmt({}, r.assets)
   const leaf = r ? `Take offer #${r.report.offer.id}` : 'Take report'
   useAppBar({
@@ -180,7 +201,5 @@ export function SwapReport() {
 
   if (!chain) return <p className="text-sm text-muted">Select a chain first.</p>
   if (!tx) return <Notice>No transaction given.</Notice>
-  if (!got) return <p className="text-sm text-muted">Reading the report from {chain.info.name}…</p>
-  if ('error' in got) return <Notice tone="danger">{`No report for ${shortAddress(tx)} on ${chain.info.name}: ${got.error}.`}</Notice>
-  return <ReportView report={got.report} people={people} assets={got.assets} />
+  return <ReportState chainName={chain.info.name} tx={tx} got={got} people={people} hint={hint} />
 }
