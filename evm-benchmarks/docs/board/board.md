@@ -36,21 +36,14 @@ This gives you cross-chain settlement early and with little machinery. Done when
 Create a GBP/USD pool, add and remove liquidity, and swap with a quote and a slippage limit. It’s self-contained, with no matching and no counterparty online, and it gives every later step a reference price. I’d write a minimal pool yourself (about a page of Solidity) rather than vendoring Uniswap’s code. That’s easier to read in a playground and avoids licence questions. Benchmark scenario: amm-swap.
 ```
 
-### On-chain order book, single chain
-- id: t-64
-- history:
-  - To Do @ 2026-11-20T08:47:58.873Z
-
-```md
-Limit orders rest in a contract, a taker’s transaction matches them, and settlement is atomic within that transaction. This is the Trade screen we designed, minus the settlement choices. It reuses step 2’s report and step 4’s pool price as a reference. Benchmark scenarios: book-match, plus book versus pool on the same trade.
-```
-
 ### Signed orders and off-chain matching
 - id: t-65
 - history:
   - To Do @ 2026-11-20T08:48:16.886Z
 
 ```md
+Folded into t-64 (ADR-0018): the off-chain venue builds signed orders and off-chain matching on one chain. What remains for step 7 is a book spanning two chains.
+
 This is the hybrid model. It’s required for step 7, because a single contract can’t hold a book that spans two chains.
 ```
 
@@ -228,6 +221,18 @@ ADR-0016, R22: measure the balance delta on deposit, or refuse such tokens, so e
 ```
 
 ## Doing
+
+### Order book: on-chain and off-chain venues, single chain
+- id: t-64
+- history:
+  - To Do @ 2026-11-20T08:47:58.873Z
+  - Doing @ 2026-11-20T17:21:04Z
+
+```md
+ADR-0018 (moved ahead of t-62/t-63; includes t-65's signed orders and off-chain matching). Spec: docs/superpowers/specs/2026-11-20-orderbook-design.md. Two venues behind one Venue API with a header switch.
+
+Limit orders rest in a contract, a taker’s transaction matches them, and settlement is atomic within that transaction. This is the Trade screen we designed, minus the settlement choices. It reuses step 2’s report and step 4’s pool price as a reference. Benchmark scenarios: book-match, plus book versus pool on the same trade.
+```
 
 ## Done
 
