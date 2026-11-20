@@ -1,8 +1,11 @@
 import type { Level } from '@evmb/orderbook'
-import { formatAmount } from '../assets/ui'
+import { formatAmount, shortAddress } from '../assets/ui'
 
 /** Sizes as the mockup shows them: "1,000" when whole, else 2 dp. */
 export const sizeText = (v: bigint, decimals: number) => formatAmount(v, decimals, 2).replace(/\.0+$/, '')
+
+/** An order id as shown: "#12" on-chain, a short hash off-chain or for a failed attempt (`tx:<hash>`). */
+export const idText = (id: string) => (/^\d+$/.test(id) ? `#${id}` : shortAddress(id.replace(/^tx:/, '')))
 
 /** Best ask − best bid, and that in basis points of the mid (1 dp); undefined unless both sides have a level. */
 export function spreadOf(bids: Level[], asks: Level[]): { spread: bigint; bps: string } | undefined {

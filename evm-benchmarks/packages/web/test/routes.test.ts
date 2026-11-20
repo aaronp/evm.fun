@@ -76,7 +76,7 @@ describe('/swap/report views', () => {
   }
 
   test('success layout of a bid offer: price is quote per base (USD per GBP), links carry the pair', async () => {
-    const { ReportView } = await import('../src/pages/SwapReport')
+    const { TakeReportView: ReportView } = await import('../src/pages/SwapReport')
     // maker bids 1,270.00 USD for 1,000.00 GBP; the taker sells GBP
     const offer = { id: 3n, maker: a(9), giveToken: USD.address, giveAmt: 1_270_000_000n, getToken: GBP.address, getAmt: 100_000n, status: 'filled', taker: a(8), closedBlock: 7n }
     const report = {

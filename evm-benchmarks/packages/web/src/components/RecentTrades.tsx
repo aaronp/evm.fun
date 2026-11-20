@@ -19,6 +19,7 @@ export function RecentTrades({ trades, base, quoteDecimals }: { trades?: Trade[]
           <span className="text-right text-subtle">#{String(t.block)}</span>
         </div>
       ))}
+      {trades?.length === 0 && <div className="px-[18px] py-3 text-[13px] text-subtle">No trades yet</div>}
     </section>
   )
 }

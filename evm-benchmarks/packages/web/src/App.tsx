@@ -15,6 +15,7 @@ import { GetStarted } from './pages/GetStarted'
 import { Swap } from './pages/Swap'
 import { SwapReport } from './pages/SwapReport'
 import { Trade } from './pages/Trade'
+import { TradeReport } from './pages/TradeReport'
 import { ContextBox, ContextStrip } from './components/ContextBox'
 import { ThemeSwitcher } from './components/ThemeSwitcher'
 import { ENGINE } from './chain/revm'
@@ -94,6 +95,7 @@ export function App() {
               <Route key={p} path={p === 'Chains' ? '/chains/*' : `/${slug(p)}`} element={real[p] ?? <Stub name={p} />} />
             ))}
             <Route path="/swap/report" element={<SwapReport />} />
+            <Route path="/trade/report" element={<TradeReport />} />
             <Route path="/explorer/*" element={<LegacyRedirect />} />
             <Route path="*" element={<Navigate to="/accounts" replace />} />
           </Routes>

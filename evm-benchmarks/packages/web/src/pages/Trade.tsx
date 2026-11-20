@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import type { Address } from 'viem'
-import { readTokenInfo, type Asset } from '@evmb/assets'
-import { priceText, type Level, type Trade as Fill } from '@evmb/orderbook'
+import { Link, useSearchParams } from 'react-router-dom'
+import { erc20Abi, type Address, type Hex } from 'viem'
+import { approveCall, readTokenInfo, type Asset } from '@evmb/assets'
+import { amountText, priceText, type Level, type Order, type OrderInput, type Trade as Fill } from '@evmb/orderbook'
 import { useApp } from '../state'
 import { useAppBar } from '../state/appBar'
 import { accounts as accountStore } from '../store/accounts'
@@ -12,11 +12,15 @@ import { contractsRegistry } from '../contracts/registry'
 import { NO_RECORDS } from '../swap/locate'
 import { pickPair } from '../swap/ui'
 import { deployVenue, useVenue, venueName, type VenueKind } from '../orderbook/locate'
-import { spreadOf } from '../orderbook/ui'
+import { idText, spreadOf } from '../orderbook/ui'
+import { walletOf } from '../orderbook/wallet'
+import { readContract, signAndSend } from '../tx/send'
 import { card } from '../components/TakePanel'
 import { OrderBookPanel } from '../components/OrderBookPanel'
 import { DepthChart } from '../components/DepthChart'
 import { RecentTrades } from '../components/RecentTrades'
+import { OrderForm, type Funds } from '../components/OrderForm'
+import { MyOrders } from '../components/MyOrders'
 import { Button } from '../ui/button'
 import { Notice } from '../ui/notice'
 import { Segmented } from '../ui/segmented'
@@ -36,10 +40,16 @@ export function Trade() {
   const [nonce, setNonce] = useState(0) // bumped after a deploy so the venue is looked up again
   const [err, setErr] = useState<string>()
   const venue = useVenue(chain, kind, nonce, setErr)
-  useEffect(() => setErr(undefined), [kind])
+  useEffect(() => { setErr(undefined); setFlash(undefined) }, [kind, account]) // eslint-disable-line react-hooks/exhaustive-deps
   const [book, setBook] = useState<{ bids: Level[]; asks: Level[] }>()
   const [trades, setTrades] = useState<Fill[]>()
-  const [, setPicked] = useState<bigint>() // a clicked level's price, for the order form (Task 9)
+  const [picked, setPicked] = useState<{ price: bigint }>() // a clicked level's price, loaded into the order form
+  const [funds, setFunds] = useState<{ base: Funds; quote: Funds }>({ base: {}, quote: {} })
+  const [orders, setOrders] = useState<Order[]>()
+  const [busy, setBusy] = useState(false)
+  // the chain it belongs to: a result that lands after a chain switch must not flash on the new chain
+  const [flash, setFlashOn] = useState<{ text: string; tone: 'success' | 'danger'; link?: { to: string; label: string }; chainId?: string }>()
+  const setFlash = (f?: { text: string; tone: 'success' | 'danger'; link?: { to: string; label: string } }) => setFlashOn(f && { ...f, chainId: chain?.info.id })
   const [deploying, setDeploying] = useState(false)
   const reconciled = useRef(new Set<string>())
   const chainId = chain?.info.id
@@ -65,15 +75,29 @@ export function Trade() {
   const { base, quote } = pair
 
   // the book and trades are always read live; a tick keeps the old values until the new ones land
+  const market = base && quote ? { base: base.address as Address, quote: quote.address as Address } : undefined
   useEffect(() => { setBook(undefined); setTrades(undefined) }, [venue, base?.address, quote?.address])
   useEffect(() => {
-    if (!venue || !base || !quote) return
+    if (!venue || !market) return
     let live = true
-    const m = { base: base.address as Address, quote: quote.address as Address }
-    Promise.all([venue.book(m), venue.trades(m, 20)])
-      .then(([b, t]) => { if (live) { setBook(b); setTrades(t) } }, e => live && setErr(msg(e)))
+    // 20 levels: as deep as the venue matches (maxLevels), so the form's estimate sees what the order would take
+    Promise.all([venue.book(market, 20), venue.trades(market, 20)])
+      .then(([b, t]) => { if (live) { setBook(b); setTrades(t); setErr(undefined) } }, e => live && setErr(msg(e)))
     return () => { live = false }
   }, [venue, base?.address, quote?.address, balanceTick]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the acting account's orders, balances and allowances to the venue contract, read live like the book
+  useEffect(() => { setOrders(undefined); setFunds({ base: {}, quote: {} }) }, [venue, base?.address, quote?.address, acting?.address])
+  useEffect(() => {
+    if (!chain || !venue || !market || !acting) return
+    let live = true
+    const read = (t: Address, fn: 'balanceOf' | 'allowance', args: Address[]) =>
+      readContract(chain, t, erc20Abi, fn, args).then(v => v as bigint, () => undefined)
+    const of = (t: Address) => Promise.all([read(t, 'balanceOf', [acting.address]), read(t, 'allowance', [acting.address, venue.address])]).then(([bal, alw]) => ({ bal, alw }))
+    Promise.all([of(market.base), of(market.quote)]).then(([b, q]) => live && setFunds({ base: b, quote: q }))
+    venue.orders({ owner: acting.address, market }).then(o => live && setOrders(o), e => live && setErr(msg(e)))
+    return () => { live = false }
+  }, [chain, venue, base?.address, quote?.address, acting?.address, balanceTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pairText = base && quote ? `${base.symbol}/${quote.symbol}` : undefined
   const title = pairText ? `Trade · ${pairText}` : 'Trade'
@@ -85,7 +109,7 @@ export function Trade() {
       : undefined,
   })
 
-  const working = deploying
+  const working = deploying || busy // no chain, venue or pair switch while a tx is in flight
   useEffect(() => { lockChain(working); return () => lockChain(false) }, [working, lockChain])
 
   if (!chain) return <p className="text-sm text-muted">Select a chain first.</p>
@@ -99,11 +123,54 @@ export function Trade() {
     } catch (e) { setErr(msg(e)) } finally { setDeploying(false) }
   }
 
+  const reportLink = (id: string) => ({ to: `/trade/report?id=${encodeURIComponent(id)}&venue=${kind}&base=${base?.address}&quote=${quote?.address}`, label: 'View report →' })
+  /** Runs one action with the acting account; resolves to the error message when it could not start or threw. */
+  async function act(f: (v: NonNullable<typeof venue>, a: NonNullable<typeof acting>) => Promise<void>): Promise<string | undefined> {
+    if (!venue || !acting) return 'Select an account first.'
+    if (busy) return 'Another transaction is still in flight.'
+    setBusy(true); setFlash(undefined)
+    try { await f(venue, acting) } catch (e) { return msg(e) } finally { setBusy(false) }
+  }
+  /** Approve the venue contract to spend `amount` of `a`; returns the error message when it failed. */
+  const approve = (a: Asset, amount: bigint) => act(async (v, who) => {
+    const r = await signAndSend(chain!, who, approveCall(a, v.address, amount), bumpBalance)
+    if (r.status !== 'success') throw new Error(`Approve ${r.status}${r.error ? `: ${r.error}` : ''}`)
+  })
+  /** Place an order; `placed` once it landed or was signed, `error` when it failed (thrown: nothing sent) or reverted. */
+  async function place(o: Omit<OrderInput, 'market'>): Promise<{ placed: boolean; error?: string }> {
+    let placed = false, reverted: string | undefined
+    const error = await act(async (v, who) => {
+      const r = await v.place(walletOf(chain!, who, bumpBalance), { ...o, market: market! })
+      placed = true
+      bumpBalance() // a signed off-chain order sends nothing; the book and My orders still need a re-read
+      if (r.reverted) {
+        reverted = `Order reverted: ${r.reverted.error}`
+        return setFlash({ text: `${reverted}; nothing moved.`, tone: 'danger', link: r.order && reportLink(r.order.id) })
+      }
+      const filled = r.fills.reduce((n, f) => n + f.amount, 0n)
+      const fills = `${amountText(filled, base!)} filled in ${r.fills.length} ${r.fills.length === 1 ? 'fill' : 'fills'}`
+      setFlash(r.order
+        ? { text: `Order ${idText(r.order.id)} placed: ${fills}${r.order.status === 'open' || r.order.status === 'partial' ? `, ${amountText(r.order.amount - r.order.filled, base!)} resting` : ''}.`, tone: 'success', link: reportLink(r.order.id) }
+        // an off-chain order filled in full rests nothing, so it has no id to report on: its settle tx is the record
+        : { text: `${o.side === 'buy' ? 'Bought' : 'Sold'}: ${fills}.`, tone: 'success', link: r.tx && { to: `/chains/tx/${r.tx as Hex}`, label: 'View tx →' } })
+    })
+    return { placed, error: error ?? reverted }
+  }
+  /** Cancel one of the acting account's orders; returns the error message when it failed. */
+  async function cancel(id: string) {
+    const error = await act(async (v, who) => {
+      await v.cancel(walletOf(chain!, who, bumpBalance), id)
+      setFlash({ text: `Order ${idText(id)} cancelled.`, tone: 'success' })
+    })
+    if (error) setFlash({ text: error, tone: 'danger' })
+    return error
+  }
+
   const setParam = (kv: Record<string, string>) => setParams(p => { const n = new URLSearchParams(p); for (const [k, v] of Object.entries(kv)) n.set(k, v); return n }, { replace: true })
   const markets = pair.tokens.flatMap(b => pair.tokens.filter(q => q !== b).map(q => ({ b, q })))
   const s = book && spreadOf(book.bids, book.asks)
   const last = trades?.[0]?.price
-  const disabled = !!chain.info.ephemeral || venue === undefined || !base || !quote
+  const disabled = !!chain.info.ephemeral || !venue || !base || !quote // venue null: still looking, or the lookup failed
   const name = venueName(kind)
 
   return (
@@ -159,17 +226,19 @@ export function Trade() {
       {pair.error && <p role="alert" className="text-sm text-warn-text">{pair.error}</p>}
       {err && <p role="alert" className="text-sm text-danger">{err}</p>}
 
+      {flash && flash.chainId === chainId && <Notice tone={flash.tone} action={flash.link && <Link to={flash.link.to} className="ml-auto font-semibold">{flash.link.label}</Link>}>{flash.text}</Notice>}
+
       {base && quote && (
         <div inert={disabled} className={`flex flex-col gap-4 ${disabled ? 'opacity-45' : ''}`}>
           <div className="flex flex-wrap items-stretch gap-4">
-            <OrderBookPanel bids={book?.bids ?? []} asks={book?.asks ?? []} base={base} quote={quote} last={last} spread={s?.spread} onPick={setPicked} />
+            <OrderBookPanel bids={book?.bids.slice(0, 10) ?? []} asks={book?.asks.slice(0, 10) ?? []} base={base} quote={quote} last={last} spread={s?.spread} onPick={price => setPicked({ price })} />
             <div className="flex min-w-0 flex-[999_1_380px] flex-col gap-4">
               <DepthChart bids={book?.bids ?? []} asks={book?.asks ?? []} quoteDecimals={quote.decimals} />
               <RecentTrades trades={trades} base={base} quoteDecimals={quote.decimals} />
             </div>
-            {/* Task 9 slot: the order form (flex-[1_1_300px] max-w-[340px]) goes here, fed by the picked level's price. */}
+            <OrderForm base={base} quote={quote} book={book} spender={name} funds={funds} picked={picked} busy={busy || !acting} onApprove={approve} onPlace={place} />
           </div>
-          {/* Task 9 slot: "My orders" goes here, full width under the row above. */}
+          <MyOrders orders={orders} base={base} quote={quote} venue={kind} busy={busy} onCancel={cancel} />
         </div>
       )}
     </div>

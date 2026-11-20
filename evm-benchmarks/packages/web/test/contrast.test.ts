@@ -36,6 +36,7 @@ for (let i = 1; i <= 6; i++) pairs.push([`series-${i}`, 'surface', 3]) // chart 
 for (const fg of ['ask', 'bid']) for (const bg of ['surface', 'selected', 'surface-hover']) pairs.push([fg, bg, 4.5]) // swap book prices
 for (const bg of ['ask', 'bid']) pairs.push(['on-accent', bg, 4.5]) // swap side toggle, Take and Create buttons
 for (const [fg, bg] of [['bid', 'panel'], ['subtle', 'panel'], ['muted', 'panel'], ['bid', 'bg'], ['ask', 'bg']] as const) pairs.push([fg, bg, 4.5]) // trade: mid row, venue switch, last price, trades
+pairs.push(['warn', 'warn-soft', 3], ['accent', 'surface-hover', 4.5], ['text', 'panel', 4.5]) // trade: allowance icon, My orders row hover link, form fields
 for (let i = 1; i <= 4; i++) pairs.push([`tone-${i}-fg`, `tone-${i}-bg`, 4.5]) // asset badges
 
 const cssThemes = [...css.matchAll(/:root\[data-theme="(\w+)"\]/g)].map((m) => m[1]!)

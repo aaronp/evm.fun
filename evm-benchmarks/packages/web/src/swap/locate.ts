@@ -1,4 +1,4 @@
-import { encodeDeployData, type Address } from 'viem'
+import { encodeDeployData, type Abi, type Address, type Hex } from 'viem'
 import { Swap } from '@evmb/contracts'
 import { findSwap } from '@evmb/swap'
 import type { ChainHandle } from '../chain/handle'
@@ -28,11 +28,14 @@ export async function swapFor(chain: ChainHandle): Promise<Address | undefined> 
   return findSwap(named.length < 2 ? named : await inDeployOrder(chain, named))
 }
 
-/** Deploy Swap.sol from `from` and save its contract record. Refused on benchmark chains. */
-export async function deploySwap(chain: ChainHandle, from: Account, onSent?: () => void): Promise<Address> {
+/** Deploy `contract` from `from` and save its record under `name`. Refused on benchmark chains. */
+export async function deployContract(chain: ChainHandle, from: Account, name: string, contract: { abi: Abi; bytecode: Hex }, onSent?: () => void): Promise<Address> {
   if (chain.info.ephemeral) throw new Error(NO_RECORDS)
-  const r = await signAndSend(chain, from, { data: encodeDeployData({ abi: Swap.abi, bytecode: Swap.bytecode }) }, onSent)
+  const r = await signAndSend(chain, from, { data: encodeDeployData({ abi: contract.abi, bytecode: contract.bytecode }) }, onSent)
   if (r.status !== 'success' || !r.contractAddress) throw new Error(`Deploy ${r.status}${r.error ? `: ${r.error}` : ''}`)
-  await contractsRegistry.add(chain.info.id, { address: r.contractAddress, name: 'Swap', abi: Swap.abi as any[], deployer: from.address, txHash: r.hash })
+  await contractsRegistry.add(chain.info.id, { address: r.contractAddress, name, abi: contract.abi as any[], deployer: from.address, txHash: r.hash })
   return r.contractAddress
 }
+
+/** Deploy Swap.sol from `from` and save its contract record. Refused on benchmark chains. */
+export const deploySwap = (chain: ChainHandle, from: Account, onSent?: () => void) => deployContract(chain, from, 'Swap', Swap, onSent)
