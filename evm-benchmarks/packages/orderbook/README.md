@@ -1,6 +1,6 @@
 # @evmb/orderbook
 
-UI-free order-book venues for the playground (skeleton; completed in a later task). No DOM or React; no dependency on `@evmb/core` or any approach package.
+UI-free order-book venues for the playground. No DOM or React; no dependency on `@evmb/core` or any approach package.
 
 ## Store
 
@@ -18,3 +18,12 @@ Typed data for `Settlement.sol` (`@evmb/contracts`). An off-chain order is a `Si
 - `orderTypes`, `domainOf(chainId, settlement)` (`EVMB Settlement`, version `1`).
 - `hashOrder(o, domain)`: equals the contract's `hashOrder`.
 - `signOrder(wallet, o, domain)`: signs with `wallet.signTypedData`; the taker passes the order and signature to `settle`.
+
+## Venue
+
+`Venue` (`src/venue.ts`) is what the page talks to: `book(m, depth = 10)`, `place(wallet, input)`, `cancel(wallet, id)`, `orders({ owner, market?, status? })`, `trades(m, limit = 50)` (newest first), `report(id)`.
+
+- `onchainVenue({ request, chainId, address, store, fromBlock?, maxLevels = 20 })` drives `OrderBook.sol`. `book` walks `best` → `level.next`; `orders` reads `ordersOf` then `orders(id)` (owner required), plus the owner's failed attempts; `report` narrows `Trade` logs to the order's place..close blocks by its indexed id. `place` reads the opposite side, matches it with `match`, and throws without sending when the book is too thin (market orders: any shortfall; limit: the level cap) or the allowance/balance is short of what it needs (buy: `quoteFor(amount, price, up)` + one raw unit per expected fill; sell: `amount`). Market orders send `worstPrice(fills, side, slippageBps = 100)`; a resting remainder gets the adjacent better level as its `hint`. `trades` reads every `OrderPlaced`/`Trade` since `fromBlock` (the deploy block): O(chain history), flagged.
+- `placeCall` / `cancelCall` (`src/calls.ts`): calldata builders shared with the benchmark; `orderBookAbi` is the subset the package uses.
+- `journal(store, { chainId, venue })` (`src/attempts.ts`): the `attempts` table both venues share. `begin(input, owner)` before sending, `end(seq, { tx, block, status, error })` after; `failed(owner)` lists reverted ones, which show as orders with status `failed` and id `tx:<hash>`.
+- `replayError`, `fixFor`, `amountText` (`src/report.ts`): a failed tx is replayed at its parent block (Swap's approach) and the fix names the shortfall ("Approve OrderBook to spend at least 127.00 USD, then place the order again.") or the thinned book.

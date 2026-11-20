@@ -2,7 +2,8 @@ import type { Address, Hex, TransactionReceipt, TypedDataDefinition } from 'viem
 
 export type Side = 'buy' | 'sell' // of the base asset
 export type Market = { base: Address; quote: Address } // ERC-20s on one chain
-export type OrderInput = { market: Market; side: Side; type: 'limit' | 'market'; price?: bigint; amount: bigint }
+/** `slippageBps`: market orders only, how far past the furthest level needed the worst price may go (default 100). */
+export type OrderInput = { market: Market; side: Side; type: 'limit' | 'market'; price?: bigint; amount: bigint; slippageBps?: number }
 export type Order = {
   id: string; venue: 'onchain' | 'offchain'; owner: Address; market: Market; side: Side; price: bigint
   amount: bigint; filled: bigint; status: 'open' | 'partial' | 'filled' | 'cancelled' | 'failed' | 'unfunded'
