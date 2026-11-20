@@ -1,13 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { encodeDeployData } from 'viem'
 import type { Asset } from '@evmb/assets'
-import { AssetToken } from '@evmb/contracts'
 import type { ChainHandle } from '../chain/handle'
 import type { Account } from '../store/accounts'
-import { signAndSend } from '../tx/send'
-import { assetRegistry } from '../assets/registry'
-import { tokenAsset } from '../assets/build'
-import { contractsRegistry, type DeployedContract } from '../contracts/registry'
+import { launchToken, NotSavedError } from '../assets/launch'
 import { MAX_NAME } from '../chain/chainFile'
 import { parseAmount, shortAddress } from '../assets/ui'
 import { Button } from '../ui/button'
@@ -43,22 +38,10 @@ export function LaunchAssetDialog({ chain, accounts, onLaunched, onSent, onClose
     if (!from) return setErr('Select an issuer account first.')
     setBusy(true)
     try {
-      const data = encodeDeployData({ abi: AssetToken.abi, bytecode: AssetToken.bytecode, args: [n, s, dec, sup.ok, from.address] })
-      const r = await signAndSend(chain, from, { data }, onSent)
-      if (r.status !== 'success' || !r.contractAddress) throw new Error(`Deploy ${r.status}${r.error ? `: ${r.error}` : ''}`)
-      const at = r.contractAddress
-      try {
-        const a = tokenAsset(chain.info.id, at, { symbol: s, name: n, decimals: dec }, { origin: 'launched', issuer: from.address, mintable: true })
-        await contractsRegistry.add(chain.info.id, { address: at, name: a.name, abi: AssetToken.abi as DeployedContract['abi'], deployer: from.address, txHash: r.hash })
-        await assetRegistry.add(a)
-        onLaunched(a)
-        ref.current?.close()
-      } catch (e) {
-        setStuck(true)
-        setErr(`Deployed at ${at} but not saved: ${e instanceof Error ? e.message : String(e)}`)
-        setBusy(false)
-      }
+      onLaunched(await launchToken(chain, from, { name: n, symbol: s, decimals: dec, supply: sup.ok }, onSent))
+      ref.current?.close()
     } catch (e) {
+      if (e instanceof NotSavedError) setStuck(true)
       setErr(e instanceof Error ? e.message : String(e))
       setBusy(false)
     }
