@@ -5,6 +5,7 @@ import { amountText, parsePrice, priceText, type Level, type OrderInput, type Si
 import { formatAmount, parseAmount } from '../assets/ui'
 import { allowanceNote, approveFor, percentAmount, plan, priceAway, slippageOf, submitText } from '../orderbook/form'
 import { card, solid } from './TakePanel'
+import { venueName, type VenueKind } from '../orderbook/locate'
 
 export type Funds = { bal?: bigint; alw?: bigint }
 type Outcome = string | undefined
@@ -17,10 +18,11 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 /** The order form: side, Limit/Market, price (or slippage), amount with 25/50/75/Max of what's available, the cost,
  * the allowance warning with "Approve more", and the submit button. */
-export function OrderForm({ base, quote, book, spender, funds, picked, busy, onApprove, onPlace }: {
+export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApprove, onPlace }: {
   base: Asset; quote: Asset; book?: { bids: Level[]; asks: Level[] }
-  /** the venue contract the give asset is approved to: "OrderBook" / "Settlement" */
-  spender: string
+  /** on-chain (OrderBook: market orders carry a slippage-bounded worst price) or off-chain (Settlement: fills settle at
+   * the makers' prices, no slippage); also names the contract the give asset is approved to */
+  venue: VenueKind
   funds: { base: Funds; quote: Funds }
   /** a clicked book level: loads its price */
   picked?: { price: bigint }
@@ -44,11 +46,12 @@ export function OrderForm({ base, quote, book, spender, funds, picked, busy, onA
   const amount = 'ok' in parsed && parsed.ok > 0n ? parsed.ok : undefined
   let price: bigint | undefined, priceErr: string | undefined
   if (type === 'limit' && priceIn.trim()) try { price = parsePrice(priceIn, quote.decimals) } catch (e) { priceErr = msg(e) }
-  const slip = slippageOf(slipIn)
+  const onchain = venue === 'onchain', spender = venueName(venue)
+  const slip = onchain ? slippageOf(slipIn) : 0 // off-chain settles at the makers' prices: slippage doesn't apply
   const bps = typeof slip === 'number' ? slip : undefined
   const levels = (buy ? book?.asks : book?.bids) ?? []
   const shape = { side, type, price, slippageBps: bps ?? 100 }
-  const p = amount && (type === 'market' ? bps !== undefined : price !== undefined) ? plan({ ...shape, amount }, levels, base.decimals) : undefined
+  const p = amount && (type === 'market' ? bps !== undefined : price !== undefined) ? plan({ ...shape, amount }, levels, base.decimals, venue) : undefined
   const give = buy ? quote : base, f = buy ? funds.quote : funds.base
   const toApprove = p?.need !== undefined && f.alw !== undefined ? approveFor(p.need, f.alw) : undefined
   const thin = p?.thin ? `Book too thin: only ${amountText(p.filled, base)} of ${amountText(amount!, base)} can fill` : undefined
@@ -64,7 +67,7 @@ export function OrderForm({ base, quote, book, spender, funds, picked, busy, onA
     if (typeof slip !== 'number') return fail(slip.error)
     if (thin) return fail(thin)
     setError(undefined)
-    const { placed, error } = await onPlace({ side, type, amount, ...(type === 'limit' ? { price } : { slippageBps: slip }) })
+    const { placed, error } = await onPlace({ side, type, amount, ...(type === 'limit' ? { price } : onchain ? { slippageBps: slip } : {}) })
     if (placed) setAmountIn('')
     else if (error) setError(error)
     return error
@@ -78,7 +81,8 @@ export function OrderForm({ base, quote, book, spender, funds, picked, busy, onA
   }
   function percent(pct: number) {
     if (f.bal === undefined) return
-    const v = percentAmount(pct, shape, f.bal, levels, base.decimals)
+    if (buy && type === 'limit' && price === undefined) return setError(priceErr ?? 'Enter a limit price')
+    const v = percentAmount(pct, shape, f.bal, levels, base.decimals, venue)
     setAmountIn(v ? formatUnits(v, base.decimals) : ''); setError(undefined)
   }
   const edit = (set: (v: string) => void) => (e: { target: { value: string } }) => { set(e.target.value); setError(undefined) }
@@ -106,7 +110,7 @@ export function OrderForm({ base, quote, book, spender, funds, picked, busy, onA
           <label htmlFor="op" className={label}>Limit price</label>
           <div className={box}><input id="op" className={field} inputMode="decimal" value={priceIn} placeholder={priceText(levels[0]?.price ?? 0n, quote.decimals)} onChange={edit(setPriceIn)} /><span className={suffix}>{quote.symbol}</span></div>
         </div>
-      ) : (
+      ) : onchain && (
         <div className="flex flex-col gap-1.5">
           <label htmlFor="os" className={label}>Slippage</label>
           <div className={box}><input id="os" className={field} inputMode="decimal" value={slipIn} onChange={edit(setSlipIn)} /><span className={suffix}>%</span></div>

@@ -2,19 +2,20 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Asset } from '@evmb/assets'
 import { priceText, type Order } from '@evmb/orderbook'
-import { idText, sizeText } from '../orderbook/ui'
+import { idText, sizeText, statusText } from '../orderbook/ui'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { card } from './TakePanel'
 
 const FILTERS = [['all', 'All'], ['open', 'Open'], ['failed', 'Failed']] as const
 type Filter = (typeof FILTERS)[number][0]
+// the Open filter and Cancel; an unfunded off-chain order is still live and signed: a later allowance would re-fund it
 const OPEN: Order['status'][] = ['open', 'partial', 'unfunded']
 const TONE = { open: 'accent', partial: 'accent', filled: 'success', cancelled: 'neutral', failed: 'danger', unfunded: 'warn' } as const
 const th = 'px-2 py-2.5 font-medium'
 const td = 'px-2 py-3'
 
-/** The acting account's orders in this market, newest first: Cancel on open and partial ones, Report → on the rest. */
+/** The acting account's orders in this market, newest first: Cancel on live ones (open, partial, unfunded), Report → on the rest. */
 export function MyOrders({ orders, base, quote, venue, busy, onCancel }: {
   orders?: Order[]; base: Asset; quote: Asset; venue: 'onchain' | 'offchain'; busy: boolean
   /** resolves to the error message when it failed */
@@ -53,9 +54,9 @@ export function MyOrders({ orders, base, quote, venue, busy, onCancel }: {
                 <td className={`${td} font-semibold ${o.side === 'buy' ? 'text-bid' : 'text-ask'}`}>{o.side === 'buy' ? 'Buy' : 'Sell'} {base.symbol}</td>
                 <td className={`${td} text-right font-mono`}>{priceText(o.price, quote.decimals)}</td>
                 <td className={`${td} text-right font-mono`}>{sizeText(o.filled, base.decimals)} / {sizeText(o.amount, base.decimals)}</td>
-                <td className={td}><Badge variant={TONE[o.status]}>{o.status}</Badge></td>
+                <td className={td}><Badge variant={TONE[o.status]}>{statusText(o)}</Badge></td>
                 <td className={`${td} pr-5 text-right`}>
-                  {o.status === 'open' || o.status === 'partial'
+                  {OPEN.includes(o.status)
                     ? <Button variant="outline" size="chip" className="rounded-[7px]" disabled={busy} onClick={() => onCancel(o.id)}>Cancel</Button>
                     : <Link to={report(o.id)} className="font-medium text-accent hover:text-accent-hover">Report →</Link>}
                 </td>

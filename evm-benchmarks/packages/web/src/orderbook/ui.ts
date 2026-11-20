@@ -7,6 +7,11 @@ export const sizeText = (v: bigint, decimals: number) => formatAmount(v, decimal
 /** An order id as shown: "#12" on-chain, a short hash off-chain or for a failed attempt (`tx:<hash>`). */
 export const idText = (id: string) => (/^\d+$/.test(id) ? `#${id}` : shortAddress(id.replace(/^tx:/, '')))
 
+const REASONS: Record<string, string> = { ERC20InsufficientAllowance: 'allowance', ERC20InsufficientBalance: 'balance', BookTooThin: 'thin book' }
+/** A status badge: "failed · allowance" when the venue captured the revert (other errors by name), else the status. */
+export const statusText = (o: { status: string; reason?: string }) =>
+  o.status === 'failed' && o.reason ? `failed · ${REASONS[o.reason] ?? o.reason}` : o.status
+
 /** Best ask − best bid, and that in basis points of the mid (1 dp); undefined unless both sides have a level. */
 export function spreadOf(bids: Level[], asks: Level[]): { spread: bigint; bps: string } | undefined {
   const b = bids[0]?.price, a = asks[0]?.price

@@ -100,6 +100,9 @@ test('thinned between read and send: a failed attempt tx:<hash> whose report say
   expect(r.order).toMatchObject({ id: `tx:${r.tx}`, status: 'failed', side: 'buy', amount: G(80) })
   const failed = await v.orders({ owner: taker.address, status: ['failed'] })
   expect(failed.map(o => o.id)).toEqual([`tx:${r.tx}`])
+  // the decoded revert is captured at origin: the place result and the journalled row both carry it
+  expect(r.order?.reason).toBe('BookTooThin')
+  expect(failed[0]!.reason).toBe('BookTooThin')
   const rep = await v.report(`tx:${r.tx}`)
   expect(rep.order.status).toBe('failed')
   expect(rep.failure).toMatchObject({ tx: r.tx, error: 'BookTooThin', args: [G(50)] })

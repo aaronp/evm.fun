@@ -8,6 +8,8 @@ export type Order = {
   id: string; venue: 'onchain' | 'offchain'; owner: Address; market: Market; side: Side; price: bigint
   amount: bigint; filled: bigint; status: 'open' | 'partial' | 'filled' | 'cancelled' | 'failed' | 'unfunded'
   placedAt: { block?: bigint; time: string }
+  /** failed only: the decoded revert error name, when the venue replayed it (e.g. 'ERC20InsufficientAllowance') */
+  reason?: string
 }
 export type Level = { price: bigint; size: bigint; total: bigint; orders: number }
 export type Trade = { price: bigint; amount: bigint; maker: Address; taker: Address; takerSide: Side; tx: Hex; block: bigint }

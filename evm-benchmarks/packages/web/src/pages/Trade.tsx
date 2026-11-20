@@ -39,8 +39,11 @@ export function Trade() {
   const [assets, setAssets] = useState<Asset[]>([])
   const [nonce, setNonce] = useState(0) // bumped after a deploy so the venue is looked up again
   const [err, setErr] = useState<string>()
+  // the live reads' own error slots: each read clears only its own, so a good book read can't hide an orders failure
+  const [readErr, setReadErr] = useState<{ book?: string; orders?: string }>({})
+  const readFailed = (k: 'book' | 'orders', e?: string) => setReadErr(r => ({ ...r, [k]: e }))
   const venue = useVenue(chain, kind, nonce, setErr)
-  useEffect(() => { setErr(undefined); setFlash(undefined) }, [kind, account]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setErr(undefined); setReadErr({}); setFlash(undefined) }, [kind, account]) // eslint-disable-line react-hooks/exhaustive-deps
   const [book, setBook] = useState<{ bids: Level[]; asks: Level[] }>()
   const [trades, setTrades] = useState<Fill[]>()
   const [picked, setPicked] = useState<{ price: bigint }>() // a clicked level's price, loaded into the order form
@@ -55,7 +58,7 @@ export function Trade() {
   const chainId = chain?.info.id
 
   useEffect(() => {
-    setAssets([]); setErr(undefined)
+    setAssets([]); setErr(undefined); setReadErr({})
     if (!chain) return
     let live = true
     const id = chain.info.id
@@ -82,7 +85,7 @@ export function Trade() {
     let live = true
     // 20 levels: as deep as the venue matches (maxLevels), so the form's estimate sees what the order would take
     Promise.all([venue.book(market, 20), venue.trades(market, 20)])
-      .then(([b, t]) => { if (live) { setBook(b); setTrades(t); setErr(undefined) } }, e => live && setErr(msg(e)))
+      .then(([b, t]) => { if (live) { setBook(b); setTrades(t); readFailed('book') } }, e => live && readFailed('book', msg(e)))
     return () => { live = false }
   }, [venue, base?.address, quote?.address, balanceTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -95,7 +98,7 @@ export function Trade() {
       readContract(chain, t, erc20Abi, fn, args).then(v => v as bigint, () => undefined)
     const of = (t: Address) => Promise.all([read(t, 'balanceOf', [acting.address]), read(t, 'allowance', [acting.address, venue.address])]).then(([bal, alw]) => ({ bal, alw }))
     Promise.all([of(market.base), of(market.quote)]).then(([b, q]) => live && setFunds({ base: b, quote: q }))
-    venue.orders({ owner: acting.address, market }).then(o => live && setOrders(o), e => live && setErr(msg(e)))
+    venue.orders({ owner: acting.address, market }).then(o => { if (live) { setOrders(o); readFailed('orders') } }, e => live && readFailed('orders', msg(e)))
     return () => { live = false }
   }, [chain, venue, base?.address, quote?.address, acting?.address, balanceTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -224,7 +227,7 @@ export function Trade() {
         </section>
       )}
       {pair.error && <p role="alert" className="text-sm text-warn-text">{pair.error}</p>}
-      {err && <p role="alert" className="text-sm text-danger">{err}</p>}
+      {[err, readErr.book, readErr.orders].map((e, i) => e && <p key={i} role="alert" className="text-sm text-danger">{e}</p>)}
 
       {flash && flash.chainId === chainId && <Notice tone={flash.tone} action={flash.link && <Link to={flash.link.to} className="ml-auto font-semibold">{flash.link.label}</Link>}>{flash.text}</Notice>}
 
@@ -236,7 +239,7 @@ export function Trade() {
               <DepthChart bids={book?.bids ?? []} asks={book?.asks ?? []} quoteDecimals={quote.decimals} />
               <RecentTrades trades={trades} base={base} quoteDecimals={quote.decimals} />
             </div>
-            <OrderForm base={base} quote={quote} book={book} spender={name} funds={funds} picked={picked} busy={busy || !acting} onApprove={approve} onPlace={place} />
+            <OrderForm base={base} quote={quote} book={book} venue={kind} funds={funds} picked={picked} busy={busy || !acting} onApprove={approve} onPlace={place} />
           </div>
           <MyOrders orders={orders} base={base} quote={quote} venue={kind} busy={busy} onCancel={cancel} />
         </div>

@@ -163,6 +163,18 @@ test('plan: market buy estimate (ceil per level), at most = worst price + 1 raw 
   expect(plan({ side: 'buy', type: 'market', amount: 1n, slippageBps: 100 }, [], 2)).toMatchObject({ thin: true, price: undefined })
 })
 
+test('plan off-chain: no slippage, settles at the makers\' prices; "at most" bounds the sum of per-fill ceilings', async () => {
+  const { plan } = await import('../src/orderbook/form')
+  // per level: ceil(take × price) plus one raw unit for each further order in it (each fill rounds up on its own)
+  const m = plan({ side: 'buy', type: 'market', amount: 150_000n, slippageBps: 100 }, asks, 2, 'offchain')
+  expect(m).toMatchObject({ filled: 150_000n, fills: 3, estimate: 1_905_500_000n, price: undefined, bound: 1_905_500_001n, need: 1_905_500_001n, thin: false })
+  // a limit buy: the crossing fills, then the rest at the limit (rounded up)
+  const l = plan({ side: 'buy', type: 'limit', price: 1_270_500n, amount: 150_000n, slippageBps: 100 }, asks, 2, 'offchain')
+  expect(l).toMatchObject({ filled: 100_000n, fills: 2, bound: 1_270_000_001n + 635_250_000n })
+  expect(plan({ side: 'buy', type: 'market', amount: 400_000n, slippageBps: 100 }, asks, 2, 'offchain')).toMatchObject({ thin: true })
+  expect(plan({ side: 'sell', type: 'market', amount: 50_000n, slippageBps: 100 }, bids, 2, 'offchain')).toMatchObject({ bound: 634_500_000n, need: 50_000n })
+})
+
 test('percentAmount: a sell takes the share of its base; a buy the largest amount whose "at most" fits the share', async () => {
   const { percentAmount } = await import('../src/orderbook/form')
   const o = (side: 'buy' | 'sell', type: 'limit' | 'market', price?: bigint) => ({ side, type, price, slippageBps: 100 })
@@ -172,6 +184,7 @@ test('percentAmount: a sell takes the share of its base; a buy the largest amoun
   expect(percentAmount(100, o('buy', 'limit', 1_270_000n), 1_270_000_001n, asks, 2)).toBe(99_999n)
   expect(percentAmount(100, o('buy', 'market'), 10n ** 12n, asks, 2)).toBe(300_000n) // never more than the book holds
   expect(percentAmount(100, o('buy', 'market'), 10n ** 12n, [], 2)).toBe(0n)
+  expect(percentAmount(100, o('buy', 'market'), 1_905_500_001n, asks, 2, 'offchain')).toBe(150_000n)
 })
 
 test('form text: slippage (bps, clamped 0–50%), worst price rounded away from the book, submit label, allowance note, approve amount', async () => {
@@ -208,7 +221,7 @@ test('OrderForm renders the mockup copy (no fee row, no settlement select)', asy
   const { OrderForm } = await import('../src/components/OrderForm')
   const base = tokAsset('GBP', 2, 1), quote = tokAsset('USD', 6, 2)
   const html = await ssr(h => h(OrderForm, {
-    base, quote, book: { bids, asks }, spender: 'OrderBook', funds: { base: { bal: 100_000n, alw: 0n }, quote: { bal: 10n ** 10n, alw: 0n } },
+    base, quote, book: { bids, asks }, venue: 'onchain', funds: { base: { bal: 100_000n, alw: 0n }, quote: { bal: 10n ** 10n, alw: 0n } },
     busy: false, onApprove: async () => undefined, onPlace: async () => ({ placed: true }),
   }))
   for (const s of ['Buy GBP', 'Sell GBP', 'Limit', 'Market', 'Limit price', 'Amount', '25%', '50%', '75%', 'Max', 'You pay', 'Available', '10,000.00 USD'])
@@ -224,12 +237,18 @@ test('MyOrders: filters, columns, badges; Cancel on open/partial, Report → oth
     id, venue: 'onchain' as const, owner: me.address, market: { base: base.address, quote: quote.address }, side, price: 1_270_500n,
     amount: 500_000n, filled, status, placedAt: { time: '' },
   })
-  const rows = [order('12', 'buy', 'filled', 500_000n), order('13', 'sell', 'partial', 100_000n), order(`tx:0x${'ab'.repeat(32)}`, 'buy', 'failed'), order('14', 'sell', 'unfunded')]
+  const rows = [order('12', 'buy', 'filled', 500_000n), order('13', 'sell', 'partial', 100_000n), order(`tx:0x${'ab'.repeat(32)}`, 'buy', 'failed'), order('14', 'sell', 'unfunded'),
+    { ...order(`tx:0x${'cd'.repeat(32)}`, 'buy', 'failed'), reason: 'ERC20InsufficientAllowance' }, { ...order(`tx:0x${'ef'.repeat(32)}`, 'sell', 'failed'), reason: 'BookTooThin' }]
   const html = await ssr(h => h(MyOrders, { orders: rows, base, quote, venue: 'onchain', busy: false, onCancel: async () => undefined }))
   for (const s of ['My orders', 'All', 'Open', 'Failed', 'Order', 'Side', 'Price', 'Filled / size', 'Status', '#12', 'Buy GBP', 'Sell GBP', '1.2705', '5,000 / 5,000', '1,000 / 5,000', 'filled', 'partial', 'failed', 'unfunded', 'Cancel', 'Report →', '0xabab…abab'])
     expect(html).toContain(s)
   expect(html).toContain(`href="/trade/report?id=12&amp;venue=onchain&amp;base=${base.address}&amp;quote=${quote.address}"`)
-  expect(html.match(/>Cancel</g)?.length).toBe(1) // the partial one only
+  // partial and unfunded: an unfunded off-chain order is still a live signed order that a later approve would re-fund
+  expect(html.match(/>Cancel</g)?.length).toBe(2)
+  // the revert reason captured at origin; an attempt without one stays plain "failed"
+  expect(html).toContain('failed · allowance')
+  expect(html).toContain('failed · thin book')
+  expect(html.match(/>failed</g)?.length).toBe(1)
   expect(await ssr(h => h(MyOrders, { orders: [], base, quote, venue: 'onchain', busy: false, onCancel: async () => undefined }))).toContain('No orders yet')
 })
 

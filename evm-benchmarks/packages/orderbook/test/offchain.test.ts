@@ -144,7 +144,7 @@ test('taker allowance short: refused before sending; if it drops after the read,
   const r = await v.place(racing(c.walletOf(taker), () => approve(1n)), order)
   expect(r.reverted?.error).toBe('ERC20InsufficientAllowance')
   expect(r.order).toMatchObject({ id: `tx:${r.tx}`, status: 'failed', side: 'buy', amount: G(100) })
-  expect((await v.orders({ owner: taker.address, status: ['failed'] })).map(o => o.id)).toEqual([`tx:${r.tx}`])
+  expect((await v.orders({ owner: taker.address, status: ['failed'] })).map(o => [o.id, o.reason])).toEqual([[`tx:${r.tx}`, 'ERC20InsufficientAllowance']])
   const rep = await v.report(r.order!.id)
   expect(rep.failure).toMatchObject({ tx: r.tx, error: 'ERC20InsufficientAllowance' })
   expect(rep.failure!.fix).toBe('Approve Settlement to spend at least 127.00 USD, then place the order again.')

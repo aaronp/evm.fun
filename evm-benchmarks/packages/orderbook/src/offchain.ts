@@ -99,9 +99,9 @@ export function offchainVenue(o: { request: Request; chainId: number; scope: str
     amount: r.amount, filled: s.filled, placedAt: { time: r.time },
     status: s.cancelled ? 'cancelled' : s.filled >= r.amount ? 'filled' : s.covered === 0n ? 'unfunded' : s.filled > 0n ? 'partial' : 'open',
   })
-  const failedOrder = (a: Pick<Attempt, 'owner' | 'tx' | 'block' | 'time' | 'input'>): Order => ({
+  const failedOrder = (a: Pick<Attempt, 'owner' | 'tx' | 'block' | 'time' | 'input' | 'error'>): Order => ({
     id: `tx:${a.tx}`, venue: 'offchain', owner: a.owner, market: a.input.market, side: a.input.side, price: a.input.price,
-    amount: a.input.amount, filled: 0n, status: 'failed', placedAt: { block: a.block, time: a.time },
+    amount: a.input.amount, filled: 0n, status: 'failed', placedAt: { block: a.block, time: a.time }, ...(a.error && { reason: a.error }),
   })
   const toTrade = (l: any, takerSide: Side): Trade => ({
     price: l.args.price, amount: l.args.amount, maker: getAddress(l.args.maker), taker: getAddress(l.args.taker),
@@ -149,12 +149,13 @@ export function offchainVenue(o: { request: Request; chainId: number; scope: str
         const makers = mt.fills.map(f => opp.rows.get(f.id)!)
         const price = limit ?? mt.fills.at(-1)!.price
         const sent = { market: m, side: s, type: input.type, price, amount, need }
-        const { rc } = await sendAndJournal(attempts, wallet, sent,
+        const { rc, seq } = await sendAndJournal(attempts, wallet, sent,
           settleCall(venue, makers.map(r => r.order), makers.map(r => r.sig), mt.fills.map(f => f.amount)))
         tx = rc.transactionHash
         if (rc.status !== 'success') {
           const reverted = await replayError(o.request, rc.transactionHash, settlementAbi)
-          return { order: failedOrder({ owner, tx, block: rc.blockNumber, time: new Date().toISOString(), input: sent }), fills: [], tx, reverted }
+          await attempts.end(seq, { tx, block: rc.blockNumber, status: 'reverted', error: reverted.error }) // captured at origin for My orders
+          return { order: failedOrder({ owner, tx, block: rc.blockNumber, time: new Date().toISOString(), input: sent, error: reverted.error }), fills: [], tx, reverted }
         }
         fills = parseEventLogs({ abi: settlementAbi, eventName: 'Trade', logs: (rc.logs as Log[]).filter(l => getAddress(l.address) === venue) })
           .map(l => toTrade(l, s))

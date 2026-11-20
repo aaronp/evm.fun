@@ -44,7 +44,7 @@ export function onchainVenue(o: {
   })
   const failedOrder = (a: Attempt): Order => ({
     id: `tx:${a.tx}`, venue: 'onchain', owner: a.owner, market: a.input.market, side: a.input.side, price: a.input.price,
-    amount: a.input.amount, filled: 0n, status: 'failed', placedAt: { block: a.block, time: a.time },
+    amount: a.input.amount, filled: 0n, status: 'failed', placedAt: { block: a.block, time: a.time }, ...(a.error && { reason: a.error }),
   })
   const toTrade = (l: any, takerSide: Side): Trade => ({
     price: l.args.price, amount: l.args.amount, maker: getAddress(l.args.maker), taker: getAddress(l.args.taker),
@@ -114,11 +114,12 @@ export function onchainVenue(o: {
       const hint = better.at(-1)?.price ?? 0n
 
       const sent = { market: m, side, type: input.type, price, amount, need }
-      const { rc } = await sendAndJournal(attempts, wallet, sent, placeCall(book, { base: m.base, quote: m.quote, side, price, amount, maxLevels, hint, rest: input.type === 'limit' }))
+      const { rc, seq } = await sendAndJournal(attempts, wallet, sent, placeCall(book, { base: m.base, quote: m.quote, side, price, amount, maxLevels, hint, rest: input.type === 'limit' }))
       const tx: Hash = rc.transactionHash
       if (rc.status !== 'success') {
         const e = await replayError(o.request, tx, orderBookAbi)
-        return { order: failedOrder({ owner, tx, block: rc.blockNumber, time: new Date().toISOString(), input: sent } as Attempt), fills: [], tx, reverted: e }
+        await attempts.end(seq, { tx, block: rc.blockNumber, status: 'reverted', error: e.error }) // captured at origin for My orders
+        return { order: failedOrder({ owner, tx, block: rc.blockNumber, time: new Date().toISOString(), input: sent, error: e.error } as Attempt), fills: [], tx, reverted: e }
       }
       const events = parseEventLogs({ abi: orderBookAbi, logs: (rc.logs as Log[]).filter(l => getAddress(l.address) === book) })
       const id = (events.find(e => e.eventName === 'OrderPlaced') as any).args.id as bigint
