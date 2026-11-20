@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { erc20Abi, parseEventLogs, type Address, type Hex } from 'viem'
 import { approveCall, readTokenInfo, type Asset } from '@evmb/assets'
-import { activity, book, cancelCall, makeOfferCall, priceText, readOffers, swapAbi, takeCall, type ActivityItem, type BookRow, type Offer } from '@evmb/swap'
+import { activity, book, cancelCall, makeOfferCall, priceText, readOffers, swapAbi, takeCall, takeReport, type ActivityItem, type BookRow, type Offer } from '@evmb/swap'
 import { useApp } from '../state'
 import { useAppBar } from '../state/appBar'
 import { accounts as accountStore } from '../store/accounts'
@@ -12,7 +12,7 @@ import { shortAddress } from '../assets/ui'
 import { contractsRegistry } from '../contracts/registry'
 import { readContract, signAndSend } from '../tx/send'
 import { deploySwap, NO_RECORDS, swapFor } from '../swap/locate'
-import { activityText, allowText, amountText, makerLabel, pickPair, rowOf, statsText } from '../swap/ui'
+import { activityText, allowText, amountText, makerLabel, pickPair, rowOf, same, statsText, takeFlash } from '../swap/ui'
 import { card, TakePanel, type Funds } from '../components/TakePanel'
 import { MakeOfferCard } from '../components/MakeOfferCard'
 import { Activity, MyOffers } from '../components/SwapActivity'
@@ -42,9 +42,8 @@ export function Swap() {
   const [deploying, setDeploying] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
-  const [flash, setFlash] = useState<string>()
+  const [flash, setFlash] = useState<{ text: string; tone: 'success' | 'danger'; tx?: Hex }>()
   const reconciled = useRef(new Set<string>())
-  const nav = useNavigate()
   const chainId = chain?.info.id
 
   useEffect(() => {
@@ -55,8 +54,8 @@ export function Swap() {
     // adopt tokens deployed elsewhere (Studio, imports) once per chain per mount, as the Assets page does; never on benchmark chains
     const list = async () => {
       if (!chain.info.ephemeral && !reconciled.current.has(id)) {
-        reconciled.current.add(id)
         await reconcileAssets(id, await contractsRegistry.list(id), assetRegistry, addr => readTokenInfo(chain.request, addr))
+        reconciled.current.add(id) // only once it worked, so a failed attempt is retried on the next visit
       }
       return assetRegistry.list(id)
     }
@@ -135,14 +134,20 @@ export function Swap() {
     } catch (e) { setErr(msg(e)) } finally { setBusy(false) }
   }
   const approve = (a: Asset, amount: bigint) => void send(approveCall(a, swap!, amount))
-  const take = async (id: bigint) => { const r = await send(takeCall(swap!, id), true); if (r) nav(`/swap/report?tx=${r.hash}`) }
-  const cancel = async (id: bigint) => { if (await send(cancelCall(swap!, id))) setFlash(`Offer #${id} cancelled; escrow returned.`) }
+  async function take(id: bigint, paySymbol: string) {
+    const r = await send(takeCall(swap!, id), true)
+    if (!r) return
+    if (r.status === 'success') return setFlash({ text: takeFlash(id, 'success'), tone: 'success', tx: r.hash })
+    const reason = await takeReport(chain!.request, r.hash).then(x => x.reason, () => undefined)
+    setFlash({ text: takeFlash(id, 'reverted', reason, paySymbol), tone: 'danger', tx: r.hash })
+  }
+  const cancel = async (id: bigint) => { if (await send(cancelCall(swap!, id))) setFlash({ text: `Offer #${id} cancelled; escrow returned.`, tone: 'success' }) }
   async function create(give: { asset: Asset; amount: bigint }, get: { asset: Asset; amount: bigint }) {
     const r = await send(makeOfferCall(swap!, give.asset.address as Address, give.amount, get.asset.address as Address, get.amount))
     if (!r) return false
     const rc = (await chain!.request('eth_getTransactionReceipt', [r.hash]).catch(() => null)) as { logs: Parameters<typeof parseEventLogs>[0]['logs'] } | null
     const id = rc && parseEventLogs({ abi: swapAbi, eventName: 'OfferMade', logs: rc.logs })[0]?.args.id
-    setFlash(`Offer${id ? ` #${id}` : ''} created; ${amountText(give.amount, give.asset.decimals)} ${give.asset.symbol} moved into escrow.`)
+    setFlash({ text: `Offer${id ? ` #${id}` : ''} created; ${amountText(give.amount, give.asset.decimals)} ${give.asset.symbol} moved into escrow.`, tone: 'success' })
     if (id) setSelected(id)
     return true
   }
@@ -159,12 +164,12 @@ export function Swap() {
   const two = (x: string | undefined, y: string | undefined) => (
     <><span className={statLine}>{x ?? dash} {base?.symbol}</span><span className={statLine}>{y ?? dash} {quote?.symbol}</span></>
   )
-  const funds: Funds = a => (a === base ? { bal: wallet.base, alw: wallet.allowBase } : { bal: wallet.quote, alw: wallet.allowQuote })
+  const funds: Funds = a => (same(a.address, base?.address) ? { bal: wallet.base, alw: wallet.allowBase } : { bal: wallet.quote, alw: wallet.allowQuote })
   const name = (a: string) => makerLabel(a, undefined, people)
   const offerOf = (id?: bigint) => offers?.find(o => o.id === id)
   const inPair = (o?: Offer) => (o && base && quote ? rowOf(o, base, quote) : undefined)
   const selRow = inPair(offerOf(selected))
-  const isMine = (maker: string) => makerLabel(maker, acting?.address, people) === 'you'
+  const isMine = (maker: string) => same(maker, acting?.address)
   const mine = acting && offers?.filter(o => isMine(o.maker)).map(inPair).filter((r): r is BookRow => !!r).reverse()
   const pairItems = offers && items?.filter(i => i.kind === 'approved' || inPair(offerOf(i.id))) // approvals are already pair-filtered
   const amt = (v: bigint | undefined, a?: Asset) => (v === undefined || !a ? undefined : amountText(v, a.decimals))
@@ -222,7 +227,7 @@ export function Swap() {
           <div className={stat}><span className={statLabel}>{acting?.label ?? 'No account'} · Swap may spend</span>{two(base && allow(wallet.allowBase, base), quote && allow(wallet.allowQuote, quote))}</div>
         </div>
 
-        {flash && <Notice tone="success">{flash}</Notice>}
+        {flash && <Notice tone={flash.tone} action={flash.tx && <Link to={`/swap/report?tx=${flash.tx}`} className="ml-auto font-semibold">View report →</Link>}>{flash.text}</Notice>}
 
         <div className="flex flex-wrap items-stretch gap-4">
           <section aria-labelledby="bk-h" className={`${card} flex max-w-[420px] flex-[1_1_340px] flex-col overflow-hidden`}>
@@ -245,7 +250,7 @@ export function Swap() {
 
           {base && quote && <>
             <TakePanel row={selRow} base={base} quote={quote} maker={selRow ? makerLabel(selRow.maker, acting?.address, people) : ''} own={!!selRow && isMine(selRow.maker)}
-              funds={funds} busy={busy || !acting} onApprove={approve} onTake={() => selRow && take(selRow.id)} onCancel={() => selRow && cancel(selRow.id)} />
+              funds={funds} busy={busy || !acting} onApprove={approve} onTake={() => selRow && take(selRow.id, (same(selRow.getToken, base.address) ? base : quote).symbol)} onCancel={() => selRow && cancel(selRow.id)} />
             <MakeOfferCard base={base} quote={quote} book={b} funds={funds} busy={busy || !acting} onApprove={approve} onCreate={create} />
           </>}
         </div>

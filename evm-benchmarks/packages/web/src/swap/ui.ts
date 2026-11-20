@@ -1,9 +1,9 @@
 import { MAX_UINT256, type Asset } from '@evmb/assets'
-import { book, priceText, quoteFor, type ActivityItem, type BookRow, type Offer, type Side } from '@evmb/swap'
+import { book, priceText, quoteFor, type ActivityItem, type BookRow, type Offer, type Reason, type Side } from '@evmb/swap'
 import { formatAmount, parseAmount, shortAddress } from '../assets/ui'
 
 type Book = ReturnType<typeof book>
-const same = (a?: string | null, b?: string | null) => !!a && !!b && a.toLowerCase() === b.toLowerCase()
+export const same = (a?: string | null, b?: string | null) => !!a && !!b && a.toLowerCase() === b.toLowerCase()
 
 /** Amounts on the Swap page: 2 dp, as in the mockup. */
 export const amountText = (v: bigint, decimals: number) => formatAmount(v, decimals, 2)
@@ -30,9 +30,11 @@ const POSITIVE = 'Amount and price must be positive numbers.'
 export function formQuote(side: Side, amount: string, price: string, base: Asset, quote: Asset): { give: Leg; get: Leg } | { error: string } {
   const text = amount.replace(/,/g, '').trim()
   if (!text || !price.trim()) return { error: 'Enter both an amount and a price.' }
+  const positive = (t: string) => /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(t) && /[1-9]/.test(t)
+  if (!positive(text) || !positive(price.trim())) return { error: POSITIVE }
   if ((text.split('.')[1] ?? '').length > base.decimals) return { error: `${base.symbol} has ${base.decimals} decimals — use at most ${base.decimals} after the point.` }
   const a = parseAmount(text, base.decimals)
-  if ('error' in a || a.ok === 0n) return { error: POSITIVE }
+  if ('error' in a) return { error: POSITIVE }
   let q: bigint
   try { q = quoteFor(a.ok, price, base.decimals, quote.decimals) } catch { return { error: POSITIVE } }
   if (q === 0n) return { error: `Rounds to ${exactText(0n, quote.decimals)} ${quote.symbol} — raise the amount or price.` }
@@ -53,6 +55,12 @@ export function crosses(side: Side, price: string, b: Book): string | undefined 
 }
 
 const REASON = { filled: 'already taken', cancelled: 'offer cancelled', other: 'reverted' }
+/** Why a take reverted, short: "USD allowance too low", "already taken", … */
+const reasonText = (r: Reason, paySymbol = 'token') => (r === 'allowance' || r === 'balance' ? `${paySymbol} ${r} too low` : REASON[r])
+
+/** The Swap page's flash after a take; the reason comes from the take's report. */
+export const takeFlash = (id: bigint, status: 'success' | 'reverted', reason?: Reason, paySymbol?: string) =>
+  status === 'success' ? `Offer #${id} settled in one transaction.` : `Take #${id} reverted${reason ? ` — ${reasonText(reason, paySymbol)}` : ''}.`
 
 /** One Activity line, as in the mockup. */
 export function activityText(i: ActivityItem, l: { name(a: string): string; offer(id: bigint): Offer | undefined; base: Asset; quote: Asset }): string {
@@ -66,8 +74,7 @@ export function activityText(i: ActivityItem, l: { name(a: string): string; offe
       return `${who} approved Swap for ${x ? `${allowText(i.amount!, x.decimals)} ${x.symbol}` : amt(i.amount!, i.token!)}`
     }
     case 'reverted': {
-      const r = i.reason ?? 'other'
-      return `${who} tried to take #${i.id} — ${r === 'allowance' || r === 'balance' ? `${t(o?.getToken)?.symbol ?? 'token'} ${r} too low` : REASON[r]}`
+      return `${who} tried to take #${i.id} — ${reasonText(i.reason ?? 'other', t(o?.getToken)?.symbol)}`
     }
     case 'taken': return `#${i.id} taken by ${who}${o ? ` · ${amt(o.giveAmt, o.giveToken)} ⇄ ${amt(o.getAmt, o.getToken)}` : ''}`
     case 'cancelled': return `#${i.id} cancelled by ${who}${o ? ` · ${amt(o.giveAmt, o.giveToken)} returned` : ''}`

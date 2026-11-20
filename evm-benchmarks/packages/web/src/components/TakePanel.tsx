@@ -10,8 +10,9 @@ export const statusTone = { open: 'accent', filled: 'success', cancelled: 'neutr
 export const solid = 'inline-flex items-center justify-center rounded-[10px] font-semibold text-on-accent hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-45'
 export type Funds = (a: Asset) => { bal?: bigint; alw?: bigint }
 
-const mark = (ok: boolean) => (
-  <span aria-hidden="true" className={`flex size-[18px] flex-none items-center justify-center rounded-full text-[11px] font-bold ${ok ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}>{ok ? '✓' : '✕'}</span>
+/** ✓ / ✕, or a neutral … while the wallet is still being read */
+const mark = (ok?: boolean) => (
+  <span aria-hidden="true" className={`flex size-[18px] flex-none items-center justify-center rounded-full text-[11px] font-bold ${ok === undefined ? 'bg-selected text-muted' : ok ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}>{ok === undefined ? '…' : ok ? '✓' : '✕'}</span>
 )
 const line = 'flex justify-between text-[13px]'
 const big = 'font-mono text-base font-semibold'
@@ -52,8 +53,8 @@ export function TakePanel({ row, base, quote, maker, own, funds, busy, onApprove
       </>}
       {open && !own && <>
         <ul className="flex flex-col gap-2 text-[13px]">
-          <li className="flex gap-2">{mark(!balShort)}<span>{balShort ? `Not enough ${pay.symbol} — you have ${amountText(bal!, pay.decimals)}` : `Balance ${bal === undefined ? '—' : amountText(bal, pay.decimals)} ${pay.symbol} covers it`}</span></li>
-          <li className="flex gap-2">{mark(!alwShort)}<span>{alwShort ? `Swap may spend ${allowText(alw!, pay.decimals)} ${pay.symbol} — needs ${amountText(payAmt, pay.decimals)}` : 'Swap is allowed to spend it'}</span></li>
+          <li className="flex gap-2">{mark(bal === undefined ? undefined : !balShort)}<span>{bal === undefined ? `Balance … ${pay.symbol}` : balShort ? `Not enough ${pay.symbol} — you have ${amountText(bal, pay.decimals)}` : `Balance ${amountText(bal, pay.decimals)} ${pay.symbol} covers it`}</span></li>
+          <li className="flex gap-2">{mark(alw === undefined ? undefined : !alwShort)}<span>{alw === undefined ? `Swap may spend … ${pay.symbol}` : alwShort ? `Swap may spend ${allowText(alw, pay.decimals)} ${pay.symbol} — needs ${amountText(payAmt, pay.decimals)}` : 'Swap is allowed to spend it'}</span></li>
         </ul>
         <div className="mt-auto flex flex-col gap-2">
           {needsApprove && <Button className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={() => onApprove(pay, payAmt)}>1 · Approve {payText}</Button>}

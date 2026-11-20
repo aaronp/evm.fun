@@ -2,14 +2,14 @@ import { test, expect } from 'bun:test'
 import type { Address } from 'viem'
 import type { Asset } from '@evmb/assets'
 import { book, type ActivityItem, type Offer } from '@evmb/swap'
-import { activityText, allowText, crosses, exactText, formQuote, makerLabel, pickPair, rowOf, statsText } from '../src/swap/ui'
+import { activityText, allowText, takeFlash, crosses, exactText, formQuote, makerLabel, pickPair, rowOf, statsText } from '../src/swap/ui'
 
 const a = (n: number) => `0x${n.toString(16).padStart(40, '0')}` as Address
 const tok = (n: number, symbol: string, decimals: number): Asset => ({
   id: `c:${a(n)}`, chainId: 'c', kind: 'erc20', address: a(n), symbol, name: symbol, decimals, origin: 'launched', mintable: true, addedAt: '',
 })
 const native = { id: 'c:native', chainId: 'c', kind: 'native', symbol: 'ETH', name: 'Ether', decimals: 18, origin: 'genesis', addedAt: '' } as unknown as Asset
-const GBP = tok(1, 'GBP', 2), USD = tok(2, 'USD', 6), EUR = tok(3, 'EUR', 2)
+const GBP = tok(1, 'GBP', 2), USD = tok(2, 'USD', 6), EUR = tok(3, 'EUR', 2), WETH = tok(4, 'WETH', 18)
 const offer = (id: number, give: Asset, giveAmt: bigint, get: Asset, getAmt: bigint, status: Offer['status'] = 'open'): Offer =>
   ({ id: BigInt(id), maker: a(9), giveToken: give.address!, giveAmt, getToken: get.address!, getAmt, status })
 
@@ -49,12 +49,26 @@ test('formQuote: GBP 2dp base, USD 6dp quote, amounts exact and half-up; errors 
   expect(formQuote('bid', '1', '0.0000005', USD, GBP)).toEqual({ error: 'Rounds to 0.00 GBP — raise the amount or price.' })
   expect(formQuote('ask', '', '1.27', GBP, USD)).toEqual({ error: 'Enter both an amount and a price.' })
   expect(formQuote('ask', '1.234', '1.27', GBP, USD)).toEqual({ error: 'GBP has 2 decimals — use at most 2 after the point.' })
-  for (const [amt, price] of [['0', '1.27'], ['-1', '1.27'], ['1', '0'], ['1', 'x']])
+  // mockup order: empty, then positive numbers, then decimals
+  expect(formQuote('ask', '1.234', '0', GBP, USD)).toEqual({ error: 'Amount and price must be positive numbers.' })
+  expect(formQuote('ask', '-1.234', '1.27', GBP, USD)).toEqual({ error: 'Amount and price must be positive numbers.' })
+  // 18-decimal quote: every digit kept
+  expect(formQuote('ask', '2.50', '0.123456789012345678', GBP, WETH)).toEqual({ give: { asset: GBP, amount: 250n }, get: { asset: WETH, amount: 308_641_972_530_864_195n } })
+  expect(formQuote('bid', '0.01', '0.0000000000000001', GBP, WETH)).toEqual({ give: { asset: WETH, amount: 1n }, get: { asset: GBP, amount: 1n } })
+  expect(exactText(308_641_972_530_864_195n, 18)).toBe('0.308641972530864195')
+  for (const [amt, price] of [['0', '1.27'], ['-1', '1.27'], ['1', '0'], ['1', 'x'], ['0.00', '1']])
     expect(formQuote('ask', amt!, price!, GBP, USD)).toEqual({ error: 'Amount and price must be positive numbers.' })
   expect(exactText(1_271_234_000n, 6)).toBe('1,271.234')
   expect(exactText(1_271_000_000n, 6)).toBe('1,271.00')
   expect(exactText(100_050n, 2)).toBe('1,000.50')
   expect([allowText(2n ** 256n - 1n, 2), allowText(50_000n, 2)]).toEqual(['unlimited', '500.00'])
+})
+
+test('takeFlash: settled, or reverted with the reason', () => {
+  expect(takeFlash(5n, 'success')).toBe('Offer #5 settled in one transaction.')
+  expect(takeFlash(5n, 'reverted', 'allowance', 'USD')).toBe('Take #5 reverted — USD allowance too low.')
+  expect(takeFlash(5n, 'reverted', 'filled', 'USD')).toBe('Take #5 reverted — already taken.')
+  expect(takeFlash(5n, 'reverted')).toBe('Take #5 reverted.')
 })
 
 test('crosses: selling at or below the best bid, buying at or above the best ask; exact at equality', () => {
