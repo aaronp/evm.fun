@@ -124,6 +124,56 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
+### Swap: index offers when the book gets large
+- id: t-67
+- tags: swap, backlog
+- history:
+  - To Do @ 2026-11-20T09:28:19Z
+
+```md
+ADR-0016 reads every offer ever made (offers(1..nextId-1)). When a chain's history makes the Swap page slow, add an incremental indexer keyed by block (ADR-0016 solution C/B upgrade path) without changing Swap.sol.
+```
+
+### Swap: exact revert reasons for same-block failures
+- id: t-68
+- tags: swap, backlog
+- history:
+  - To Do @ 2026-11-20T09:28:19Z
+
+```md
+ADR-0016: non-status failures are replayed with eth_call at the parent block, so an approve or transfer earlier in the same block is missed. Replay with the block's preceding txs applied (or trace the tx) to report the true reason.
+```
+
+### Swap: Activity without a block scan
+- id: t-69
+- tags: swap, backlog
+- history:
+  - To Do @ 2026-11-20T09:28:19Z
+
+```md
+ADR-0016: reverted takes are found by scanning every block for txs to the Swap with status 0. Index failed attempts (or the explorer's tx index) so Activity's cost doesn't grow with chain length.
+```
+
+### Swap: native ETH in offers
+- id: t-70
+- tags: swap, backlog
+- history:
+  - To Do @ 2026-11-20T09:28:19Z
+
+```md
+ADR-0016: step 2 is ERC-20 only because ETH can't be escrowed with transferFrom. Add a payable make/take path or wrap to WETH.
+```
+
+### Swap: named markets ("New market")
+- id: t-71
+- tags: swap, backlog
+- history:
+  - To Do @ 2026-11-20T09:28:19Z
+
+```md
+ADR-0016: a market is any (base, quote) pair of the chain's assets. The mockup's "New market" screen (named pairs, defaults, tick size) is deferred; revisit with the order book (t-64).
+```
+
 ## Doing
 
 ### Same-chain swap (one offer, settled atomically).
