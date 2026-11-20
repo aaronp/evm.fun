@@ -22,6 +22,7 @@ export function AppBar() {
             </ol>
           </nav>
         )}
+        {c.chip && <span className="self-center rounded-md border border-line-strong bg-surface px-2 py-[3px] font-mono text-xs">{c.chip}</span>}
       </div>
       {!!c.actions?.length && (
         <div className="flex flex-wrap items-center gap-2">
@@ -31,6 +32,16 @@ export function AppBar() {
                 {a.icon}<span className={a.text ? '' : 'sr-only'}>{a.label}</span>
               </Button>
             </span>
+          ) : a.kind === 'choice' ? (
+            <div key={a.id} className="flex items-center gap-2.5">
+              <span className="text-[13px] text-muted">{a.label}</span>
+              <div role="group" aria-label={a.label} className="flex gap-1 rounded-[10px] border border-line bg-panel p-1">
+                {a.options.map(o => (
+                  <button key={o.value} aria-pressed={o.value === a.value} onClick={() => a.onChange(o.value)}
+                    className={`min-h-9 rounded-[7px] px-4 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-accent ${o.value === a.value ? 'bg-selected text-text' : 'text-muted hover:text-text'}`}>{o.label}</button>
+                ))}
+              </div>
+            </div>
           ) : (
             <Segmented key={a.id} label={a.label} name={a.id} value={a.value} onChange={a.onChange} className="flex gap-0.5" itemClassName="flex p-1.5"
               options={a.options.map(o => ({ value: o.value, title: o.label, content: <>{o.icon}<span className="sr-only">{o.label}</span></> }))} />

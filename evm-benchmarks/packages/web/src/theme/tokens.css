@@ -45,6 +45,8 @@
   --c-tone-3-fg: #D8C6FF;
   --c-tone-4-bg: #3A2A12;
   --c-tone-4-fg: #FFD7A3;
+  --c-ask: #FB8A9C;
+  --c-bid: #34D399;
 }
 
 :root[data-theme="light"] {
@@ -92,6 +94,8 @@
   --c-tone-3-fg: #4C1D95;
   --c-tone-4-bg: #FCE8C8;
   --c-tone-4-fg: #7A3B08;
+  --c-ask: #BE123C;
+  --c-bid: #03694C;
 }
 
 :root[data-theme="paper"] {
@@ -139,4 +143,6 @@
   --c-tone-3-fg: #4B2D7A;
   --c-tone-4-bg: #F3E2C2;
   --c-tone-4-fg: #7A3B08;
+  --c-ask: #A3283A;
+  --c-bid: #1B6141;
 }

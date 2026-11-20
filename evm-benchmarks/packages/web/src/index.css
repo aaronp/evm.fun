@@ -29,6 +29,8 @@
   --color-danger: var(--c-danger);
   --color-danger-soft: var(--c-danger-soft);
   --color-danger-line: var(--c-danger-line);
+  --color-ask: var(--c-ask);
+  --color-bid: var(--c-bid);
   --color-code-keyword: var(--c-code-keyword);
   --color-code-string: var(--c-code-string);
   --color-series-1: var(--c-series-1);

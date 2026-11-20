@@ -3,7 +3,9 @@ import { createContext, useContext, useLayoutEffect, useState, type ReactNode } 
 export type AppBarAction =
   | { kind: 'button'; id: string; label: string; icon: ReactNode; onClick: () => void; disabled?: boolean; /** show the label as text; primary styles it as the page's main action */ text?: boolean; primary?: boolean; /** tooltip; defaults to label (use it for the reason when disabled) */ title?: string }
   | { kind: 'toggle'; id: string; label: string; value: string; options: { value: string; label: string; icon: ReactNode }[]; onChange: (v: string) => void }
-export interface AppBarConfig { title: string; crumbs?: { label: string; to?: string }[]; actions?: AppBarAction[] }
+  /** text segments with a visible label, e.g. "Acting as" */
+  | { kind: 'choice'; id: string; label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void }
+export interface AppBarConfig { title: string; crumbs?: { label: string; to?: string }[]; /** mono chip after the title */ chip?: string; actions?: AppBarAction[] }
 
 // Two contexts so pages (setter only) don't re-render when the bar's config changes.
 const Value = createContext<AppBarConfig | undefined>(undefined)

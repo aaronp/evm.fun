@@ -32,6 +32,7 @@ for (const fg of ['text-2', 'muted', 'faint', 'accent', 'code-keyword', 'code-st
 pairs.push(['accent', 'selected', 3]) // selected-state border/outline
 for (let i = 1; i <= 6; i++) pairs.push([`series-${i}`, 'surface', 3]) // chart graphics
 
+for (const fg of ['ask', 'bid']) for (const bg of ['surface', 'selected', 'surface-hover']) pairs.push([fg, bg, 4.5]) // swap book prices
 for (let i = 1; i <= 4; i++) pairs.push([`tone-${i}-fg`, `tone-${i}-bg`, 4.5]) // asset badges
 
 const cssThemes = [...css.matchAll(/:root\[data-theme="(\w+)"\]/g)].map((m) => m[1]!)

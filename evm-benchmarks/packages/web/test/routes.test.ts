@@ -13,3 +13,18 @@ describe('legacyRoute', () => {
     for (const p of ['/chains', '/accounts', '/explorerx', '/', '']) expect(legacyRoute(p)).toBeNull()
   })
 })
+
+describe('/swap', () => {
+  test('Swap sits under Markets after Assets and its route renders the page', async () => {
+    const { createElement: h } = await import('react')
+    const { renderToString } = await import('react-dom/server')
+    const { MemoryRouter } = await import('react-router-dom')
+    const { groups, real } = await import('../src/App')
+    const { AppState } = await import('../src/state')
+    const { AppBarProvider } = await import('../src/state/appBar')
+    expect(groups.find(g => g.label === 'Markets')!.items.map(([n]) => n)).toEqual(['Assets', 'Swap'])
+    const html = renderToString(h(MemoryRouter, { initialEntries: ['/swap'] }, h(AppState, null, h(AppBarProvider, null, real.Swap!))))
+    expect(html).toContain('aria-label="Chain"')
+    expect(html).toContain('Select a chain first.')
+  })
+})
