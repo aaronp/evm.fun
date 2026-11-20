@@ -1,5 +1,6 @@
 import { MAX_UINT256, type Asset } from '@evmb/assets'
-import { book, priceText, quoteFor, type ActivityItem, type BookRow, type Offer, type Reason, takerOf, type Side } from '@evmb/swap'
+import type { Address } from 'viem'
+import { book, priceText, quoteFor, type ActivityItem, type BookRow, type Fmt, type Offer, type Reason, takerOf, type Side, type TakeReport } from '@evmb/swap'
 import { formatAmount, parseAmount, shortAddress } from '../assets/ui'
 
 type Book = ReturnType<typeof book>
@@ -113,4 +114,30 @@ export function statsText(b: Book, base: Asset, quote: Asset) {
 export function makerLabel(maker: string, acting: string | undefined, people: { label: string; address: string }[]): string {
   if (same(maker, acting)) return 'you'
   return people.find(p => same(p.address, maker))?.label ?? shortAddress(maker)
+}
+
+const bigints = (_: string, v: unknown) => (typeof v === 'bigint' ? String(v) : v)
+
+/** Names for every address a report shows: account labels, the Swap as "Swap", others a short address. */
+export function reportLabels(r: TakeReport, accounts: { label: string; address: string }[]): Record<string, string> {
+  const named = [...JSON.stringify(r, bigints).matchAll(/\{name:(0x[0-9a-fA-F]{40})\}/g)].map(m => m[1]!)
+  const all = new Set([r.swap, r.taker, r.offer.maker, ...r.balanceChanges.map(b => b.holder), ...named])
+  return Object.fromEntries([...all].map(a => [a, same(a, r.swap) ? 'Swap' : accounts.find(p => same(p.address, a))?.label ?? shortAddress(a)]))
+}
+
+/** The "Download JSON" content: the report plus the labels the page used, bigints as decimal strings. */
+export const reportJson = (r: TakeReport, labels: Record<string, string>) => JSON.stringify({ ...r, labels }, bigints, 2)
+
+/** Fills a report's placeholders: labels, the chain's token symbols, amounts at 2 dp, price at 4 dp. */
+export function reportFmt(labels: Record<string, string>, tokens: { address?: string; symbol: string; decimals: number }[]): Fmt {
+  const t = (a: Address) => tokens.find(x => same(x.address, a))
+  return {
+    name: a => labels[a] ?? Object.entries(labels).find(([k]) => same(k, a))?.[1] ?? shortAddress(a),
+    symbol: a => t(a)?.symbol ?? shortAddress(a),
+    amount: (v, a) => { const x = t(a); return x ? `${amountText(v, x.decimals)} ${x.symbol}` : `${v} ${shortAddress(a)}` },
+    price: (g, gAmt, q, qAmt) => {
+      const [x, y] = [t(g), t(q)]
+      return x && y ? priceText({ num: qAmt * 10n ** BigInt(x.decimals), den: gAmt * 10n ** BigInt(y.decimals) }) : '—'
+    },
+  }
 }

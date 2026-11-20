@@ -12,6 +12,7 @@ import { Transact } from './pages/Transact'
 import { Benchmark } from './pages/Benchmark'
 import { Assets } from './pages/Assets'
 import { Swap } from './pages/Swap'
+import { SwapReport } from './pages/SwapReport'
 import { ContextBox, ContextStrip } from './components/ContextBox'
 import { ThemeSwitcher } from './components/ThemeSwitcher'
 import { ENGINE } from './chain/revm'
@@ -74,6 +75,7 @@ export function App() {
             {pages.map(p => (
               <Route key={p} path={p === 'Chains' ? '/chains/*' : `/${p.toLowerCase()}`} element={real[p] ?? <Stub name={p} />} />
             ))}
+            <Route path="/swap/report" element={<SwapReport />} />
             <Route path="/explorer/*" element={<LegacyRedirect />} />
             <Route path="*" element={<Navigate to="/accounts" replace />} />
           </Routes>

@@ -1,8 +1,8 @@
 import { test, expect } from 'bun:test'
 import type { Address } from 'viem'
 import type { Asset } from '@evmb/assets'
-import { book, type ActivityItem, type Offer } from '@evmb/swap'
-import { takenBy, activityText, allowText, takeFlash, crosses, exactText, formQuote, makerLabel, pickPair, rowOf, statsText } from '../src/swap/ui'
+import { book, type ActivityItem, type Offer, type TakeReport } from '@evmb/swap'
+import { reportFmt, reportJson, reportLabels, takenBy, activityText, allowText, takeFlash, crosses, exactText, formQuote, makerLabel, pickPair, rowOf, statsText } from '../src/swap/ui'
 
 const a = (n: number) => `0x${n.toString(16).padStart(40, '0')}` as Address
 const tok = (n: number, symbol: string, decimals: number): Asset => ({
@@ -119,4 +119,35 @@ test('takenBy names the taker stored on the filled offer, nothing otherwise', ()
   expect(takenBy(o, name)).toBe('tester')
   expect(takenBy(rowOf(o, GBP, USD)!, name)).toBe('tester')
   expect(takenBy({ ...o, status: 'open', taker: undefined, filledBlock: undefined }, name)).toBeUndefined()
+})
+
+const report = (over: Partial<TakeReport> = {}) => ({
+  outcome: 'taken', tx: `0x${'ab'.repeat(32)}`, block: 7n, txIndex: 0, gasUsed: 91_234n, swap: a(5), taker: a(8),
+  offer: { ...offer(4, GBP, 50_000n, USD, 635_000_000n, 'filled'), taker: a(8), filledBlock: 7n },
+  title: 'Offer #4 taken', pill: 'Settled · 1 transaction', summary: `{name:${a(8)}} paid {amount:${a(2)}:635000000}, {name:${a(6)}} watched`,
+  kpis: [], steps: [], balanceChanges: [{ holder: a(5), token: a(1), delta: -50_000n }, { holder: a(8), token: a(2), delta: -635_000_000n }],
+  balanceNote: '', logs: [], ...over,
+}) as TakeReport
+
+test('reportLabels: account names, the Swap as "Swap", everyone else short', () => {
+  const people = [{ label: 'tester', address: a(8).toUpperCase().replace('0X', '0x') }, { label: 'me', address: a(9) }]
+  expect(reportLabels(report(), people)).toEqual({ [a(5)]: 'Swap', [a(8)]: 'tester', [a(9)]: 'me', [a(6)]: '0x0000…0006' })
+})
+
+test('reportJson: the report plus labels, bigints as decimal strings, round-trips through JSON.parse', () => {
+  const labels = { [a(8)]: 'tester' }
+  const j = JSON.parse(reportJson(report(), labels))
+  expect(j.labels).toEqual(labels)
+  expect([j.block, j.gasUsed, j.offer.id, j.offer.giveAmt, j.offer.filledBlock, j.balanceChanges[1].delta]).toEqual(['7', '91234', '4', '50000', '7', '-635000000'])
+  expect(j.summary).toBe(report().summary)
+  expect(JSON.parse(JSON.stringify(j))).toEqual(j)
+})
+
+test('reportFmt fills names, symbols, 2 dp amounts and the 4 dp price per the mockup', () => {
+  const f = reportFmt({ [a(8)]: 'tester' }, [GBP, USD])
+  expect(f.name(a(8))).toBe('tester')
+  expect(f.name(a(6))).toBe('0x0000…0006')
+  expect([f.symbol(a(2)), f.amount(635_000_000n, a(2)), f.amount(50_000n, a(1))]).toEqual(['USD', '635.00 USD', '500.00 GBP'])
+  expect(f.price(a(1), 50_000n, a(2), 635_000_000n)).toBe('1.2700')
+  expect(f.amount(5n, a(3))).toBe('5 0x0000…0003') // unknown token: raw units and its address
 })

@@ -28,3 +28,16 @@ describe('/swap', () => {
     expect(html).toContain('Select a chain first.')
   })
 })
+
+describe('/swap/report', () => {
+  test('renders inline messages, not a crash, without a chain', async () => {
+    const { createElement: h } = await import('react')
+    const { renderToString } = await import('react-dom/server')
+    const { MemoryRouter } = await import('react-router-dom')
+    const { SwapReport } = await import('../src/pages/SwapReport')
+    const { AppState } = await import('../src/state')
+    const { AppBarProvider } = await import('../src/state/appBar')
+    const html = renderToString(h(MemoryRouter, { initialEntries: ['/swap/report?tx=0x12'] }, h(AppState, null, h(AppBarProvider, null, h(SwapReport)))))
+    expect(html).toContain('Select a chain first.')
+  })
+})

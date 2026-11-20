@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test'
 import { encodeDeployData, encodeFunctionData, getAddress, type Address } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { AssetToken } from '@evmb/contracts'
-import { makeOfferCall, readOffers } from '@evmb/swap'
+import { makeOfferCall, readOffers, takeCall, takeReport } from '@evmb/swap'
 import { kv } from '../src/store/kv'
 import { createChainRegistry } from '../src/chain/registry'
 import { contractsRegistry } from '../src/contracts/registry'
@@ -12,6 +12,8 @@ import type { Account } from '../src/store/accounts'
 
 const key = `0x${'11'.repeat(32)}` as const
 const me: Account = { label: 'me', address: privateKeyToAccount(key).address, privateKey: key }
+const key2 = `0x${'22'.repeat(32)}` as const
+const tester: Account = { label: 'tester', address: privateKeyToAccount(key2).address, privateKey: key2 }
 
 // The page's registries use the shared kv, so the chain registry under test must too.
 function registry() {
@@ -80,3 +82,39 @@ test('a chain made with createFrom finds the copied Swap record and reads the pa
     } finally { await f.dispose() }
   } finally { await p.dispose() }
 })
+
+test('a short-allowance take on a playground chain: the report decodes the revert at the parent block and renders it', async () => {
+  const h = await registry().create('c', 'plain', [me.address, tester.address])
+  try {
+    const swap = await deploySwap(h, me)
+    const tok = async (sym: string) => {
+      const r = await signAndSend(h, me, { data: encodeDeployData({ abi: AssetToken.abi, bytecode: AssetToken.bytecode, args: [sym, sym, 2, 1_000_000n, me.address] }) })
+      return getAddress(r.contractAddress!) as Address
+    }
+    const gbp = await tok('GBP'), usd = await tok('USD')
+    const call = (to: Address, functionName: 'approve' | 'transfer', args: [Address, bigint]) =>
+      signAndSend(h, me, { to, data: encodeFunctionData({ abi: AssetToken.abi, functionName, args }) })
+    await call(gbp, 'approve', [swap, 500n])
+    await signAndSend(h, me, makeOfferCall(swap, gbp, 500n, usd, 635n))
+    await call(usd, 'transfer', [tester.address, 1_000n]) // enough USD, but no allowance to Swap
+    const r = await signAndSend(h, tester, takeCall(swap, 1n))
+    expect(r.status).toBe('reverted')
+
+    const report = await takeReport(h.request, r.hash)
+    expect(report.reason).toBe('allowance')
+    expect(report.reconstructedNow).toBeUndefined()
+    expect(report.error).toMatchObject({ name: 'ERC20InsufficientAllowance', args: { spender: getAddress(swap), allowance: 0n, needed: 635n } })
+
+    const { createElement: el } = await import('react')
+    const { renderToString } = await import('react-dom/server')
+    const { MemoryRouter } = await import('react-router-dom')
+    const { ReportView } = await import('../src/pages/SwapReport')
+    const assets = [gbp, usd].map((address, i) => ({ address, symbol: i ? 'USD' : 'GBP', decimals: 2 }))
+    const html = renderToString(el(MemoryRouter, null, el(ReportView, { report, people: [me, tester], assets: assets as any })))
+      .replace(/<!-- -->/g, '')
+    for (const t of ['Take #1 failed', 'Reverted · allowance', 'What happened', 'Balance changes', 'On-chain record', 'What to do',
+      'Approve Swap to spend at least 6.35 USD from tester, then take the offer again. It is still open at the same price.',
+      'Approve 6.35 USD', 'Back to offers', '0 (reverted)', 'revert ERC20InsufficientAllowance', `/chains/tx/${r.hash}`, 'Swap escrow · GBP'])
+      expect(html).toContain(t)
+  } finally { await h.dispose() }
+}, 60_000)
