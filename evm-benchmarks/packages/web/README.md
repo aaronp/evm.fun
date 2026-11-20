@@ -81,6 +81,17 @@ The **Assets** page lists the selected chain's tokens with the native coin (ETH)
 - **Amounts:** typed amounts go through a custom `parseAmount`, which refuses more fractional digits than the token has decimals, negatives and non-numbers inline before anything is signed.
 - **Chains:** assets travel with snapshots, exports, forks and imports (the fork's assets carry its own chain id; the parent is unchanged). Benchmark (ephemeral) chains keep no asset records, so Import and Launch are disabled there.
 
+## Swap
+
+**Swap** is a same-chain, escrowed token exchange (`Swap.sol`, helpers in `@evmb/swap`, see [packages/swap/README.md](../swap/README.md); ADR-0016). One Swap per chain.
+
+- **Deploy:** "Deploy Swap.sol" in Studio, or "Deploy Swap.sol?" on the Swap page of a chain that has none. The newest contract record named `Swap` with a Swap ABI is the chain's Swap. Benchmark (ephemeral) chains keep no contract records, so both are disabled there ("Benchmark chains keep no contract records").
+- **Page:** pick a base and a quote from the chain's ERC-20s ("Acting as" chooses the account). The book shows asks and bids at four decimals with the spread; click an offer to take it. Make an offer (sell or buy) escrows the give amount ("Create offer & escrow"); a crossing offer gets an advisory note, Swap does not match offers. "Your offers" lists the account's offers of every status and can cancel open ones. Offers, balances and allowances are always read from the chain.
+- **Taking:** a take is always sendable. A take with too little allowance or balance lands reverted and moves nothing. The page stays put and shows a flash with "View report →".
+- **Reports:** the report page explains a take from the chain alone (what happened, balance changes, on-chain record, Download JSON), for a success, a missing allowance and an already taken or cancelled offer. Failures are replayed at the parent block while it is inside the playground chain's 256-block state history; older ones fall back to the latest state and say so. A swap's Activity lists offers, takes, cancels, reverted takes and approvals.
+- **Chains:** offers live in the contract, so they travel with snapshots, exports, forks and imports; a fork shows the parent's offers and its own Swap record.
+- **Limits:** ERC-20 only (no native ETH), each offer fills whole, no named markets, the book, "your offers" and Activity reads grow with chain history (risks R17, R19, R20).
+
 ## Themes
 
 Three themes: **dark**, **light** and **paper** (warm off-white). Colours are CSS custom properties (`--c-*`) defined once per theme in `src/theme/tokens.css` and mapped to Tailwind colours in `src/index.css`; components use only those tokens.
