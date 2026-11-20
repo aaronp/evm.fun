@@ -4,7 +4,7 @@ import { renderToString } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import type { Asset } from '@evmb/assets'
 import { bundled } from '../walkthroughs'
-import { WizardProvider } from '../src/walkthrough/wizard'
+import { WizardProvider, useWizard, type Wizard } from '../src/walkthrough/wizard'
 import { AppState } from '../src/state'
 import { AppBarProvider } from '../src/state/appBar'
 import { newRun } from '../src/walkthrough/run'
@@ -26,7 +26,7 @@ const asset = (o: Outputs['launchAsset']) => ({ kind: 'erc20', chainId: 'c1', id
 
 const render = (el: any, seed?: { run: Run; index: number }) =>
   renderToString(h(MemoryRouter, null, h(AppState, null, h(AppBarProvider, null, seed ? h(WizardProvider, { seed: { w, ...seed } }, el) : el)))).replaceAll('<!-- -->', '')
-const offerCard = () => h(MakeOfferCard, { base: asset(GBP), quote: asset(USD), funds: () => ({}), busy: false, onApprove() {}, onCreate: async () => true })
+const offerCard = (funds = () => ({})) => h(MakeOfferCard, { base: asset(GBP), quote: asset(USD), funds, busy: false, onApprove() {}, onCreate: async () => ({ made: true }) })
 const wzAttrs = (html: string) => html.match(/data-wz-[\w-]+/g) ?? []
 
 describe('pages in a walkthrough', () => {
@@ -51,5 +51,20 @@ describe('pages outside a walkthrough', () => {
     }
     expect(render(h(Accounts))).toContain('data-wizard="account.create"')
     expect(render(offerCard())).toContain('data-wizard="offer.create"')
+  })
+})
+
+describe('fix round 1', () => {
+  test("a failing action rejects with the page's own message, so Next shows it as the step error", async () => {
+    let c: Wizard | null = null
+    const Probe = () => { c = useWizard(); return null }
+    render(h('div', null, offerCard(() => ({ bal: 0n, alw: 0n })), h(Probe)), { run: beforeOffer(), index: at('offer') })
+    const press = c!.actions.get('offer.create')!
+    expect(press).toBeDefined()
+    await expect(Promise.resolve(press())).rejects.toThrow('Not enough GBP — you have 0')
+  })
+  test('an offer id that is not a number (edited JSON) does not crash Swap', () => {
+    const run: Run = { ...beforeOffer(), values: { ...beforeOffer().values, offer: { offerId: 'x', tx: `0x${'ab'.repeat(32)}` } } }
+    expect(() => render(h(Swap), { run, index: at('take') })).not.toThrow()
   })
 })

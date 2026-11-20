@@ -12,7 +12,12 @@ import type { Outputs, Run, Step, StepType, Walkthrough } from './types'
 
 type Active = { w: Walkthrough; run: Run; index: number }
 export type CheckResult = Awaited<ReturnType<typeof checks>>[number]
-type Press = () => void | Promise<void>
+/** What a page's handler returns: its error message when it did not succeed, else nothing. */
+export type Outcome = string | undefined | void
+type Press = () => Outcome | Promise<Outcome>
+/** Wraps a page handler for `useWizardAction`: throws the page's own message, so Next shows it as the step's error. */
+export const orThrow = async (o: Outcome | Promise<Outcome>) => { const e = await o; if (e) throw new Error(e) }
+const tick = () => new Promise(r => setTimeout(r, 50))
 export type Layout = 'horizontal' | 'vertical'
 
 export type Wizard = {
@@ -34,6 +39,8 @@ export type Wizard = {
   initial(id: string): string | undefined
   values: Record<string, string>
   filled: Record<string, string>
+  /** bumped after Next switched chain/account: bound fields the switch emptied are filled again */
+  refill: number
   bump(): void
   report(id: string, outputs: Outputs[StepType]): void
 }
@@ -73,6 +80,7 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
   const [layout, setLayoutState] = useState<Layout>(() => read(LAYOUT) === 'vertical' ? 'vertical' : 'horizontal')
   const [focus, setFocusState] = useState(() => read(FOCUS) !== '0')
   const [version, setVersion] = useState(0)
+  const [refill, setRefill] = useState(0)
   const actions = useRef(new Map<string, Press>()).current
   const fields = useRef({ values: {} as Record<string, string>, filled: {} as Record<string, string> }).current
   const bump = useCallback(() => setVersion(v => v + 1), [])
@@ -195,12 +203,28 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
           return
         }
       }
-      if (location.pathname + location.search !== path) navigate(path)
-      if (step.do === 'view') { setRun(record(w, run, step, {})); return }
+      if (step.do === 'view') {
+        if (location.pathname + location.search !== path) navigate(path)
+        setRun(record(w, run, step, {})); return
+      }
+      // chain and acting account first, and wait until the app (and so the page) has them: an action already
+      // registered must not be pressed with the closure of the previous account
       const chain = chainOf(w, run)
-      if (chain && app?.chain?.info.id !== chain.id) await app?.selectChain(chain.id)
       const from = step.args?.from ? addressOf(run, step.args.from) : undefined
-      if (from) app?.selectAccount(from)
+      const ready = () => {
+        const a = latest.current.app
+        return (!chain || a?.chain?.info.id === chain.id) && (!from || a?.account?.toLowerCase() === from.toLowerCase())
+      }
+      if (!ready()) {
+        if (chain && app?.chain?.info.id !== chain.id) await app?.selectChain(chain.id)
+        if (from) app?.selectAccount(from)
+        for (let i = 0; i < 100 && !ready(); i++) await tick()
+        if (!ready()) throw new Error("Couldn't switch to the walkthrough's chain and account.")
+        await tick() // the page's effects for the switch (e.g. Swap clearing its selection) run first
+        setRefill(n => n + 1)
+      }
+      if (location.pathname + location.search !== path) navigate(path)
+      await tick() // the page re-renders (or mounts) before its actions are looked up
       // ponytail: polls for the page to mount and register; 5 s ceiling, an event per registration if it's ever too slow
       let id: string | undefined
       for (let i = 0; i < 100 && !(id = lastRegistered(b.actions, actions)); i++) await new Promise(r => setTimeout(r, 50))
@@ -240,9 +264,9 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
     // the step's own failure first, then why its values can't be worked out, then why done/checks couldn't be read
     error: error ?? initialError ?? (status.run === run && step ? status.errors[step.id] : undefined), busy, reused,
     start, restart, exit, next, back, layout, setLayout, focus, setFocus,
-    actions, values: fields.values, filled: fields.filled, bump, report,
+    actions, values: fields.values, filled: fields.filled, refill, bump, report,
     initial: (id: string) => (step && run?.steps[step.id]?.inputs[id]) ?? initials[id],
-  }), [w, run, index, status, error, initialError, busy, reused, layout, focus, version, initials]) // eslint-disable-line react-hooks/exhaustive-deps
+  }), [w, run, index, status, error, initialError, busy, reused, layout, focus, version, refill, initials]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
@@ -256,11 +280,16 @@ export function useWizardField(id: string, value: string, set: (v: string) => vo
   const c = useContext(Ctx)
   const key = c?.step && c.run && c.b!.fields.includes(id) ? `${c.run.started}\0${c.step.id}` : undefined
   const [filled, setFilled] = useState<string>()
+  const [refilled, setRefilled] = useState<number>()
   if (!c || !key) return
+  const fill = () => { const v = c.initial(id); if (v !== undefined) { c.filled[id] = v; set(v) } }
   if (filled !== key) {
     setFilled(key)
-    const v = c.initial(id)
-    if (v !== undefined) { c.filled[id] = v; set(v) }
+    setRefilled(c.refill)
+    fill()
+  } else if (refilled !== c.refill) {
+    setRefilled(c.refill)
+    if (value === '') fill() // only what the switch emptied; the user's edits stay
   }
   c.values[id] = value
 }

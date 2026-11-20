@@ -8,7 +8,7 @@ import { parseAmount, shortAddress } from '../assets/ui'
 import { Button } from '../ui/button'
 import { fieldLabel, Input, Select } from '../ui/input'
 import { Notice } from '../ui/notice'
-import { useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
+import { orThrow, useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
 import { WizardInline } from './WizardInline'
 
 /** Native modal, mounted per open (state resets on unmount); the parent unmounts it on onClose. */
@@ -32,19 +32,21 @@ export function LaunchAssetDialog({ chain, accounts, onLaunched, onSent, onClose
   useWizardField('launch.supply', supply, setSupply)
   useWizardField('launch.issuer', issuer, setIssuer)
   const report = useWizardReport(), mark = useWizardMark()
-  useWizardAction('launch.submit', busy || stuck ? undefined : launch)
+  useWizardAction('launch.submit', busy || stuck ? undefined : () => orThrow(launch()))
 
+  /** returns the error message when it failed */
   async function launch() {
+    const fail = (e: string) => (setErr(e), e)
     setErr(undefined)
     const n = name.trim(), s = symbol.trim()
-    if (!n || !s) return setErr('Name and symbol are required.')
-    if (n.length > MAX_NAME || s.length > MAX_NAME) return setErr(`Name and symbol are at most ${MAX_NAME} characters.`)
+    if (!n || !s) return fail('Name and symbol are required.')
+    if (n.length > MAX_NAME || s.length > MAX_NAME) return fail(`Name and symbol are at most ${MAX_NAME} characters.`)
     const dec = Number(decimals)
-    if (!/^\d+$/.test(decimals.trim()) || dec > 255) return setErr('Decimals is a whole number from 0 to 255.')
+    if (!/^\d+$/.test(decimals.trim()) || dec > 255) return fail('Decimals is a whole number from 0 to 255.')
     const sup = parseAmount(supply, dec)
-    if ('error' in sup) return setErr(`Initial supply: ${sup.error}`)
+    if ('error' in sup) return fail(`Initial supply: ${sup.error}`)
     const from = accounts.find(a => a.address === issuer)
-    if (!from) return setErr('Select an issuer account first.')
+    if (!from) return fail('Select an issuer account first.')
     setBusy(true)
     try {
       const a = await launchToken(chain, from, { name: n, symbol: s, decimals: dec, supply: sup.ok }, onSent)
@@ -53,8 +55,8 @@ export function LaunchAssetDialog({ chain, accounts, onLaunched, onSent, onClose
       ref.current?.close()
     } catch (e) {
       if (e instanceof NotSavedError) setStuck(true)
-      setErr(e instanceof Error ? e.message : String(e))
       setBusy(false)
+      return fail(e instanceof Error ? e.message : String(e))
     }
   }
 

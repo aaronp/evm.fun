@@ -5,7 +5,7 @@ import { amountText, crosses, exactText, formQuote } from '../swap/ui'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { card, solid, type Funds } from './TakePanel'
-import { useWizardAction, useWizardField, useWizardMark } from '../walkthrough/wizard'
+import { orThrow, useWizardAction, useWizardField, useWizardMark, type Outcome } from '../walkthrough/wizard'
 
 const label = 'text-xs font-medium text-muted'
 const input = 'min-h-11 rounded-[10px] px-3 font-mono font-medium'
@@ -13,9 +13,10 @@ const input = 'min-h-11 rounded-[10px] px-3 font-mono font-medium'
 /** "Make an offer": side, amount and price; approve the exact escrow when short, then create. */
 export function MakeOfferCard({ base, quote, book: b, funds, busy, onApprove, onCreate }: {
   base: Asset; quote: Asset; book?: ReturnType<typeof book>; funds: Funds; busy: boolean
-  onApprove(a: Asset, amount: bigint): void
-  /** resolves true once the offer exists */
-  onCreate(give: { asset: Asset; amount: bigint }, get: { asset: Asset; amount: bigint }): Promise<boolean>
+  /** resolves to the error message when it failed */
+  onApprove(a: Asset, amount: bigint): Outcome | Promise<Outcome>
+  /** `made` once the offer exists; `error` when it failed (or its id couldn't be read) */
+  onCreate(give: { asset: Asset; amount: bigint }, get: { asset: Asset; amount: bigint }): Promise<{ made: boolean; error?: string }>
 }) {
   const [side, setSide] = useState<Side>('ask')
   const [amount, setAmount] = useState('')
@@ -35,14 +36,18 @@ export function MakeOfferCard({ base, quote, book: b, funds, busy, onApprove, on
   const leg = (l?: { asset: Asset; amount: bigint }) => (l ? `${exactText(l.amount, l.asset.decimals)} ${l.asset.symbol}` : '—')
   const sell = side === 'ask'
 
+  /** returns the error message when it failed */
   async function create() {
-    if (!ready) return setError((q as { error: string }).error)
+    const fail = (e: string) => (setError(e), e)
+    if (!ready) return fail((q as { error: string }).error)
     if (bal !== undefined && bal < ready.give.amount)
-      return setError(`Not enough ${ready.give.asset.symbol} — you have ${amountText(bal, ready.give.asset.decimals)}.`)
-    if (await onCreate(ready.give, ready.get)) { setAmount(''); setPrice(''); setError(undefined) }
+      return fail(`Not enough ${ready.give.asset.symbol} — you have ${amountText(bal, ready.give.asset.decimals)}.`)
+    const { made, error } = await onCreate(ready.give, ready.get)
+    if (made) { setAmount(''); setPrice(''); setError(undefined) }
+    return error
   }
-  useWizardAction('offer.approve', needsApprove && !busy ? () => onApprove(ready!.give.asset, ready!.give.amount) : undefined)
-  useWizardAction('offer.create', !needsApprove && !busy ? create : undefined)
+  useWizardAction('offer.approve', needsApprove && !busy ? () => orThrow(onApprove(ready!.give.asset, ready!.give.amount)) : undefined)
+  useWizardAction('offer.create', !needsApprove && !busy ? () => orThrow(create()) : undefined)
   const pick = (s: Side) => { setSide(s); setError(undefined) }
   const sideBtn = (s: Side, text: string) => (
     <button aria-pressed={side === s} onClick={() => pick(s)}

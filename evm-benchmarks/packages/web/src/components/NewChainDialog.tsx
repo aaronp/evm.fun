@@ -8,7 +8,7 @@ import { useApp } from '../state'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Notice } from '../ui/notice'
-import { useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
+import { orThrow, useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
 import { WizardInline } from './WizardInline'
 
 /** Native modal; the parent opens it with ref.current.showModal(). Esc/Cancel close it, and the browser restores focus to the opener. */
@@ -30,7 +30,7 @@ export function NewChainDialog({ dialogRef }: { dialogRef: RefObject<HTMLDialogE
   }, [dialogRef])
   useWizardField('chain.name', name, setName)
   const report = useWizardReport(), mark = useWizardMark()
-  useWizardAction('chain.create', open && !busy ? create : undefined)
+  useWizardAction('chain.create', open && !busy ? () => orThrow(create()) : undefined)
   const reset = () => { setName(''); setOff(new Set()); setErr(undefined) }
 
   async function create() {
@@ -43,7 +43,9 @@ export function NewChainDialog({ dialogRef }: { dialogRef: RefObject<HTMLDialogE
       report('chain.create', { id: h.info.id, name: h.info.name })
       dialogRef.current?.close()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      const m = e instanceof Error ? e.message : String(e)
+      setErr(m)
+      return m
     } finally {
       setBusy(false)
     }

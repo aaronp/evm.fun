@@ -19,7 +19,7 @@ import { Activity, MyOffers } from '../components/SwapActivity'
 import { Button } from '../ui/button'
 import { Select } from '../ui/input'
 import { Notice } from '../ui/notice'
-import { useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
+import { orThrow, useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
 
 const stat = 'flex flex-col gap-1 rounded-xl border border-line-strong bg-surface px-3.5 py-3'
 const statLabel = 'text-xs text-muted'
@@ -49,8 +49,9 @@ export function Swap() {
   const reconciled = useRef(new Set<string>())
   const chainId = chain?.info.id
   const shown = useRef(chain) // the chain the selection belongs to: a walkthrough's selection set on mount survives
-  useWizardField('take.offer', String(selected ?? ''), v => setSelected(BigInt(v)))
+  useWizardField('take.offer', String(selected ?? ''), v => { if (/^\d+$/.test(v)) setSelected(BigInt(v)) })
   const report = useWizardReport(), mark = useWizardMark()
+  const failed = useRef<string>(undefined) // send's last failure, for a walkthrough's Next
 
   useEffect(() => {
     setSwap(null); setAssets([]); setErr(undefined); setFlash(undefined)
@@ -116,7 +117,7 @@ export function Swap() {
       : undefined,
   })
 
-  useWizardAction('swap.deploy', chain && !chain.info.ephemeral && swap === undefined && acting && !deploying ? deploy : undefined)
+  useWizardAction('swap.deploy', chain && !chain.info.ephemeral && swap === undefined && acting && !deploying ? () => orThrow(deploy()) : undefined)
 
   const working = busy || deploying // no chain or pair switch while a tx is in flight
   useEffect(() => { lockChain(working); return () => lockChain(false) }, [working, lockChain])
@@ -130,30 +131,32 @@ export function Swap() {
       const s = await deploySwap(chain, acting, bumpBalance)
       setSwap(s)
       report('swap.deploy', { address: s })
-    } catch (e) { setErr(msg(e)) } finally { setDeploying(false) }
+    } catch (e) { setErr(msg(e)); return msg(e) } finally { setDeploying(false) }
   }
 
   /** Sign and send from the acting account; a revert is an error unless the caller wants the receipt anyway (takes). */
   async function send(tx: { to: Address; data: Hex }, revertOk = false) {
-    if (!chain || !acting || busy) return
+    failed.current = undefined
+    if (!chain || !acting || busy) { failed.current = 'Another transaction is still in flight.'; return }
     setBusy(true); setErr(undefined); setFlash(undefined)
     try {
       const r = await signAndSend(chain, acting, tx, bumpBalance)
       if (r.status === 'success' || (revertOk && r.status === 'reverted')) return r
-      setErr(`Transaction ${r.status}${r.error ? `: ${r.error}` : ''}`)
-    } catch (e) { setErr(msg(e)) } finally { setBusy(false) }
+      setErr(failed.current = `Transaction ${r.status}${r.error ? `: ${r.error}` : ''}`)
+    } catch (e) { setErr(failed.current = msg(e)) } finally { setBusy(false) }
   }
   /** `id`: the card's approve action, reported to a walkthrough */
   async function approve(a: Asset, amount: bigint, id: string) {
     const r = await send(approveCall(a, swap!, amount))
-    if (r) report(id, { tx: r.hash })
+    if (!r) return failed.current
+    report(id, { tx: r.hash })
   }
   async function take(id: bigint, paySymbol: string) {
     const r = await send(takeCall(swap!, id), true)
-    if (!r) return
+    if (!r) return failed.current
     if (r.status === 'success') {
       report('take.submit', { tx: r.hash, reverted: false })
-      return setFlash({ text: takeFlash(id, 'success'), tone: 'success', tx: r.hash })
+      return void setFlash({ text: takeFlash(id, 'success'), tone: 'success', tx: r.hash })
     }
     const rep = await takeReport(chain!.request, r.hash).catch(() => undefined), reason = rep?.reason
     report('take.submit', { tx: r.hash, reverted: true, ...(rep?.error && { error: rep.error.name }) })
@@ -162,13 +165,14 @@ export function Swap() {
   const cancel = async (id: bigint) => { if (await send(cancelCall(swap!, id))) setFlash({ text: `Offer #${id} cancelled; escrow returned.`, tone: 'success' }) }
   async function create(give: { asset: Asset; amount: bigint }, get: { asset: Asset; amount: bigint }) {
     const r = await send(makeOfferCall(swap!, give.asset.address as Address, give.amount, get.asset.address as Address, get.amount))
-    if (!r) return false
+    if (!r) return { made: false, error: failed.current }
     const rc = (await chain!.request('eth_getTransactionReceipt', [r.hash]).catch(() => null)) as { logs: Parameters<typeof parseEventLogs>[0]['logs'] } | null
     const id = rc && parseEventLogs({ abi: swapAbi, eventName: 'OfferMade', logs: rc.logs })[0]?.args.id
     setFlash({ text: `Offer${id ? ` #${id}` : ''} created; ${amountText(give.amount, give.asset.decimals)} ${give.asset.symbol} moved into escrow.`, tone: 'success' })
     if (id) setSelected(id)
-    if (id !== undefined) report('offer.create', { offerId: String(id), tx: r.hash })
-    return true
+    if (id === undefined) return { made: true, error: `Offer created, but no OfferMade event was found in ${r.hash}.` }
+    report('offer.create', { offerId: String(id), tx: r.hash })
+    return { made: true }
   }
 
   const setPair = (b: string, q: string) => setParams({ base: b, quote: q }, { replace: true })

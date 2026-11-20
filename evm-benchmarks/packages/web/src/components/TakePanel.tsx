@@ -3,7 +3,7 @@ import { priceText, type BookRow } from '@evmb/swap'
 import { allowText, amountText } from '../swap/ui'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
-import { useWizardAction, useWizardMark } from '../walkthrough/wizard'
+import { orThrow, useWizardAction, useWizardMark, type Outcome } from '../walkthrough/wizard'
 
 export const card = 'rounded-2xl border border-line-strong bg-surface'
 export const statusTone = { open: 'accent', filled: 'success', cancelled: 'neutral', none: 'neutral' } as const
@@ -21,7 +21,8 @@ const big = 'font-mono text-base font-semibold'
 /** "Take offer #n" for the selected book row: checks, approve, take; the maker's own offer offers Cancel instead. */
 export function TakePanel({ row, base, quote, maker, own, funds, busy, onApprove, onTake, onCancel }: {
   row?: BookRow; base: Asset; quote: Asset; maker: string; own: boolean; funds: Funds; busy: boolean
-  onApprove(a: Asset, amount: bigint): void; onTake(): void; onCancel(): void
+  /** onApprove/onTake resolve to the error message when they failed */
+  onApprove(a: Asset, amount: bigint): Outcome | Promise<Outcome>; onTake(): Outcome | Promise<Outcome>; onCancel(): void
 }) {
   const wz = useWizardMark()
   const [pay, give] = row?.side === 'ask' ? [quote, base] : [base, quote]
@@ -31,8 +32,8 @@ export function TakePanel({ row, base, quote, maker, own, funds, busy, onApprove
   const alwShort = alw !== undefined && alw < payAmt
   const needsApprove = alwShort && !balShort
   const takeable = open && !own && !busy
-  useWizardAction('take.approve', takeable && needsApprove ? () => onApprove(pay, payAmt) : undefined)
-  useWizardAction('take.submit', takeable ? onTake : undefined)
+  useWizardAction('take.approve', takeable && needsApprove ? () => orThrow(onApprove(pay, payAmt)) : undefined)
+  useWizardAction('take.submit', takeable ? () => orThrow(onTake()) : undefined)
   if (!row) return (
     <section {...wz('take.card')} aria-labelledby="tk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
       <h2 id="tk-h" className="text-sm font-semibold">Take offer</h2>
