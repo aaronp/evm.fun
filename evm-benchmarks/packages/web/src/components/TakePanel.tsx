@@ -3,6 +3,7 @@ import { priceText, type BookRow } from '@evmb/swap'
 import { allowText, amountText } from '../swap/ui'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
+import { useWizardAction, useWizardMark } from '../walkthrough/wizard'
 
 export const card = 'rounded-2xl border border-line-strong bg-surface'
 export const statusTone = { open: 'accent', filled: 'success', cancelled: 'neutral', none: 'neutral' } as const
@@ -22,21 +23,25 @@ export function TakePanel({ row, base, quote, maker, own, funds, busy, onApprove
   row?: BookRow; base: Asset; quote: Asset; maker: string; own: boolean; funds: Funds; busy: boolean
   onApprove(a: Asset, amount: bigint): void; onTake(): void; onCancel(): void
 }) {
-  if (!row) return (
-    <section aria-labelledby="tk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
-      <h2 id="tk-h" className="text-sm font-semibold">Take offer</h2>
-      <p className="text-[13px] text-muted">Click an offer to take it.</p>
-    </section>
-  )
-  const [pay, give] = row.side === 'ask' ? [quote, base] : [base, quote]
-  const payAmt = row.getAmt, open = row.status === 'open'
-  const payText = `${amountText(payAmt, pay.decimals)} ${pay.symbol}`
+  const wz = useWizardMark()
+  const [pay, give] = row?.side === 'ask' ? [quote, base] : [base, quote]
+  const payAmt = row?.getAmt ?? 0n, open = row?.status === 'open'
   const { bal, alw } = funds(pay)
   const balShort = bal !== undefined && bal < payAmt
   const alwShort = alw !== undefined && alw < payAmt
   const needsApprove = alwShort && !balShort
+  const takeable = open && !own && !busy
+  useWizardAction('take.approve', takeable && needsApprove ? () => onApprove(pay, payAmt) : undefined)
+  useWizardAction('take.submit', takeable ? onTake : undefined)
+  if (!row) return (
+    <section {...wz('take.card')} aria-labelledby="tk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
+      <h2 id="tk-h" className="text-sm font-semibold">Take offer</h2>
+      <p className="text-[13px] text-muted">Click an offer to take it.</p>
+    </section>
+  )
+  const payText = `${amountText(payAmt, pay.decimals)} ${pay.symbol}`
   return (
-    <section aria-labelledby="tk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
+    <section {...wz('take.card')} aria-labelledby="tk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
       <div className="flex items-center justify-between">
         <h2 id="tk-h" className="text-sm font-semibold">Take offer <span className="font-mono text-subtle">#{String(row.id)}</span></h2>
         <Badge variant={statusTone[row.status]}>{row.status}</Badge>
@@ -57,9 +62,9 @@ export function TakePanel({ row, base, quote, maker, own, funds, busy, onApprove
           <li className="flex gap-2">{mark(alw === undefined ? undefined : !alwShort)}<span>{alw === undefined ? `Swap may spend … ${pay.symbol}` : alwShort ? `Swap may spend ${allowText(alw, pay.decimals)} ${pay.symbol} — needs ${amountText(payAmt, pay.decimals)}` : 'Swap is allowed to spend it'}</span></li>
         </ul>
         <div className="mt-auto flex flex-col gap-2">
-          {needsApprove && <Button className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={() => onApprove(pay, payAmt)}>1 · Approve {payText}</Button>}
+          {needsApprove && <Button {...wz('take.approve')} className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={() => onApprove(pay, payAmt)}>1 · Approve {payText}</Button>}
           {/* always sendable: a short allowance or balance lands a reverted tx whose report explains it */}
-          <button className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={busy} onClick={onTake}>
+          <button {...wz('take.submit')} className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={busy} onClick={onTake}>
             {needsApprove ? '2 · ' : ''}Take #{String(row.id)} · pay {payText}
           </button>
           <span className="text-xs leading-normal text-subtle">One transaction: your {pay.symbol} goes to {maker} and the escrowed {give.symbol} comes to you — or neither happens.</span>

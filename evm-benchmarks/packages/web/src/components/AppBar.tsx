@@ -2,9 +2,11 @@ import { Link } from 'react-router-dom'
 import { Button } from '../ui/button'
 import { Segmented } from '../ui/segmented'
 import { useAppBarConfig } from '../state/appBar'
+import { useWizardMark } from '../walkthrough/wizard'
 
 export function AppBar() {
   const c = useAppBarConfig()
+  const mark = useWizardMark()
   if (!c) return null
   return (
     <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
@@ -28,7 +30,7 @@ export function AppBar() {
         <div className="flex flex-wrap items-center gap-2">
           {c.actions.map(a => a.kind === 'button' ? (
             <span key={a.id} title={a.title ?? a.label} className="inline-flex">{/* a disabled button shows no tooltip itself */}
-              <Button variant={a.text && !a.primary ? 'bar' : a.primary ? 'primary' : 'ghost'} size={a.text ? (a.primary ? 'barPrimary' : 'bar') : 'sm'} title={a.title ?? a.label} disabled={a.disabled} onClick={a.onClick}>
+              <Button {...a.wizard && mark(a.wizard)} variant={a.text && !a.primary ? 'bar' : a.primary ? 'primary' : 'ghost'} size={a.text ? (a.primary ? 'barPrimary' : 'bar') : 'sm'} title={a.title ?? a.label} disabled={a.disabled} onClick={a.onClick}>
                 {a.icon}<span className={a.text ? '' : 'sr-only'}>{a.label}</span>
               </Button>
             </span>

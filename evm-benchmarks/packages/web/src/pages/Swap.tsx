@@ -19,6 +19,7 @@ import { Activity, MyOffers } from '../components/SwapActivity'
 import { Button } from '../ui/button'
 import { Select } from '../ui/input'
 import { Notice } from '../ui/notice'
+import { useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
 
 const stat = 'flex flex-col gap-1 rounded-xl border border-line-strong bg-surface px-3.5 py-3'
 const statLabel = 'text-xs text-muted'
@@ -47,9 +48,13 @@ export function Swap() {
   const setFlash = (f?: { text: string; tone: 'success' | 'danger'; tx?: Hex }) => setFlashOn(f && { ...f, chainId: chain?.info.id })
   const reconciled = useRef(new Set<string>())
   const chainId = chain?.info.id
+  const shown = useRef(chain) // the chain the selection belongs to: a walkthrough's selection set on mount survives
+  useWizardField('take.offer', String(selected ?? ''), v => setSelected(BigInt(v)))
+  const report = useWizardReport(), mark = useWizardMark()
 
   useEffect(() => {
-    setSwap(null); setAssets([]); setErr(undefined); setFlash(undefined); setSelected(undefined)
+    setSwap(null); setAssets([]); setErr(undefined); setFlash(undefined)
+    if (shown.current !== chain) { shown.current = chain; setSelected(undefined) }
     if (!chain) return
     let live = true
     const id = chain.info.id
@@ -111,6 +116,8 @@ export function Swap() {
       : undefined,
   })
 
+  useWizardAction('swap.deploy', chain && !chain.info.ephemeral && swap === undefined && acting && !deploying ? deploy : undefined)
+
   const working = busy || deploying // no chain or pair switch while a tx is in flight
   useEffect(() => { lockChain(working); return () => lockChain(false) }, [working, lockChain])
 
@@ -119,7 +126,11 @@ export function Swap() {
   async function deploy() {
     if (!chain || !acting || deploying) return
     setDeploying(true); setErr(undefined)
-    try { setSwap(await deploySwap(chain, acting, bumpBalance)) } catch (e) { setErr(msg(e)) } finally { setDeploying(false) }
+    try {
+      const s = await deploySwap(chain, acting, bumpBalance)
+      setSwap(s)
+      report('swap.deploy', { address: s })
+    } catch (e) { setErr(msg(e)) } finally { setDeploying(false) }
   }
 
   /** Sign and send from the acting account; a revert is an error unless the caller wants the receipt anyway (takes). */
@@ -132,12 +143,20 @@ export function Swap() {
       setErr(`Transaction ${r.status}${r.error ? `: ${r.error}` : ''}`)
     } catch (e) { setErr(msg(e)) } finally { setBusy(false) }
   }
-  const approve = (a: Asset, amount: bigint) => void send(approveCall(a, swap!, amount))
+  /** `id`: the card's approve action, reported to a walkthrough */
+  async function approve(a: Asset, amount: bigint, id: string) {
+    const r = await send(approveCall(a, swap!, amount))
+    if (r) report(id, { tx: r.hash })
+  }
   async function take(id: bigint, paySymbol: string) {
     const r = await send(takeCall(swap!, id), true)
     if (!r) return
-    if (r.status === 'success') return setFlash({ text: takeFlash(id, 'success'), tone: 'success', tx: r.hash })
-    const reason = await takeReport(chain!.request, r.hash).then(x => x.reason, () => undefined)
+    if (r.status === 'success') {
+      report('take.submit', { tx: r.hash, reverted: false })
+      return setFlash({ text: takeFlash(id, 'success'), tone: 'success', tx: r.hash })
+    }
+    const rep = await takeReport(chain!.request, r.hash).catch(() => undefined), reason = rep?.reason
+    report('take.submit', { tx: r.hash, reverted: true, ...(rep?.error && { error: rep.error.name }) })
     setFlash({ text: takeFlash(id, 'reverted', reason, paySymbol), tone: 'danger', tx: r.hash })
   }
   const cancel = async (id: bigint) => { if (await send(cancelCall(swap!, id))) setFlash({ text: `Offer #${id} cancelled; escrow returned.`, tone: 'success' }) }
@@ -148,6 +167,7 @@ export function Swap() {
     const id = rc && parseEventLogs({ abi: swapAbi, eventName: 'OfferMade', logs: rc.logs })[0]?.args.id
     setFlash({ text: `Offer${id ? ` #${id}` : ''} created; ${amountText(give.amount, give.asset.decimals)} ${give.asset.symbol} moved into escrow.`, tone: 'success' })
     if (id) setSelected(id)
+    if (id !== undefined) report('offer.create', { offerId: String(id), tx: r.hash })
     return true
   }
 
@@ -210,7 +230,7 @@ export function Swap() {
         <section className={`${card} flex flex-wrap items-center gap-4 px-[22px] py-4`}>
           <p className="flex-1 text-sm text-text-2">{chain.info.name} has no Swap contract yet.</p>
           <span title={acting ? undefined : 'Create an account first'} className="inline-flex">
-            <Button onClick={deploy} disabled={!acting || deploying}>{deploying ? 'Deploying…' : 'Deploy Swap.sol?'}</Button>
+            <Button {...mark('swap.deploy')} onClick={deploy} disabled={!acting || deploying}>{deploying ? 'Deploying…' : 'Deploy Swap.sol?'}</Button>
           </span>
         </section>
       )}
@@ -229,7 +249,7 @@ export function Swap() {
         {flash && flash.chainId === chainId && <Notice tone={flash.tone} action={flash.tx && <Link to={`/swap/report?tx=${flash.tx}${pairQuery}`} className="ml-auto font-semibold">View report →</Link>}>{flash.text}</Notice>}
 
         <div className="flex flex-wrap items-stretch gap-4">
-          <section aria-labelledby="bk-h" className={`${card} flex max-w-[420px] flex-[1_1_340px] flex-col overflow-hidden`}>
+          <section {...mark('take.offer')} aria-labelledby="bk-h" className={`${card} flex max-w-[420px] flex-[1_1_340px] flex-col overflow-hidden`}>
             <div className="flex items-center justify-between border-b border-line px-4 py-3.5">
               <h2 id="bk-h" className="text-sm font-semibold">Open offers</h2>
               <span className="text-xs text-subtle">each fills whole</span>
@@ -249,8 +269,8 @@ export function Swap() {
 
           {base && quote && <>
             <TakePanel row={selRow} base={base} quote={quote} maker={selRow ? makerLabel(selRow.maker, acting?.address, people) : ''} own={!!selRow && isMine(selRow.maker)}
-              funds={funds} busy={busy || !acting} onApprove={approve} onTake={() => selRow && take(selRow.id, (same(selRow.getToken, base.address) ? base : quote).symbol)} onCancel={() => selRow && cancel(selRow.id)} />
-            <MakeOfferCard base={base} quote={quote} book={b} funds={funds} busy={busy || !acting} onApprove={approve} onCreate={create} />
+              funds={funds} busy={busy || !acting} onApprove={(a, n) => approve(a, n, 'take.approve')} onTake={() => selRow && take(selRow.id, (same(selRow.getToken, base.address) ? base : quote).symbol)} onCancel={() => selRow && cancel(selRow.id)} />
+            <MakeOfferCard base={base} quote={quote} book={b} funds={funds} busy={busy || !acting} onApprove={(a, n) => approve(a, n, 'offer.approve')} onCreate={create} />
           </>}
         </div>
 

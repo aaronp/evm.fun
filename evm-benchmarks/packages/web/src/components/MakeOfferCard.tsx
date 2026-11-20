@@ -5,6 +5,7 @@ import { amountText, crosses, exactText, formQuote } from '../swap/ui'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { card, solid, type Funds } from './TakePanel'
+import { useWizardAction, useWizardField, useWizardMark } from '../walkthrough/wizard'
 
 const label = 'text-xs font-medium text-muted'
 const input = 'min-h-11 rounded-[10px] px-3 font-mono font-medium'
@@ -21,6 +22,10 @@ export function MakeOfferCard({ base, quote, book: b, funds, busy, onApprove, on
   const [price, setPrice] = useState('')
   const [error, setError] = useState<string>()
   useEffect(() => setError(undefined), [base, quote])
+  useWizardField('offer.side', side, v => setSide(v as Side))
+  useWizardField('offer.amount', amount, setAmount)
+  useWizardField('offer.price', price, setPrice)
+  const mark = useWizardMark()
 
   const q = formQuote(side, amount, price, base, quote)
   const ready = 'give' in q ? q : undefined
@@ -36,6 +41,8 @@ export function MakeOfferCard({ base, quote, book: b, funds, busy, onApprove, on
       return setError(`Not enough ${ready.give.asset.symbol} — you have ${amountText(bal, ready.give.asset.decimals)}.`)
     if (await onCreate(ready.give, ready.get)) { setAmount(''); setPrice(''); setError(undefined) }
   }
+  useWizardAction('offer.approve', needsApprove && !busy ? () => onApprove(ready!.give.asset, ready!.give.amount) : undefined)
+  useWizardAction('offer.create', !needsApprove && !busy ? create : undefined)
   const pick = (s: Side) => { setSide(s); setError(undefined) }
   const sideBtn = (s: Side, text: string) => (
     <button aria-pressed={side === s} onClick={() => pick(s)}
@@ -43,16 +50,16 @@ export function MakeOfferCard({ base, quote, book: b, funds, busy, onApprove, on
   )
 
   return (
-    <section aria-labelledby="mk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
+    <section {...mark('offer.card')} aria-labelledby="mk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
       <h2 id="mk-h" className="text-sm font-semibold">Make an offer</h2>
-      <div role="group" aria-label="Side" className="grid grid-cols-2 gap-1 rounded-[10px] border border-line bg-panel p-1">
+      <div role="group" aria-label="Side" {...mark('offer.side')} className="grid grid-cols-2 gap-1 rounded-[10px] border border-line bg-panel p-1">
         {sideBtn('ask', `Sell ${base.symbol}`)}{sideBtn('bid', `Buy ${base.symbol}`)}
       </div>
       <div className="grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1.5"><label htmlFor="fa" className={label}>Amount ({base.symbol})</label>
-          <Input id="fa" className={input} value={amount} placeholder="1000.00" onChange={e => { setAmount(e.target.value); setError(undefined) }} /></div>
+          <Input id="fa" {...mark('offer.amount')} className={input} value={amount} placeholder="1000.00" onChange={e => { setAmount(e.target.value); setError(undefined) }} /></div>
         <div className="flex flex-col gap-1.5"><label htmlFor="fp" className={label}>Price ({quote.symbol} per {base.symbol})</label>
-          <Input id="fp" className={input} value={price} placeholder="1.2700" onChange={e => { setPrice(e.target.value); setError(undefined) }} /></div>
+          <Input id="fp" {...mark('offer.price')} className={input} value={price} placeholder="1.2700" onChange={e => { setPrice(e.target.value); setError(undefined) }} /></div>
       </div>
       <div className="flex flex-col gap-2 rounded-[10px] bg-panel p-3 text-[13px]">
         <div className="flex justify-between"><span className="text-muted">You escrow now</span><span className="font-mono font-medium">{leg(ready?.give)}</span></div>
@@ -61,8 +68,8 @@ export function MakeOfferCard({ base, quote, book: b, funds, busy, onApprove, on
       {note && <div className="rounded-[10px] border border-warn/40 bg-warn-soft px-3 py-2.5 text-xs leading-normal text-warn-text">{note}</div>}
       {error && <span role="alert" className="text-xs text-danger">{error}</span>}
       <div className="mt-auto flex flex-col gap-2">
-        {needsApprove && <Button className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={() => onApprove(ready!.give.asset, ready!.give.amount)}>1 · Approve {leg(ready?.give)}</Button>}
-        <button className={`${solid} min-h-12 text-[15px] ${sell ? 'bg-ask' : 'bg-bid'}`} disabled={needsApprove || busy} onClick={create}>
+        {needsApprove && <Button {...mark('offer.approve')} className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={() => onApprove(ready!.give.asset, ready!.give.amount)}>1 · Approve {leg(ready?.give)}</Button>}
+        <button {...mark('offer.create')} className={`${solid} min-h-12 text-[15px] ${sell ? 'bg-ask' : 'bg-bid'}`} disabled={needsApprove || busy} onClick={create}>
           {needsApprove ? '2 · ' : ''}Create offer &amp; escrow
         </button>
       </div>

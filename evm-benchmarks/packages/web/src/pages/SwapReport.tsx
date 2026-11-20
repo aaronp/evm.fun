@@ -11,6 +11,7 @@ import { shortAddress } from '../assets/ui'
 import { amountText, reportFmt, reportJson, reportLabels, same } from '../swap/ui'
 import { card } from '../components/TakePanel'
 import { Notice } from '../ui/notice'
+import { useWizardMark } from '../walkthrough/wizard'
 import { DownloadIcon } from '../ui/icons'
 
 type Token = Pick<Asset, 'address' | 'symbol' | 'decimals'>
@@ -50,6 +51,7 @@ export function ReportView({ report: r, people, assets, hint }: { report: TakeRe
   const labels = reportLabels(r, people)
   const pair = pairOf(r, assets, hint)
   const f = reportFmt(labels, assets, pair)
+  const mark = useWizardMark()
   const fill = (s: string) => fillText(s, f)
   const ok = r.outcome === 'taken'
   const o = r.offer
@@ -81,7 +83,7 @@ export function ReportView({ report: r, people, assets, hint }: { report: TakeRe
   )
 
   return (
-    <div className="flex w-full max-w-[1240px] flex-col gap-5">
+    <div {...mark('view')} className="flex w-full max-w-[1240px] flex-col gap-5">
       <section aria-labelledby="hd-h" className={`flex flex-wrap items-center gap-[18px] rounded-2xl border px-6 py-[22px] ${ok ? 'border-success bg-success-soft' : 'border-danger-line bg-danger-soft'}`}>
         <span aria-hidden="true" className={`flex size-[52px] flex-none items-center justify-center rounded-full bg-surface text-2xl font-bold ${ok ? 'text-success' : 'text-danger'}`}>{ok ? '✓' : '✕'}</span>
         <div className="flex min-w-[min(260px,100%)] flex-1 flex-col gap-1.5">

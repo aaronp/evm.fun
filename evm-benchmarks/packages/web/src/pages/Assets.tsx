@@ -15,6 +15,7 @@ import { LaunchAssetDialog } from '../components/LaunchAssetDialog'
 import { SendDialog } from '../components/SendDialog'
 import { Button } from '../ui/button'
 import { InfoIcon, PlusIcon } from '../ui/icons'
+import { useWizardAction } from '../walkthrough/wizard'
 
 const NATIVE_DP = 8
 const kindText = (a: Asset) => (a.kind === 'native' ? 'Native' : `ERC-20${a.mintable ? ' · Mintable' : ''}`)
@@ -49,9 +50,11 @@ export function Assets() {
     crumbs: chain ? [{ label: chain.info.name, to: '/chains' }, { label: 'Assets' }] : undefined,
     actions: [
       { kind: 'button', id: 'import', label: 'Import token by address', icon: null, text: true, title: noWrites ?? (chain ? undefined : 'Select a chain first'), disabled: !chain || !!noWrites, onClick: () => setDlg('import') },
-      { kind: 'button', id: 'launch', label: 'Launch asset', icon: <PlusIcon width={14} height={14} />, text: true, primary: true, title: noWrites ?? (chain ? undefined : 'Select a chain first'), disabled: !chain || !!noWrites, onClick: () => setDlg('launch') },
+      { kind: 'button', id: 'launch', label: 'Launch asset', icon: <PlusIcon width={14} height={14} />, text: true, primary: true, title: noWrites ?? (chain ? undefined : 'Select a chain first'), disabled: !chain || !!noWrites, onClick: () => setDlg('launch'), wizard: 'assets.launch' },
     ],
   })
+
+  useWizardAction('assets.launch', chain && !noWrites ? () => setDlg('launch') : undefined)
 
   // Reload the list, first adopting already-deployed tokens once per chain per mount (never on benchmark chains).
   useEffect(() => {
