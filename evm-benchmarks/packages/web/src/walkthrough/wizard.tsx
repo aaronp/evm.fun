@@ -45,7 +45,9 @@ const LAYOUT = 'evmb.walkthrough.layout', FOCUS = 'evmb.walkthrough.focus'
 const read = (k: string) => { try { return localStorage.getItem(k) } catch { return null } }
 const write = (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* not remembered */ } }
 const message = (e: unknown) => e instanceof Error ? e.message : String(e)
-const firstOpen = (w: Walkthrough, run: Run) => (i => i === -1 ? w.steps.length - 1 : i)(w.steps.findIndex(s => !run.steps[s.id]))
+/** The step to stand on: the first not done (by `done` when known, else by the run's records), or the last. */
+export const firstOpen = (w: Walkthrough, run: Run, done?: Record<string, boolean>) =>
+  (i => i === -1 ? w.steps.length - 1 : i)(w.steps.findIndex(s => !(done ? done[s.id] : run.steps[s.id])))
 const addressOf = (run: Run, ref: unknown) => (run.values[String(ref).replace(/^\$/, '')] as { address?: string } | undefined)?.address
 const chainOf = (w: Walkthrough, run: Run) => {
   const key = Object.keys(w.keys).find(k => 'chain' in w.keys[k]!)
@@ -55,12 +57,16 @@ const chainOf = (w: Walkthrough, run: Run) => {
 /** pass ✓; fail red; fail after the user changed a value amber ("Differs from the walkthrough"). */
 export const checkTone = (pass: boolean, edited: boolean) => pass ? 'pass' : edited ? 'differs' : 'fail'
 
-export function WizardProvider({ children, seed, env = { accounts, registry } }: { children?: ReactNode; seed?: { w: Walkthrough; run: Run; index?: number }; env?: Env }) {
+const defaultEnv: Env = { accounts, registry } // module-level: a fresh object per render would re-run the status effect forever
+
+type Status = { run?: Run; done: Record<string, boolean>; results: Record<string, CheckResult[]>; errors: Record<string, string> }
+
+export function WizardProvider({ children, seed, env = defaultEnv }: { children?: ReactNode; seed?: { w: Walkthrough; run: Run; index?: number }; env?: Env }) {
   const app = useApp() as ReturnType<typeof useApp> | undefined
   const navigate = useNavigate()
   const location = useLocation()
   const [active, setActive] = useState<Active | undefined>(seed && { ...seed, index: seed.index ?? firstOpen(seed.w, seed.run) })
-  const [status, setStatus] = useState<{ run?: Run; done: Record<string, boolean>; results: Record<string, CheckResult[]> }>({ done: {}, results: {} })
+  const [status, setStatus] = useState<Status>({ done: {}, results: {}, errors: {} })
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [reused, setReused] = useState(() => new Set<string>())
@@ -75,32 +81,61 @@ export function WizardProvider({ children, seed, env = { accounts, registry } }:
   const step = w?.steps[index!]
   const b = step && binding(step, w!)
   const taken = (app?.chains ?? []).map(c => c.name).join('\0')
-  const initials = useMemo(() => {
-    if (!w || !step || !run) return {}
-    try { return initialInputs(w, step, run, taken ? taken.split('\0') : []) } catch { return {} }
+  const { initials, initialError } = useMemo(() => {
+    if (!w || !step || !run) return { initials: {} as Record<string, string> }
+    try { return { initials: initialInputs(w, step, run, taken ? taken.split('\0') : []) } }
+    catch (e) { return { initials: {} as Record<string, string>, initialError: message(e) } }
   }, [w, step, run, taken])
 
-  // persist on every change; recompute which steps are done and their checks
+  // persist when the run changes (not the one just loaded or seeded)
+  const saved = useRef(seed?.run)
+  useEffect(() => {
+    if (!run || run === saved.current) return
+    saved.current = run
+    saveRun(run).catch(e => setError(`The walkthrough's progress was not saved: ${message(e)}`))
+  }, [run])
+
+  // which steps are done and their checks; after start/resume, stand on the first step not done
+  const place = useRef<Run>(undefined)
   useEffect(() => {
     if (!w || !run) return
     let live = true
-    saveRun(run).catch(() => {})
     ;(async () => {
-      const d: Record<string, boolean> = {}, results: Record<string, CheckResult[]> = {}
+      const st: Status = { run, done: {}, results: {}, errors: {} }
       for (const s of w.steps) {
-        d[s.id] = await done(w, s, env, run).catch(() => false)
-        if (run.steps[s.id]) results[s.id] = await checks(w, s, env, run).catch(() => [])
+        try {
+          st.done[s.id] = await done(w, s, env, run)
+          if (run.steps[s.id]) st.results[s.id] = await checks(w, s, env, run)
+        } catch (e) { st.done[s.id] = false; st.errors[s.id] = message(e) }
       }
-      if (live) setStatus({ run, done: d, results })
+      if (!live) return
+      setStatus(st)
+      if (place.current === run) {
+        place.current = undefined
+        setActive(a => a && a.run === run ? { ...a, index: firstOpen(w, run, st.done) } : a)
+      }
     })()
     return () => { live = false }
   }, [w, run, env])
 
-  const start = useCallback(async (w: Walkthrough) => {
-    const run = (await loadRun(w.id)) ?? newRun(w)
+  const reset = useCallback(() => {
+    fields.values = {}
+    fields.filled = {}
+    setReused(new Set())
+    setError(undefined)
+  }, [fields])
+
+  /** Resumes the saved run (or starts one) and, unless resuming after a reload, opens the step's page. */
+  const start = useCallback(async (w: Walkthrough, open = true) => {
+    const loaded = await loadRun(w.id)
+    const run = loaded ?? newRun(w), index = firstOpen(w, run)
+    saved.current = loaded
+    place.current = run
+    reset()
     setActiveId(w.id)
-    setActive({ w, run, index: firstOpen(w, run) })
-  }, [])
+    setActive({ w, run, index })
+    if (open) navigate(binding(w.steps[index]!, w).path(run))
+  }, [navigate, reset])
 
   // resume the walkthrough in progress after a reload
   useEffect(() => {
@@ -109,8 +144,9 @@ export function WizardProvider({ children, seed, env = { accounts, registry } }:
     if (!id) return
     ;(async () => {
       const w = (await kv.get<Walkthrough>('walkthroughEdits', id)) ?? bundled.find(x => x.id === id)
-      if (w) await start(w)
-    })().catch(() => {})
+      if (!w) throw new Error(`there is no walkthrough "${id}"`)
+      await start(w, false)
+    })().catch(e => setError(`Couldn't resume the walkthrough: ${message(e)}`))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const latest = useRef({ active, status, initials, busy, location, app })
@@ -149,11 +185,13 @@ export function WizardProvider({ children, seed, env = { accounts, registry } }:
     try {
       const b = binding(step, w), path = b.path(run)
       if (step.do === 'account') {
-        const label = initialInputs(w, step, run)['account.label']
+        // the label as the page has it now (the user may have edited it), else the walkthrough's
+        const initial = { ...latest.current.initials, ...fields.filled }
+        const label = fields.values['account.label'] ?? initial['account.label']
         const existing = env.accounts.list().find(a => a.label === label)
         if (existing) {
           setReused(r => new Set(r).add(step.id))
-          setRun(record(w, run, step, { label: existing.label, address: existing.address }))
+          setRun(record(w, run, step, { label: existing.label, address: existing.address }, { 'account.label': label! }, initial))
           return
         }
       }
@@ -173,7 +211,7 @@ export function WizardProvider({ children, seed, env = { accounts, registry } }:
     } finally {
       setBusy(false)
     }
-  }, [actions, env, go, isDone, navigate])
+  }, [actions, env, fields, go, isDone, navigate])
 
   const back = useCallback(() => {
     const { active } = latest.current
@@ -186,24 +224,25 @@ export function WizardProvider({ children, seed, env = { accounts, registry } }:
   const restart = useCallback((nw?: Walkthrough) => {
     const target = nw ?? latest.current.active?.w
     if (!target) return
+    const run = newRun(target)
+    reset()
     setActiveId(target.id)
-    setReused(new Set())
-    fields.values = {}
-    fields.filled = {}
-    setError(undefined)
-    setActive({ w: target, run: newRun(target), index: 0 })
-  }, [fields])
+    setActive({ w: target, run, index: 0 })
+    navigate(binding(target.steps[0]!, target).path(run))
+  }, [navigate, reset])
 
-  const exit = useCallback(() => { setActiveId(undefined); setActive(undefined); setError(undefined) }, [])
+  const exit = useCallback(() => { setActiveId(undefined); setActive(undefined); reset() }, [reset])
   const setLayout = useCallback((l: Layout) => { write(LAYOUT, l); setLayoutState(l) }, [])
   const setFocus = useCallback((f: boolean) => { write(FOCUS, f ? '1' : '0'); setFocusState(f) }, [])
 
   const value = useMemo<Wizard>(() => ({
-    w, run, index: index ?? 0, step, b, isDone, results: status.run === run ? status.results : {}, error, busy, reused,
+    w, run, index: index ?? 0, step, b, isDone, results: status.run === run ? status.results : {},
+    // the step's own failure first, then why its values can't be worked out, then why done/checks couldn't be read
+    error: error ?? initialError ?? (status.run === run && step ? status.errors[step.id] : undefined), busy, reused,
     start, restart, exit, next, back, layout, setLayout, focus, setFocus,
     actions, values: fields.values, filled: fields.filled, bump, report,
     initial: (id: string) => (step && run?.steps[step.id]?.inputs[id]) ?? initials[id],
-  }), [w, run, index, status, error, busy, reused, layout, focus, version, initials]) // eslint-disable-line react-hooks/exhaustive-deps
+  }), [w, run, index, status, error, initialError, busy, reused, layout, focus, version, initials]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

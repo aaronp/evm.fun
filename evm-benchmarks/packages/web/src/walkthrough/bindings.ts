@@ -2,13 +2,29 @@ import type { Outputs, Run, Step, Walkthrough } from './types'
 
 export type Binding = { path(run: Run): string; fields: string[]; actions: string[]; areas: string[]; report: string }
 
-// The run's launched assets in launch order: the first is the pair's base, the second its quote.
-const pair = (run: Run) => {
-  const [base, quote] = Object.values(run.values).filter((v): v is Outputs['launchAsset'] => 'decimals' in v)
-  return base && quote ? `base=${base.address}&quote=${quote.address}` : ''
+const keyOf = (ref: unknown) => /\$(\w+)/.exec(String(ref))?.[1] // "1000 $GBP" or "$GBP" → GBP
+
+/**
+ * The pair's asset keys for a step, from its own args: an offer's sell asset is the base, its `for` asset the
+ * quote; a take uses the offer it takes, an approve its `before` step, a deploy the first offer, a report its take.
+ */
+function pairKeys(step: Step | undefined, w: Walkthrough): (string | undefined)[] {
+  const a = step?.args ?? {}
+  const find = (p: (s: Step) => boolean) => w.steps.find(p)
+  switch (step?.do) {
+    case 'makeOffer': return [keyOf(a.sell), keyOf(a.for)]
+    case 'take': return pairKeys(find(s => s.do === 'makeOffer' && s.key === keyOf(a.offer)), w)
+    case 'approve': return pairKeys(find(s => s.id === a.before), w)
+    case 'deploySwap': return pairKeys(find(s => s.do === 'makeOffer'), w)
+    case 'view': return a.page === 'report' ? pairKeys(find(s => s.id === a.step), w) : [keyOf(a.base), keyOf(a.quote)]
+    default: return []
+  }
 }
-const addrOf = (run: Run, ref: unknown) => (run.values[String(ref).replace(/^\$/, '')] as { address?: string } | undefined)?.address ?? ''
-const swapPath = (run: Run) => (q => q ? `/swap?${q}` : '/swap')(pair(run))
+/** `base=&quote=` from the run's actual asset addresses; empty until both exist. */
+function pair(step: Step, w: Walkthrough, run: Run) {
+  const [base, quote] = pairKeys(step, w).map(k => k && (run.values[k] as { address?: string } | undefined)?.address)
+  return base && quote ? `base=${base}&quote=${quote}` : ''
+}
 const at = (path: string) => () => path
 
 const LAUNCH = ['launch.name', 'launch.symbol', 'launch.decimals', 'launch.supply', 'launch.issuer']
@@ -19,6 +35,7 @@ const OFFER = ['offer.side', 'offer.amount', 'offer.price']
  * dialog's submit last), the marked areas, and the id the page reports under when the action completes.
  */
 export function binding(step: Step, w: Walkthrough): Binding {
+  const swapPath = (run: Run) => (q => q ? `/swap?${q}` : '/swap')(pair(step, w, run))
   const b = (path: Binding['path'], fields: string[], actions: string[], card?: string): Binding =>
     ({ path, fields, actions, areas: [...(card ? [card] : []), ...fields, ...actions], report: actions.at(-1) ?? step.do })
   switch (step.do) {
@@ -38,10 +55,10 @@ export function binding(step: Step, w: Walkthrough): Binding {
       if (args.page === 'report') {
         return b(run => {
           const t = (run.steps[String(args.step)]?.outputs as Outputs['take'] | undefined)?.tx ?? ''
-          return `/swap/report?tx=${t}${(q => q && `&${q}`)(pair(run))}`
+          return `/swap/report?tx=${t}${(q => q && `&${q}`)(pair(step, w, run))}`
         }, [], [], 'view')
       }
-      return b(run => `/swap?base=${addrOf(run, args.base)}&quote=${addrOf(run, args.quote)}`, [], [], 'view')
+      return b(swapPath, [], [], 'view')
     }
   }
 }

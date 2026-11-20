@@ -132,3 +132,28 @@ describe('Ribbon', () => {
     expect(render(h(Ribbon))).toBe('')
   })
 })
+
+describe('review fixes', () => {
+  test('the pair comes from the step, not launch order: quote launched before base', () => {
+    // USD launched first; the offer still sells GBP (base) for USD (quote)
+    const order = ['alice', 'bob', 'chain', 'usd', 'gbp', 'swap', 'aliceOk', 'offer', 'bobOk', 'take', 'view']
+    const w2 = { ...w, steps: order.map(step) }
+    const run: Run = { ...fullRun(), values: { alice: { label: 'alice', address: a(7) }, bob: { label: 'bob', address: a(8) }, chain: { id: 'c1', name: 'Example' }, USD, GBP, swap: { address: a(5) }, offer: { offerId: '0', tx } } }
+    const q = `base=${GBP.address}&quote=${USD.address}`
+    for (const id of ['swap', 'aliceOk', 'offer', 'bobOk', 'take']) expect(binding(step(id), w2).path(run)).toBe(`/swap?${q}`)
+    expect(binding(step('view'), w2).path(run)).toBe(`/swap/report?tx=${tx}&${q}`)
+  })
+  test('an approve already satisfied (done, unrecorded) is not where a resumed run stands', async () => {
+    const { firstOpen } = await import('../src/walkthrough/wizard')
+    const recorded = ['alice', 'bob', 'chain', 'gbp', 'usd', 'swap']
+    const run: Run = { ...fullRun(), steps: Object.fromEntries(recorded.map(id => [id, { inputs: {}, outputs: {} as any, at: '' }])) }
+    expect(w.steps[firstOpen(w, run)]!.id).toBe('aliceOk')
+    const doneMap = Object.fromEntries(w.steps.map(s => [s.id, [...recorded, 'aliceOk'].includes(s.id)]))
+    expect(w.steps[firstOpen(w, run, doneMap)]!.id).toBe('offer')
+  })
+  test("a step whose values can't be worked out shows why, naming the step and key", async () => {
+    const { Ribbon } = await import('../src/components/Ribbon')
+    const html = render(h(Ribbon), { run: newRun(w), index: w.steps.findIndex(s => s.id === 'gbp') })
+    expect(html).toContain('Step gbp: $alice has no value yet')
+  })
+})

@@ -1,4 +1,5 @@
 import { Button } from '../ui/button'
+import { Notice } from '../ui/notice'
 import { checkTone, useWizard, type CheckResult } from '../walkthrough/wizard'
 import type { Check, Outputs, Step } from '../walkthrough/types'
 
@@ -34,6 +35,7 @@ function download(json: string, name: string) {
 /** The walkthrough in progress: stepper, the current step, Back / Next and the ribbon's settings. */
 export function Ribbon() {
   const c = useWizard()
+  if (c && !c.w && c.error) return <Notice tone="danger" onDismiss={c.exit}>{c.error}</Notice> // e.g. couldn't resume
   if (!c?.w || !c.run || !c.step) return null
   const { w, run, step, index } = c
   const vertical = c.layout === 'vertical'

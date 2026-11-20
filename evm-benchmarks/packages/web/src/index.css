@@ -68,6 +68,9 @@ main[data-wz-focus] > :not(:has([data-wz-on])):not([data-wz-on]):not([data-wz-ri
   transition: opacity 150ms;
 }
 
+/* ...and the sidebar, as one block (no compounding); it brightens while pointed at or focused, so it stays usable. */
+:has(> main[data-wz-focus]) > aside:not(:hover, :focus-within) { opacity: var(--wz-dim); transition: opacity 150ms; }
+
 /* Walkthrough pulse: a ring on the control Next would press now. */
 @keyframes wz-pulse {
   0%, 100% { box-shadow: 0 0 0 0 var(--c-accent); }
