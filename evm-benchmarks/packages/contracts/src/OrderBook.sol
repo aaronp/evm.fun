@@ -10,6 +10,11 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 /// Fills are at the resting order's price; the taker pays rounded up and receives rounded down (resting order's favour),
 /// so `quoteFor` here agrees to the unit with the TS package's `quoteFor` (packages/orderbook).
 /// Per market and side the book is a doubly linked list of price levels, best first; each level is a FIFO of order ids.
+/// Caveats: fee-on-transfer and rebasing tokens are unsupported (escrow is tracked in nominal amounts). Makers are paid
+/// inside the matching loop, so a token that blacklists or hooks on transfer to a maker at the best level blocks
+/// takers on that side until the maker cancels. The no-hint insert walk is unbounded: O(levels better than price).
+/// A limit remainder never rests crossing the other side: if `maxLevels` stops matching first, place reverts
+/// `BookTooThin(filled)`.
 contract OrderBook is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -95,7 +100,7 @@ contract OrderBook is ReentrancyGuard {
 
     /// Escrows the give side (see _take), matches the opposite side best price first and FIFO within a price, over at
     /// most `maxLevels` prices that cross `price`. Each fill is at the resting price: a taker buy pays quoteFor(fill, makerPrice, up), a taker sell gets quoteFor(fill, makerPrice, down).
-    /// `rest`: the remainder rests at `price`; otherwise (market) the order must fill completely or reverts
+    /// `rest`: the remainder rests at `price` (reverts `BookTooThin` if the other side still crosses it); otherwise (market) the order must fill completely or reverts
     /// `BookTooThin(filled)`. A taker buy only ever pays the makers' prices (improvement to the taker).
     /// `hint`: a price believed to be an existing level adjacent to `price` on its side. A correct hint makes the insert
     /// O(1); a wrong, unknown or zero hint falls back to walking from the best level, O(levels better than `price`)
@@ -127,7 +132,8 @@ contract OrderBook is ReentrancyGuard {
         Fills memory c = Fills(id, unit, 0, 0);
         _match(o, c, maxLevels);
         uint256 left = o.amount - c.filled;
-        if (left > 0 && !rest) revert BookTooThin(c.filled);
+        // a remainder may only rest if nothing on the other side still crosses it (maxLevels can stop matching early)
+        if (left > 0 && (!rest || _crosses(o))) revert BookTooThin(c.filled);
         o.filled = c.filled;
 
         uint256 keep; // quote escrowed for the resting part of a buy
@@ -267,6 +273,13 @@ contract OrderBook is ReentrancyGuard {
         else b.levels[prev].next = next;
         if (next != 0) b.levels[next].prev = prev;
         (l.prev, l.next) = (0, 0);
+    }
+
+    /// The opposite side's best level still crosses `o.price`.
+    function _crosses(Order storage o) private view returns (bool) {
+        Side opp = o.side == Side.Buy ? Side.Sell : Side.Buy;
+        uint256 b = _book(o.base, o.quote, opp).best;
+        return b != 0 && !_better(opp, o.price, b);
     }
 
     function _better(Side side, uint256 a, uint256 b) private pure returns (bool) {

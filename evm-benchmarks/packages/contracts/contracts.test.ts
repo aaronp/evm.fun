@@ -500,9 +500,57 @@ test('OrderBook: when per-fill ceilings sum above the one escrowed ceiling, the 
     expect(trades(r).map((t: any) => t.quoteAmount)).toEqual([1n, 1n])
     expect([await bal(usd, taker.address), await bal(usd, maker.address), await bal(usd, third.address)]).toEqual([tU - 2n, mU + 1n, thU + 1n])
     expect(await bal(usd, book)).toBe(0n)
-    console.log('gas: place resting', (await place(maker, [gbp, usd, Sell, 1_270_000n, 100n, 20n, 0n, true])).gasUsed)
-    console.log('gas: place same level', (await place(maker, [gbp, usd, Sell, 1_270_000n, 100n, 20n, 0n, true])).gasUsed)
-    console.log('gas: place new level, good hint', (await place(maker, [gbp, usd, Sell, 1_280_000n, 100n, 20n, 1_270_000n, true])).gasUsed)
-    console.log('gas: take 1 fill', (await place(taker, [gbp, usd, Buy, 1_270_000n, 100n, 20n, 0n, false])).gasUsed)
-    console.log('gas: take 2 fills / 2 levels', (await place(taker, [gbp, usd, Buy, 1_280_000n, 200n, 20n, 0n, false])).gasUsed)
+  }), 60_000)
+
+test('OrderBook: a limit remainder never rests crossing the other side when maxLevels stops matching first', () =>
+  withBook(async ({gbp, usd, maker, taker, place, read, revertOf}) => {
+    await place(maker, [gbp, usd, Sell, P('1.27'), 100n, 20n, 0n, true])
+    await place(maker, [gbp, usd, Sell, P('1.28'), 100n, 20n, 0n, true])
+    expect(await revertOf(taker, 'place', [gbp, usd, Buy, P('1.30'), 300n, 1n, 0n, true]))
+      .toMatchObject({errorName: 'BookTooThin', args: [100n]})
+    expect(await revertOf(taker, 'place', [gbp, usd, Buy, P('1.27'), 50n, 0n, 0n, true]))
+      .toMatchObject({errorName: 'BookTooThin', args: [0n]})
+    // capped but no longer crossing: rests
+    expect((await place(taker, [gbp, usd, Buy, P('1.27'), 150n, 1n, 0n, true])).status).toBe('success')
+    expect(await read('best', [gbp, usd, Buy])).toBe(P('1.27'))
+    expect(await read('best', [gbp, usd, Sell])).toBe(P('1.28'))
+    expect(await read('level', [gbp, usd, Buy, P('1.27')])).toEqual([0n, 0n, 50n, 1n])
+  }), 60_000)
+
+test('OrderBook: taker sell crosses two bid levels then rests its remainder; base escrow kept, cancel returns it exactly', () =>
+  withBook(async ({book, gbp, usd, maker, taker, third, place, read, bal, call}) => {
+    const pA = 1_250_001n, pB = 1_240_001n
+    const mU0 = await bal(usd, maker.address)
+    await place(maker, [gbp, usd, Buy, pA, 333n, 20n, 0n, true]) // 1
+    await place(third, [gbp, usd, Buy, pB, 333n, 20n, 0n, true]) // 2
+    const thU0 = await bal(usd, third.address) + ceilQ(333n, pB)
+    const [tU, tG] = [await bal(usd, taker.address), await bal(gbp, taker.address)]
+    const r = await place(taker, [gbp, usd, Sell, pB, 777n, 20n, 0n, true]) // 3
+    const q1 = floorQ(333n, pA), q2 = floorQ(333n, pB)
+    expect([q1, q2]).toEqual([4_162_503n, 4_129_203n])
+    expect(trades(r).map((t: any) => [t.makerId, t.price, t.amount, t.quoteAmount])).toEqual([[1n, pA, 333n, q1], [2n, pB, 333n, q2]])
+    expect(await bal(usd, taker.address)).toBe(tU + q1 + q2)
+    expect(await bal(gbp, taker.address)).toBe(tG - 777n)
+    expect(await bal(usd, maker.address)).toBe(mU0 - q1) // 1 raw unit of dust returned
+    expect(await bal(usd, third.address)).toBe(thU0 - q2) // its 1 raw unit of dust returned too
+    expect([await bal(usd, book), await bal(gbp, book)]).toEqual([0n, 111n])
+    expect(await read('best', [gbp, usd, Buy])).toBe(0n)
+    expect(await read('level', [gbp, usd, Sell, pB])).toEqual([0n, 0n, 111n, 1n])
+    const o = await read('orders', [3n])
+    expect([o.status, o.filled]).toEqual([Status.Open, 666n])
+    await call(taker, book, OrderBook.abi, 'cancel', [3n])
+    expect(await bal(gbp, taker.address)).toBe(tG - 666n)
+    expect([await bal(usd, book), await bal(gbp, book)]).toEqual([0n, 0n])
+  }), 60_000)
+
+test('OrderBook: a self-match trades with maker = taker and nets to zero', () =>
+  withBook(async ({book, gbp, usd, maker, place, bal}) => {
+    const [mU, mG] = [await bal(usd, maker.address), await bal(gbp, maker.address)]
+    await place(maker, [gbp, usd, Sell, P('1.27'), 100n, 20n, 0n, true]) // 1
+    const r = await place(maker, [gbp, usd, Buy, P('1.27'), 100n, 20n, 0n, false]) // 2
+    expect(trades(r)).toEqual([
+      {makerId: 1n, takerId: 2n, maker: maker.address, taker: maker.address, price: P('1.27'), amount: 100n, quoteAmount: 1_270_000n},
+    ])
+    expect([await bal(usd, maker.address), await bal(gbp, maker.address)]).toEqual([mU, mG])
+    expect([await bal(usd, book), await bal(gbp, book)]).toEqual([0n, 0n])
   }), 60_000)
