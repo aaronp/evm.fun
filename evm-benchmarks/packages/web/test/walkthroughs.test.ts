@@ -97,18 +97,18 @@ describe('runner', () => {
     const e = env()
     try {
       await e.registry.create('Example', 'plain', [])
-      const one = await runSteps(w, e, newRun(w))
+      // bob's USD allowance to the run's Swap, read on the run's own chain
+      const bobAllowance = async (run: Run) => readContract(await chainOf(e, run), amount(run, '1 $USD').asset.address, erc20Abi, 'allowance',
+        [(run.values.bob as Outputs['account']).address, (run.values.swap as Outputs['deploySwap']).address])
+      const one = await runSteps(w, e, newRun(w), 9) // through bobOk: bob's approval is unspent on run one's chain
       expect((one.values.chain as Outputs['chain']).name).toBe('Example 2')
+      expect(await bobAllowance(one)).toBe(1270_000000n)
       let two = await runSteps(w, e, newRun(w), 8) // up to and including the offer
       expect((two.values.chain as Outputs['chain']).name).toBe('Example 3')
       expect((two.values.chain as Outputs['chain']).id).not.toBe((one.values.chain as Outputs['chain']).id)
-      const bobOk = w.steps.find(s => s.id === 'bobOk')!
-      const usd = amount(two, '1 $USD').asset
-      const chain = await chainOf(e, two)
-      const allowance = await readContract(chain, usd.address, erc20Abi, 'allowance',
-        [(two.values.bob as Outputs['account']).address, (two.values.swap as Outputs['deploySwap']).address])
-      expect(allowance).toBe(0n)
-      expect(await done(w, bobOk, e, two)).toBe(false)
+      // same addresses on both chains (same deployer and nonces), so this only passes if run two reads its own chain
+      expect(await bobAllowance(two)).toBe(0n)
+      expect(await done(w, w.steps.find(s => s.id === 'bobOk')!, e, two)).toBe(false)
       two = await runSteps(w, e, two)
       expect(two.steps.take!.outputs).toMatchObject({ reverted: false })
     } finally { await disposeAll(e) }
