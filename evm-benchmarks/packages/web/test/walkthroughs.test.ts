@@ -30,7 +30,7 @@ const height = async (e: Env, run: Run) => Number(BigInt((await (await chainOf(e
 async function runSteps(w: Walkthrough, e: Env, run: Run, upto = w.steps.length): Promise<Run> {
   for (const step of w.steps.slice(0, upto)) {
     if (await done(w, step, e, run)) continue
-    run = record(run, step, await perform(w, step, e, run))
+    run = record(w, run, step, await perform(w, step, e, run))
     expect(await done(w, step, e, run)).toBe(true)
     for (const c of await checks(w, step, e, run)) expect({ step: step.id, ...c }).toMatchObject({ pass: true })
   }
@@ -136,13 +136,17 @@ describe('runner', () => {
     const w = byId('gbp-usd')
     let run = newRun(w)
     const alice = { label: 'alice', address: '0x00000000000000000000000000000000000000a1' as Address }
-    run = record(run, w.steps[0]!, alice, { 'account.label': 'alice' })
+    run = record(w, run, w.steps[0]!, alice, { 'account.label': 'alice' })
     expect(run.edited).toBe(false)
     expect(run.values.alice).toEqual(alice)
+    const chain = w.steps.find(s => s.id === 'chain')!
+    const filled = initialInputs(w, chain, run, ['Example']) // what the ribbon filled: the suffixed name
+    expect(record(w, run, chain, { id: 'c', name: 'Example 2' }, filled, filled).edited).toBe(false)
+    expect(record(w, run, chain, { id: 'c', name: 'Example 2' }, filled).edited).toBe(true) // default initial is unsuffixed
     const gbp = w.steps.find(s => s.id === 'gbp')!
     const eur = { address: '0x00000000000000000000000000000000000000e0' as Address, symbol: 'EUR', name: 'Pound', decimals: 2 }
     const inputs = { ...initialInputs(w, gbp, run), 'launch.symbol': 'EUR' }
-    const next = record(run, gbp, eur, inputs)
+    const next = record(w, run, gbp, eur, inputs)
     expect(next.edited).toBe(true)
     expect(run.edited).toBe(false) // a new run, not a mutation
     expect(next.steps.gbp!.inputs['launch.symbol']).toBe('EUR')

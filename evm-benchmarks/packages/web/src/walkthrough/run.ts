@@ -1,6 +1,6 @@
-import { erc20Abi, formatUnits, type Address } from 'viem'
+import { erc20Abi, formatUnits, parseEventLogs, type Address } from 'viem'
 import { approveCall, type Asset } from '@evmb/assets'
-import { makeOfferCall, readOffer, readOffers, takeCall, takeReport } from '@evmb/swap'
+import { makeOfferCall, readOffer, swapAbi, takeCall, takeReport } from '@evmb/swap'
 import type { createChainRegistry } from '../chain/registry'
 import type { ChainHandle } from '../chain/handle'
 import type { Account } from '../store/accounts'
@@ -9,7 +9,6 @@ import { exactText } from '../swap/ui'
 import { launchToken } from '../assets/launch'
 import { deploySwap } from '../swap/locate'
 import { readContract, signAndSend } from '../tx/send'
-import { bundled } from '../../walkthroughs'
 import { amount, ref, uniqueName } from './resolve'
 import type { Check, KeyDef, Outputs, Run, Step, StepType, Walkthrough } from './types'
 
@@ -21,20 +20,16 @@ export const newRun = (w: Walkthrough): Run => ({ walkthrough: w.id, started: ne
 
 /**
  * A new run with the step's outputs as its key's actual value and the step's entry. `edited` turns on when an input
- * differs from `initial`, which defaults to the bundled walkthrough's `initialInputs` (pass it when the caller filled
- * the fields itself, e.g. a suffixed chain name).
+ * differs from `initial` (default `initialInputs(w, step, run)`; the ribbon passes the values it actually filled).
  */
-export function record(run: Run, step: Step, outputs: Out, inputs?: Record<string, string>, initial?: Record<string, string>): Run {
-  if (inputs && !initial) {
-    const w = bundled.find(b => b.id === run.walkthrough)
-    if (!w) throw new Error(`Unknown walkthrough ${run.walkthrough}: pass the initial inputs`)
-    initial = initialInputs(w, step, run)
-  }
-  const edited = run.edited || (!!inputs && Object.keys(inputs).some(k => inputs[k] !== initial![k]))
+export function record(
+  w: Walkthrough, run: Run, step: Step, outputs: Out, inputs?: Record<string, string>, initial = initialInputs(w, step, run),
+): Run {
+  const edited = run.edited || (!!inputs && Object.keys(inputs).some(k => inputs[k] !== initial[k]))
   return {
     ...run, edited,
     values: step.key ? { ...run.values, [step.key]: outputs } : run.values,
-    steps: { ...run.steps, [step.id]: { inputs: inputs ?? initial ?? {}, outputs, at: new Date().toISOString() } },
+    steps: { ...run.steps, [step.id]: { inputs: inputs ?? initial, outputs, at: new Date().toISOString() } },
   }
 }
 
@@ -119,8 +114,10 @@ export async function perform(w: Walkthrough, step: Step, env: Env, run: Run): P
       const sell = amount(run, arg(step, 'sell'), id), get = amount(run, arg(step, 'for'), id)
       const c = await chainFor(w, env, run, id), swap = swapOf(w, run, id)
       const tx = await sent(c, signer(env, run, arg(step, 'from'), id), makeOfferCall(swap, sell.asset.address, sell.raw, get.asset.address, get.raw))
-      // ponytail: the newest offer is ours headless; a concurrent maker would need the OfferMade log instead
-      return { offerId: String((await readOffers(request(c), swap)).at(-1)!.id), tx }
+      const rc = (await c.request('eth_getTransactionReceipt', [tx])) as { logs: Parameters<typeof parseEventLogs>[0]['logs'] }
+      const made = parseEventLogs({ abi: swapAbi, eventName: 'OfferMade', logs: rc.logs })[0]
+      if (!made) throw new Error(`Step ${id}: no OfferMade event in ${tx}`)
+      return { offerId: String(made.args.id), tx }
     }
     case 'take': {
       const offer = ref(run, arg(step, 'offer'), id) as Outputs['makeOffer']
@@ -139,7 +136,12 @@ const landed = async (c: ChainHandle, tx: string) =>
   ((await c.request('eth_getTransactionReceipt', [tx]).catch(() => null)) as { status: string } | null)?.status === '0x1'
 const hasCode = async (c: ChainHandle, a: Address) => ((await c.request('eth_getCode', [a, 'latest'])) as string) !== '0x'
 
-/** Whether the step's effect is in place, read through the run's actual values; resuming skips done steps. */
+/**
+ * Whether the step's effect is in place, read through the run's actual values; resuming skips done steps.
+ * The step's `expect` checks are not part of it (`checks()` reports them): a later step may change what they
+ * read, e.g. the take empties the offer's escrow. An approve is done once its recorded tx landed (even after the
+ * offer or take spent the allowance), or when the allowance already covers the amount.
+ */
 export async function done(w: Walkthrough, step: Step, env: Env, run: Run): Promise<boolean> {
   const rec = run.steps[step.id], val = step.key ? run.values[step.key] : undefined
   switch (step.do) {
