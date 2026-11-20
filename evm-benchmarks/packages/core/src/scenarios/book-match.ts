@@ -76,7 +76,8 @@ const bookMatch = (offchain: boolean): Scenario => {
         });
       } else {
         // untimed: sign n maker orders, match one taker buy to each with the pure matcher
-        const domain = domainOf(31337, venue);
+        const chainId = approach.request ? Number(await approach.request('eth_chainId')) : 31337;
+        const domain = domainOf(chainId, venue);
         const orders: SignedOrder[] = Array.from({length: p.n}, (_, i) => ({maker: ms[i % p.senders]!.address, base, quote, side: 1, price: E18, amount: E18, nonce: BigInt(i), expiry: 2n ** 40n}));
         const sigs = await Promise.all(orders.map((o, i) => signOrder(ms[i % p.senders] as unknown as Wallet, o, domain)));
         hashes = orders.map((o) => hashOrder(o, domain));

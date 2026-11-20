@@ -28,6 +28,7 @@ describe('tick and text', () => {
     expect(priceText(1270500n, 6)).toBe('1.2705')
     expect(priceText(127n, 2)).toBe('1.2700')
     expect(priceText(12n * 10n ** 17n, 18)).toBe('1.2000')
+    expect(priceText(-30_000n, 6)).toBe('-0.0300') // a difference keeps its sign (was "0.-300")
   })
   test('parsePrice', () => {
     expect(parsePrice('1.2705', 6)).toBe(1270500n)

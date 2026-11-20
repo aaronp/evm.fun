@@ -3,7 +3,7 @@ import { formatUnits } from 'viem'
 import type { Asset } from '@evmb/assets'
 import { amountText, parsePrice, priceText, type Level, type OrderInput, type Side } from '@evmb/orderbook'
 import { formatAmount, parseAmount } from '../assets/ui'
-import { allowanceNote, approveFor, percentAmount, plan, priceAway, slippageOf, submitText } from '../orderbook/form'
+import { allowanceNote, approveFor, availableText, percentAmount, plan, priceAway, slippageOf, spendable, submitText } from '../orderbook/form'
 import { card, solid } from './TakePanel'
 import { venueName, type VenueKind } from '../orderbook/locate'
 import { orThrow, useWizardAction, useWizardField, useWizardMark } from '../walkthrough/wizard'
@@ -65,7 +65,8 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
   const toApprove = p?.need !== undefined && f.alw !== undefined ? approveFor(p.need + held, f.alw) : undefined
   const thin = p?.thin ? `Book too thin: only ${amountText(p.filled, base)} of ${amountText(amount!, base)} can fill` : undefined
   const total = !p || p.bound === undefined ? '—'
-    : type === 'limit' ? amountText(p.bound, quote)
+    // a crossing limit order settles its fills at the makers' better prices: the bound is a limit, not exact
+    : type === 'limit' ? `${p.fills ? (buy ? 'at most ' : 'at least ') : ''}${amountText(p.bound, quote)}`
     : `≈ ${formatAmount(p.estimate, quote.decimals, 2)}, ${buy ? 'at most' : 'at least'} ${amountText(p.bound, quote)}`
 
   /** returns the error message when it failed */
@@ -93,7 +94,7 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
   function percent(pct: number) {
     if (f.bal === undefined) return
     if (buy && type === 'limit' && price === undefined) return setError(priceErr ?? 'Enter a limit price')
-    const v = percentAmount(pct, shape, f.bal, levels, base.decimals, venue)
+    const v = percentAmount(pct, shape, spendable(f.bal, held), levels, base.decimals, venue)
     setAmountIn(v ? formatUnits(v, base.decimals) : ''); setError(undefined)
   }
   const edit = (set: (v: string) => void) => (e: { target: { value: string } }) => { set(e.target.value); setError(undefined) }
@@ -140,7 +141,7 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
       </div>
       <div className="flex flex-col gap-2 rounded-[10px] bg-panel p-3 text-[13px]">
         {row(buy ? 'You pay' : 'You receive', total, true)}
-        {row('Available', f.bal === undefined ? '—' : amountText(f.bal, give))}
+        {row('Available', f.bal === undefined ? '—' : availableText(f.bal, held, give))}
       </div>
       {toApprove !== undefined && (
         <div className="flex gap-2.5 rounded-[10px] border border-warn/40 bg-warn-soft p-3 text-[13px] leading-[1.45] text-warn-text">

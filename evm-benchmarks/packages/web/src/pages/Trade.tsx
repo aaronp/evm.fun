@@ -217,8 +217,8 @@ export function Trade() {
           <span className={statLabel}>last · {quote?.symbol ?? '—'} per {base?.symbol ?? '—'}</span>
         </div>
         <div className={stat}>
-          <span className="font-mono text-sm font-medium">{s && quote ? priceText(s.spread, quote.decimals) : '—'}</span>
-          <span className={statLabel}>spread · {s ? `${s.bps} bps` : '—'}</span>
+          <span className="font-mono text-sm font-medium">{s === 'crossed' ? 'crossed' : s && quote ? priceText(s.spread, quote.decimals) : '—'}</span>
+          <span className={statLabel}>spread · {s && s !== 'crossed' ? `${s.bps} bps` : '—'}</span>
         </div>
         <div className={stat}>
           <span className="font-mono text-sm font-medium">{chain.info.name}</span>
@@ -245,7 +245,7 @@ export function Trade() {
       {base && quote && (
         <div inert={disabled} className={`flex flex-col gap-4 ${disabled ? 'opacity-45' : ''}`}>
           <div className="flex flex-wrap items-stretch gap-4">
-            <OrderBookPanel bids={book?.bids.slice(0, 10) ?? []} asks={book?.asks.slice(0, 10) ?? []} base={base} quote={quote} last={last} spread={s?.spread} onPick={price => setPicked({ price })} />
+            <OrderBookPanel bids={book?.bids.slice(0, 10) ?? []} asks={book?.asks.slice(0, 10) ?? []} base={base} quote={quote} last={last} spread={s === 'crossed' ? s : s?.spread} onPick={price => setPicked({ price })} />
             <div className="flex min-w-0 flex-[999_1_380px] flex-col gap-4">
               <DepthChart bids={book?.bids ?? []} asks={book?.asks ?? []} quoteDecimals={quote.decimals} />
               <RecentTrades trades={trades} base={base} quoteDecimals={quote.decimals} />

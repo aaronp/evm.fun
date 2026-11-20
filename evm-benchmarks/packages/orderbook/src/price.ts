@@ -8,8 +8,9 @@ export const quoteFor = (amount: bigint, price: bigint, baseDecimals: number, ro
 
 export const tickOf = (quoteDecimals: number): bigint => pow10(Math.max(quoteDecimals - 4, 0))
 
-/** 4 dp, trailing zeros kept: "1.2700". */
+/** 4 dp, trailing zeros kept: "1.2700"; a negative difference keeps its sign: "-0.0300". */
 export const priceText = (price: bigint, quoteDecimals: number): string => {
+  if (price < 0n) return `-${priceText(-price, quoteDecimals)}`
   const v = quoteDecimals >= 4 ? price / pow10(quoteDecimals - 4) : price * pow10(4 - quoteDecimals)
   return `${v / 10000n}.${(v % 10000n).toString().padStart(4, '0')}`
 }

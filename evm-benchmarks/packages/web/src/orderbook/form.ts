@@ -59,6 +59,12 @@ export function percentAmount(pct: number, o: Shape, available: bigint, levels: 
   return lo
 }
 
+/** What 25/50/75/Max share and "Available" shows: off-chain orders share one balance, so the maker's other live orders
+ * (`held`, 0 on-chain) come off it, with a note of how much they hold. */
+export const spendable = (bal: bigint, held: bigint) => (bal > held ? bal - held : 0n)
+export const availableText = (bal: bigint, held: bigint, give: Token) =>
+  `${amountText(spendable(bal, held), give)}${held ? ` (${amountText(held, give)} on open orders)` : ''}`
+
 /** Slippage typed in percent (≤ 2 dp) as basis points, clamped to 0–50% (a sell's worst price must stay above 0). */
 export function slippageOf(text: string): number | { error: string } {
   const m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text.trim())

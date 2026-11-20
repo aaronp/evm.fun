@@ -8,7 +8,7 @@ const cols = 'grid grid-cols-3'
 
 /** The book: asks (red) above, highest first, the last price and spread, then bids (green); a level click loads its price. */
 export function OrderBookPanel({ bids, asks, base, quote, last, spread, onPick }: {
-  bids: Level[]; asks: Level[]; base: Tok; quote: Tok; last?: bigint; spread?: bigint; onPick(price: bigint): void
+  bids: Level[]; asks: Level[]; base: Tok; quote: Tok; last?: bigint; spread?: bigint | 'crossed'; onPick(price: bigint): void
 }) {
   const maxCum = [bids.at(-1)?.total ?? 0n, asks.at(-1)?.total ?? 0n].reduce((m, t) => (t > m ? t : m))
   const row = (side: 'ask' | 'bid') => (l: Level) => (
@@ -33,7 +33,7 @@ export function OrderBookPanel({ bids, asks, base, quote, last, spread, onPick }
       {[...asks].reverse().map(row('ask'))}
       <div className="my-1 flex items-center justify-between border-y border-line bg-panel px-4 py-2.5">
         <span className="font-mono text-base font-semibold text-bid">{last === undefined ? '—' : priceText(last, quote.decimals)}</span>
-        <span className="text-xs text-subtle">spread {spread === undefined ? '—' : priceText(spread, quote.decimals)}</span>
+        <span className="text-xs text-subtle">{spread === 'crossed' ? 'crossed' : `spread ${spread === undefined ? '—' : priceText(spread, quote.decimals)}`}</span>
       </div>
       {bids.map(row('bid'))}
       <span className="mt-auto px-4 py-2.5 text-xs text-subtle">Click a level to load its price</span>

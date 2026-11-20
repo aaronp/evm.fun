@@ -615,6 +615,40 @@ ADR-0018. An off-chain order stays signed after the maker's allowance is spent b
 | The book and matching use the same live coverage, so no unhonourable liquidity shows | Preventive | Strong |
 | Warn the maker in My orders and offer Approve more (backlog t-84) | Corrective | Partial |
 
+## R34 · Off-chain book can rest crossed after a maker is re-funded
+- impact: 2
+- likelihood: 2
+- target: 2x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0018. Matching skips unfunded orders and fills whose quote rounds to 0, so a limit order priced through such an ask (or bid) rests beyond it; once that maker is re-funded both are live and the best bid ≥ the best ask. The book stays crossed until the next crossing taker clears it; orders are never refused for it.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| The Trade header and book show "crossed" instead of a spread; the depth chart centres on the midpoint of the two bests | Detective | Effective |
+| The next taker crossing either best matches the crossed orders at the makers' prices | Corrective | Partial |
+
+## R35 · Snapshot restore does not roll back the order-book store
+- impact: 2
+- likelihood: 2
+- target: 2x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0018. A restore keeps the chain's UUID scope, so the order-book store (attempts journal, signed off-chain orders) keyed by `[chainId, venueAddress, …]` is not rolled back with the chain: failed attempts from after the snapshot stay listed, and off-chain orders signed after it stay valid if Settlement is redeployed at the same address.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Store keys include the venue address, so a redeploy at a new address never mixes | Preventive | Partial |
+| Scope the store by snapshot generation, or clear it on restore | Corrective | Partial |
+
 ## Example design risk
 - impact: 5
 - likelihood: 3

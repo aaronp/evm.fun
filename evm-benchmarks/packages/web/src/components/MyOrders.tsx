@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Asset } from '@evmb/assets'
-import { priceText, type Order } from '@evmb/orderbook'
+import type { Order } from '@evmb/orderbook'
+import { priceAway } from '../orderbook/form'
 import { idText, sizeText, statusText } from '../orderbook/ui'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
@@ -58,7 +59,7 @@ export function MyOrders({ orders, base, quote, venue, busy, onCancel }: {
               <tr key={o.id} className="border-t border-line hover:bg-surface-hover">
                 <td className={`${td} pl-5 font-mono`} title={o.id}>{idText(o.id)}</td>
                 <td className={`${td} font-semibold ${o.side === 'buy' ? 'text-bid' : 'text-ask'}`}>{o.side === 'buy' ? 'Buy' : 'Sell'} {base.symbol}</td>
-                <td className={`${td} text-right font-mono`}>{priceText(o.price, quote.decimals)}</td>
+                <td className={`${td} text-right font-mono`}>{priceAway(o.price, o.side, quote.decimals)}</td>
                 <td className={`${td} text-right font-mono`}>{sizeText(o.filled, base.decimals)} / {sizeText(o.amount, base.decimals)}</td>
                 <td className={td}><Badge variant={TONE[o.status]}>{statusText(o)}</Badge></td>
                 <td className={`${td} pr-5 text-right`}>

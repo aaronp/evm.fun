@@ -120,6 +120,20 @@ test('spreadOf: best ask - best bid, in bps of the mid to 1 dp; none without bot
   expect(spreadOf([lv(12698n, 1n, 1n)], [lv(12703n, 1n, 1n)])).toEqual({ spread: 5n, bps: '3.9' })
   expect(spreadOf([lv(10000n, 1n, 1n)], [lv(10100n, 1n, 1n)])).toEqual({ spread: 100n, bps: '99.5' })
   expect(spreadOf([], [lv(1n, 1n, 1n)])).toBeUndefined()
+  // a crossed (or locked) book has no spread to format: no negative numbers
+  expect(spreadOf([lv(1_300_000n, 1n, 1n)], [lv(1_270_000n, 1n, 1n)])).toBe('crossed')
+  expect(spreadOf([lv(1_270_000n, 1n, 1n)], [lv(1_270_000n, 1n, 1n)])).toBe('crossed')
+})
+
+test('depthPaths: a crossed book centres on the midpoint of the bests and keeps lo < hi', () => {
+  const d = depthPaths([lv(130n, 1n, 1n), lv(120n, 1n, 2n)], [lv(127n, 1n, 1n)])!
+  // mid 128.5, furthest end 120 (8.5) + 6% → 119.49 .. 137.51
+  expect(d.lo).toBe(119n)
+  expect(d.hi).toBe(138n)
+  expect(d.bid).toStartWith('M') // the best bid sits right of the mid, inside the chart
+  expect(d.bid!.includes('NaN')).toBe(false)
+  const one = depthPaths([lv(130n, 1n, 1n)], [lv(127n, 1n, 1n)])!
+  expect(one.lo < one.hi).toBe(true)
 })
 
 test('depthPaths: mid at the centre, step areas from the best level outwards, edges labelled', () => {
@@ -185,6 +199,21 @@ test('percentAmount: a sell takes the share of its base; a buy the largest amoun
   expect(percentAmount(100, o('buy', 'market'), 10n ** 12n, asks, 2)).toBe(300_000n) // never more than the book holds
   expect(percentAmount(100, o('buy', 'market'), 10n ** 12n, [], 2)).toBe(0n)
   expect(percentAmount(100, o('buy', 'market'), 1_905_500_001n, asks, 2, 'offchain')).toBe(150_000n)
+})
+
+test('off-chain Available and 25/50/75/Max leave out what the maker\'s other open orders hold', async () => {
+  const { availableText, percentAmount, plan, spendable } = await import('../src/orderbook/form')
+  // holds 1,000 GBP, 1,000 GBP already on an open sell: Max sells nothing more (was 1,000 → "You hold … with your other open orders, 2,000")
+  expect(spendable(100_000n, 100_000n)).toBe(0n)
+  expect(availableText(100_000n, 100_000n, GBP)).toBe('0.00 GBP (1,000.00 GBP on open orders)')
+  expect(availableText(100_000n, 0n, GBP)).toBe('1,000.00 GBP') // on-chain (held 0): unchanged
+  expect(spendable(100_000n, 150_000n)).toBe(0n)
+  // a buy: Max's "at most" plus the 1,000 USD held stays within the 3,000 USD balance
+  const o = { side: 'buy' as const, type: 'limit' as const, price: 1_270_000n, slippageBps: 100 }
+  const bal = 3_000_000_000n, held = 1_000_000_000n
+  const max = percentAmount(100, o, spendable(bal, held), asks, 2, 'offchain')
+  expect(plan({ ...o, amount: max }, asks, 2, 'offchain').need! + held <= bal).toBe(true)
+  expect(plan({ ...o, amount: max + 1n }, asks, 2, 'offchain').need! + held > bal).toBe(true)
 })
 
 test('form text: slippage (bps, clamped 0–50%), worst price rounded away from the book, submit label, allowance note, approve amount', async () => {
