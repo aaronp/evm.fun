@@ -53,14 +53,17 @@ const S = (t: Address) => `{symbol:${t}}`
 const A = (t: Address, v: bigint) => `{amount:${t}:${v}}`
 const cap = (s: string) => s[0]!.toUpperCase() + s.slice(1)
 
-/** Revert data of `tx` replayed at `block`; undefined when it doesn't revert; 'unsupported' when the node refuses. */
-async function replay(request: Request, call: object, block: string): Promise<Hex | undefined | 'unsupported'> {
+/** Replays `call` at `block`: revert `data`, nothing when it doesn't revert, `unsupported` when the node keeps no
+ * state for that block, `failed` (the message) when the request fails some other way. */
+async function replay(request: Request, call: object, block: string): Promise<{ data?: Hex; unsupported?: true; failed?: string }> {
   try {
     await request('eth_call', [call, block])
-    return undefined
+    return {}
   } catch (e: any) {
     const d = e?.data ?? e?.cause?.data ?? e?.error?.data
-    return typeof d === 'string' ? (d as Hex) : 'unsupported'
+    if (typeof d === 'string') return { data: d as Hex }
+    const message = String(e?.message ?? e)
+    return /historical state not available/i.test(message) ? { unsupported: true } : { failed: message }
   }
 }
 
@@ -132,6 +135,7 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
 
   // Reverted. Status changes come from logs (they see same-block ordering); otherwise replay the call.
   let error: TakeReport['error'], winner: TakeReport['winner'], reconstructedNow: true | undefined
+  let since: string | undefined // the latest replay hit OfferNotOpen: the status changed after this tx
   const [taken, cancelled] = (['OfferTaken', 'OfferCancelled'] as const).map(eventName => encodeEventTopics({ abi: swapAbi, eventName })[0]!)
   const status = (await request('eth_getLogs', [{
     address: swap, fromBlock: '0x0', toBlock: toHex(at.block), topics: [[taken, cancelled], toHex(id, { size: 32 })],
@@ -146,13 +150,21 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
     }
   } else {
     const call = { from: tx.from, to: tx.to, data: tx.input, gas: tx.gas }
-    let raw = await replay(request, call, toHex(at.block - 1n))
-    if (raw === 'unsupported') {
+    // ponytail: the block−1 replay can't see an approve/transfer earlier in the same block, so it may name the wrong
+    // reason (or none); replaying the block's earlier txs first would fix it (risk, backlog t-68)
+    let out = await replay(request, call, toHex(at.block - 1n))
+    if (out.unsupported) {
       reconstructedNow = true
-      raw = await replay(request, call, 'latest')
-      if (raw === 'unsupported') raw = undefined
+      out = await replay(request, call, 'latest')
     }
-    if (raw !== undefined) error = { ...(decodeSwapError(raw) ?? { name: 'Unknown', args: {} }), raw }
+    if (out.data !== undefined) {
+      const d = decodeSwapError(out.data)
+      // no earlier status change was logged, so OfferNotOpen now says nothing about why this tx failed
+      if (reconstructedNow && d?.name === 'OfferNotOpen') since = statusName(d.args.status as number)
+      else error = { ...(d ?? { name: 'Unknown', args: {} }), raw: out.data }
+    } else if (out.failed !== undefined || out.unsupported) {
+      error = { name: 'ReplayFailed', args: { message: out.failed ?? 'historical state not available' } }
+    }
   }
   const reason: Reason =
     error?.name === 'ERC20InsufficientAllowance' ? 'allowance'
@@ -178,14 +190,15 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
   const failedTake = step('fail', `take(${id}) by ${N(taker)} reverted`, `block ${at.block}`, 'Swap rejects offers that are no longer open.', detail)
   const notOpenTail = [step('skip', 'Pay & deliver legs', 'not attempted', 'Checked before any tokens move.'),
     rolled(`${N(taker)}’s balances are unchanged; only gas was spent.`)]
+  const open = offer.status === 'open', laterNote = `Offer #${id} has since been ${offer.status}.`
   const another = { text: 'Offers fill whole and only once. Pick another offer from the book, or make your own at this price.', label: 'Choose another offer' }
 
   const copy: Pick<TakeReport, 'pill' | 'summary' | 'kpis' | 'steps' | 'fix'> =
     reason === 'allowance' || reason === 'balance' ? {
       pill: `Reverted · ${reason}`,
       summary: reason === 'allowance'
-        ? `Swap wasn’t allowed to spend ${N(taker)}’s ${getSym}, so the whole transaction rolled back. The offer is still there to take.`
-        : `${N(taker)} didn’t hold enough ${getSym}, so the whole transaction rolled back. The offer is still there to take.`,
+        ? `Swap wasn’t allowed to spend ${N(taker)}’s ${getSym}, so the whole transaction rolled back. ${open ? 'The offer is still there to take.' : laterNote}`
+        : `${N(taker)} didn’t hold enough ${getSym}, so the whole transaction rolled back. ${open ? 'The offer is still there to take.' : laterNote}`,
       kpis: [paid, reason === 'allowance'
         ? { label: 'Allowance', value: A(getToken, error!.args.allowance as bigint), sub: 'Swap may spend' }
         : { label: 'Balance', value: A(getToken, error!.args.balance as bigint), sub: `${N(taker)} holds` },
@@ -193,8 +206,9 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
       steps: [made, sent('Offer is open.'),
         step('fail', 'Pay leg reverted', 'transferFrom', `Swap could not pull ${getSym} from ${N(taker)}.`, detail),
         step('skip', 'Deliver leg', 'not attempted', 'Execution stopped at the revert.'),
-        rolled(`Nothing moved. Offer #${id} is still open and the ${give} is still in escrow.`)],
-      fix: reason === 'allowance'
+        rolled(open ? `Nothing moved. Offer #${id} is still open and the ${give} is still in escrow.` : `Nothing moved; the ${give} stayed in escrow.`)],
+      fix: !open ? { ...another, text: `${laterNote} Pick another offer from the book, or make your own at this price.` }
+        : reason === 'allowance'
         ? { text: `Approve Swap to spend at least ${needed} from ${N(taker)}, then take the offer again. It is still open at the same price.`, label: `Approve ${needed}` }
         : { text: `Get at least ${needed} into ${N(taker)}’s wallet, then take the offer again. It is still open at the same price.` },
     }
@@ -214,14 +228,17 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
     }
     : {
       pill: 'Reverted',
-      summary: 'The transaction reverted, so nothing moved.',
-      kpis: [paid, { label: 'Error', value: error?.name ?? 'none', sub: error ? 'see On-chain record' : 'no revert data' }, gasK],
+      summary: since
+        ? `The reason couldn’t be reconstructed: offer #${id} has since been ${since}, so replaying the take now fails differently. Nothing moved.`
+        : 'The transaction reverted, so nothing moved.',
+      kpis: [paid, { label: 'Error', value: error?.name ?? 'none', sub: error ? 'see On-chain record' : since ? `offer since ${since}` : 'no revert data' }, gasK],
       steps: [made, step('fail', `take(${id}) by ${N(taker)} reverted`, `block ${at.block}`, 'Swap reverted the transaction.', detail),
         rolled('Nothing moved; only gas was spent.')],
     }
   const revertLine = !error ? 'revert (no data)'
     : error.name === 'OfferNotOpen' ? `revert OfferNotOpen(${id}, ${cap(statusName(error.args.status as number))})`
-    : error.name === 'Unknown' ? `revert ${error.raw}` : `revert ${error.name}`
+    : error.name === 'Unknown' ? `revert ${error.raw}`
+    : error.name === 'ReplayFailed' ? `revert (reason not recovered: ${error.args.message})` : `revert ${error.name}`
   return {
     ...base, outcome: 'reverted', title: `Take #${id} failed`, ...copy,
     ...(error && { error }), reason, ...(winner && { winner }), ...(reconstructedNow && { reconstructedNow }),

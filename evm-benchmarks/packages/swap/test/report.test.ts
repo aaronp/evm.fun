@@ -193,3 +193,43 @@ test('fillText substitutes names, symbols, amounts and prices', () => {
   expect(fillText(`{name:${A}} has {amount:${A}:12} {symbol:${A}} at {price:${A}:1:${A}:2}`, fmt))
     .toBe(`me has 12u USD at ${A}/1/${A}/2`)
 })
+
+test('latest fallback: an offer filled after the revert is not reported as the reason', () =>
+  withSwap(async c => {
+    await offer(c)
+    const h = await c.tx(taker, c.swap, Swap.abi, 'take', [1n]) // no allowance
+    await c.send(maker, c.usd, erc, 'transfer', [other.address, GET])
+    await c.send(other, c.usd, erc, 'approve', [c.swap, GET])
+    await c.send(other, c.swap, Swap.abi, 'take', [1n])
+    const r = await takeReport(c.request, h)
+    expect(r).toMatchObject({ reason: 'other', reconstructedNow: true })
+    expect(r.winner).toBeUndefined()
+    expect(r.summary).toBe('The reason couldn’t be reconstructed: offer #1 has since been filled, so replaying the take now fails differently. Nothing moved.')
+  }), 60_000)
+
+test('allowance revert on an offer filled since: no "still open" copy', () =>
+  withSwap(async c => {
+    await offer(c)
+    const h = await c.tx(taker, c.swap, Swap.abi, 'take', [1n])
+    await c.send(maker, c.usd, erc, 'transfer', [other.address, GET])
+    await c.send(other, c.usd, erc, 'approve', [c.swap, GET])
+    await c.send(other, c.swap, Swap.abi, 'take', [1n])
+    const r = await takeReport(c.request, h)
+    expect(r.reason).toBe('allowance')
+    const text = [r.summary, r.fix!.text, ...r.steps.map(s => s.body)].join('\n')
+    expect(text).not.toContain('still open')
+    expect(text).not.toContain('still there')
+    expect(r.summary).toContain('Offer #1 has since been filled.')
+    expect(r.fix).toEqual({ text: 'Offer #1 has since been filled. Pick another offer from the book, or make your own at this price.', label: 'Choose another offer' })
+  }, { stateHistory: 64 }), 60_000)
+
+test('a replay that fails for another reason is surfaced', () =>
+  withSwap(async c => {
+    await offer(c)
+    const h = await c.tx(taker, c.swap, Swap.abi, 'take', [1n])
+    const request = (m: string, p: unknown[]) =>
+      m === 'eth_call' && p[1] !== 'latest' ? Promise.reject(new Error('boom')) : c.request(m, p)
+    const r = await takeReport(request, h)
+    expect(r).toMatchObject({ reason: 'other', error: { name: 'ReplayFailed', args: { message: 'boom' } } })
+    expect(r.reconstructedNow).toBeUndefined()
+  }), 60_000)
