@@ -1,8 +1,8 @@
 import { test, expect } from 'bun:test'
 import type { Address } from 'viem'
 import type { Asset } from '@evmb/assets'
-import { book, type Offer } from '@evmb/swap'
-import { makerLabel, pickPair, statsText } from '../src/swap/ui'
+import { book, type ActivityItem, type Offer } from '@evmb/swap'
+import { activityText, allowText, crosses, exactText, formQuote, makerLabel, pickPair, rowOf, statsText } from '../src/swap/ui'
 
 const a = (n: number) => `0x${n.toString(16).padStart(40, '0')}` as Address
 const tok = (n: number, symbol: string, decimals: number): Asset => ({
@@ -40,4 +40,61 @@ test('makerLabel: "you" for the acting account, else the account name, else a sh
   expect(makerLabel(a(8), a(7), people)).toBe('tester')
   expect(makerLabel(a(0xabcdef), a(7), people)).toBe('0x0000…cdef')
   expect(makerLabel(a(7), undefined, people)).toBe('me')
+})
+
+test('formQuote: GBP 2dp base, USD 6dp quote, amounts exact and half-up; errors per the mockup', () => {
+  expect(formQuote('ask', '1000', '1.271234', GBP, USD)).toEqual({ give: { asset: GBP, amount: 100_000n }, get: { asset: USD, amount: 1_271_234_000n } })
+  expect(formQuote('bid', '1,000.50', '1.2688', GBP, USD)).toEqual({ give: { asset: USD, amount: 1_269_434_400n }, get: { asset: GBP, amount: 100_050n } })
+  expect(formQuote('ask', '0.01', '1.2345675', GBP, USD)).toMatchObject({ get: { amount: 12_346n } }) // 0.012345675 -> 0.012346
+  expect(formQuote('bid', '1', '0.0000005', USD, GBP)).toEqual({ error: 'Rounds to 0.00 GBP — raise the amount or price.' })
+  expect(formQuote('ask', '', '1.27', GBP, USD)).toEqual({ error: 'Enter both an amount and a price.' })
+  expect(formQuote('ask', '1.234', '1.27', GBP, USD)).toEqual({ error: 'GBP has 2 decimals — use at most 2 after the point.' })
+  for (const [amt, price] of [['0', '1.27'], ['-1', '1.27'], ['1', '0'], ['1', 'x']])
+    expect(formQuote('ask', amt!, price!, GBP, USD)).toEqual({ error: 'Amount and price must be positive numbers.' })
+  expect(exactText(1_271_234_000n, 6)).toBe('1,271.234')
+  expect(exactText(1_271_000_000n, 6)).toBe('1,271.00')
+  expect(exactText(100_050n, 2)).toBe('1,000.50')
+  expect([allowText(2n ** 256n - 1n, 2), allowText(50_000n, 2)]).toEqual(['unlimited', '500.00'])
+})
+
+test('crosses: selling at or below the best bid, buying at or above the best ask; exact at equality', () => {
+  const b = book([offer(1, GBP, 50_000n, USD, 635_000_000n), offer(3, USD, 1_268_800_000n, GBP, 100_000n)], GBP as any, USD as any) // ask 1.27, bid 1.2688
+  const buying = 'Someone is already buying at 1.2688 or better — take their offer instead. Swap doesn’t match offers for you.'
+  const selling = 'Someone is already selling at 1.2700 or better — take their offer instead. Swap doesn’t match offers for you.'
+  expect(crosses('ask', '1.2688', b)).toBe(buying)
+  expect(crosses('ask', '1.26880001', b)).toBeUndefined()
+  expect(crosses('ask', '1.2', b)).toBe(buying)
+  expect(crosses('bid', '1.27', b)).toBe(selling)
+  expect(crosses('bid', '1.26999999', b)).toBeUndefined()
+  expect(crosses('bid', '2', b)).toBe(selling)
+  expect(crosses('bid', 'x', b)).toBeUndefined()
+  expect(crosses('ask', '1', book([], GBP as any, USD as any))).toBeUndefined()
+})
+
+test('rowOf: an offer of any status seen in the pair, undefined outside it', () => {
+  expect(rowOf(offer(2, GBP, 20_000n, USD, 253_800_000n, 'filled'), GBP, USD)).toMatchObject({ side: 'ask', base: 20_000n, quote: 253_800_000n, status: 'filled' })
+  expect(rowOf(offer(3, USD, 1n, GBP, 1n), GBP, USD)?.side).toBe('bid')
+  expect(rowOf(offer(4, USD, 1n, EUR, 1n), GBP, USD)).toBeUndefined()
+})
+
+test('activityText: one line per kind, as in the mockup', () => {
+  const people = [{ label: 'me', address: a(7) }, { label: 'tester', address: a(8) }]
+  const offers = [
+    { ...offer(2, GBP, 20_000n, USD, 253_800_000n, 'filled'), maker: a(7) },
+    { ...offer(5, GBP, 250_000n, USD, 3_176_250_000n), maker: a(7) },
+    { ...offer(6, USD, 3_174_000_000n, GBP, 250_000n), maker: a(8) },
+  ]
+  const labels = { name: (x: string) => makerLabel(x, undefined, people), offer: (id: bigint) => offers.find(o => o.id === id), base: GBP, quote: USD }
+  const it = (kind: ActivityItem['kind'], x: Partial<ActivityItem>): ActivityItem => ({ kind, actor: a(8), tx: '0x1', block: 1n, txIndex: 0, ...x })
+  expect(activityText(it('reverted', { id: 5n, reason: 'allowance' }), labels)).toBe('tester tried to take #5 — USD allowance too low')
+  expect(activityText(it('reverted', { id: 5n, reason: 'balance' }), labels)).toBe('tester tried to take #5 — USD balance too low')
+  expect(activityText(it('reverted', { id: 5n, reason: 'filled' }), labels)).toBe('tester tried to take #5 — already taken')
+  expect(activityText(it('reverted', { id: 5n, reason: 'cancelled' }), labels)).toBe('tester tried to take #5 — offer cancelled')
+  expect(activityText(it('reverted', { id: 5n, reason: 'other' }), labels)).toBe('tester tried to take #5 — reverted')
+  expect(activityText(it('taken', { id: 2n }), labels)).toBe('#2 taken by tester · 200.00 GBP ⇄ 253.80 USD')
+  expect(activityText(it('cancelled', { id: 5n, actor: a(7) }), labels)).toBe('#5 cancelled by me · 2,500.00 GBP returned')
+  expect(activityText(it('offered', { id: 5n, actor: a(7) }), labels)).toBe('#5 by me · sell 2,500.00 GBP @ 1.2705')
+  expect(activityText(it('offered', { id: 6n }), labels)).toBe('#6 by tester · buy 2,500.00 GBP @ 1.2696')
+  expect(activityText(it('approved', { token: USD.address!, amount: 3_176_250_000n }), labels)).toBe('tester approved Swap for 3,176.25 USD')
+  expect(activityText(it('approved', { token: GBP.address!, amount: 2n ** 256n - 1n }), labels)).toBe('tester approved Swap for unlimited GBP')
 })

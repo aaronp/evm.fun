@@ -1,21 +1,25 @@
-import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { erc20Abi, type Address } from 'viem'
-import { MAX_UINT256, type Asset } from '@evmb/assets'
-import { book, priceText, readOffers, type BookRow, type Offer } from '@evmb/swap'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { erc20Abi, parseEventLogs, type Address, type Hex } from 'viem'
+import { approveCall, readTokenInfo, type Asset } from '@evmb/assets'
+import { activity, book, cancelCall, makeOfferCall, priceText, readOffers, swapAbi, takeCall, type ActivityItem, type BookRow, type Offer } from '@evmb/swap'
 import { useApp } from '../state'
 import { useAppBar } from '../state/appBar'
 import { accounts as accountStore } from '../store/accounts'
 import { assetRegistry } from '../assets/registry'
+import { reconcileAssets } from '../assets/build'
 import { shortAddress } from '../assets/ui'
-import { readContract } from '../tx/send'
+import { contractsRegistry } from '../contracts/registry'
+import { readContract, signAndSend } from '../tx/send'
 import { deploySwap, NO_RECORDS, swapFor } from '../swap/locate'
-import { amountText, makerLabel, pickPair, statsText } from '../swap/ui'
+import { activityText, allowText, amountText, makerLabel, pickPair, rowOf, statsText } from '../swap/ui'
+import { card, TakePanel, type Funds } from '../components/TakePanel'
+import { MakeOfferCard } from '../components/MakeOfferCard'
+import { Activity, MyOffers } from '../components/SwapActivity'
 import { Button } from '../ui/button'
 import { Select } from '../ui/input'
 import { Notice } from '../ui/notice'
 
-const card = 'rounded-2xl border border-line-strong bg-surface'
 const stat = 'flex flex-col gap-1 rounded-xl border border-line-strong bg-surface px-3.5 py-3'
 const statLabel = 'text-xs text-muted'
 const statLine = 'font-mono text-sm font-medium'
@@ -33,16 +37,30 @@ export function Swap() {
   const [swap, setSwap] = useState<Address | null>() // undefined: none on this chain; null: still looking
   const [offers, setOffers] = useState<Offer[]>()
   const [wallet, setWallet] = useState<Wallet>({})
-  const [selected, setSelected] = useState<bigint>() // the offer Task 6's Take panel acts on
+  const [selected, setSelected] = useState<bigint>() // the offer the Take panel acts on
+  const [items, setItems] = useState<ActivityItem[]>()
   const [deploying, setDeploying] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
+  const [flash, setFlash] = useState<string>()
+  const reconciled = useRef(new Set<string>())
+  const nav = useNavigate()
   const chainId = chain?.info.id
 
   useEffect(() => {
-    setSwap(null); setAssets([]); setErr(undefined); setSelected(undefined)
+    setSwap(null); setAssets([]); setErr(undefined); setFlash(undefined); setSelected(undefined)
     if (!chain) return
     let live = true
-    Promise.all([assetRegistry.list(chain.info.id), swapFor(chain)])
+    const id = chain.info.id
+    // adopt tokens deployed elsewhere (Studio, imports) once per chain per mount, as the Assets page does; never on benchmark chains
+    const list = async () => {
+      if (!chain.info.ephemeral && !reconciled.current.has(id)) {
+        reconciled.current.add(id)
+        await reconcileAssets(id, await contractsRegistry.list(id), assetRegistry, addr => readTokenInfo(chain.request, addr))
+      }
+      return assetRegistry.list(id)
+    }
+    Promise.all([list(), swapFor(chain)])
       .then(([a, s]) => { if (live) { setAssets(a); setSwap(s) } }, e => live && setErr(msg(e)))
     return () => { live = false }
   }, [chain])
@@ -58,6 +76,15 @@ export function Swap() {
     readOffers(chain.request, swap).then(o => live && setOffers(o), e => live && setErr(msg(e)))
     return () => { live = false }
   }, [chain, swap, balanceTick])
+
+  useEffect(() => { setItems(undefined) }, [chainId, swap, base?.address, quote?.address])
+  useEffect(() => {
+    if (!chain || !swap || !base || !quote) return
+    let live = true
+    activity(chain.request, swap, [base.address as Address, quote.address as Address]).then(a => live && setItems(a), e => live && setErr(msg(e)))
+    return () => { live = false }
+  }, [chain, swap, base?.address, quote?.address, balanceTick]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setFlash(undefined) }, [acting?.address])
 
   useEffect(() => { setWallet({}) }, [chainId, swap, base?.address, quote?.address, acting?.address])
   useEffect(() => {
@@ -97,23 +124,56 @@ export function Swap() {
     try { setSwap(await deploySwap(chain, acting, bumpBalance)) } catch (e) { setErr(msg(e)) } finally { setDeploying(false) }
   }
 
+  /** Sign and send from the acting account; a revert is an error unless the caller wants the receipt anyway (takes). */
+  async function send(tx: { to: Address; data: Hex }, revertOk = false) {
+    if (!chain || !acting || busy) return
+    setBusy(true); setErr(undefined); setFlash(undefined)
+    try {
+      const r = await signAndSend(chain, acting, tx, bumpBalance)
+      if (r.status === 'success' || (revertOk && r.status === 'reverted')) return r
+      setErr(`Transaction ${r.status}${r.error ? `: ${r.error}` : ''}`)
+    } catch (e) { setErr(msg(e)) } finally { setBusy(false) }
+  }
+  const approve = (a: Asset, amount: bigint) => void send(approveCall(a, swap!, amount))
+  const take = async (id: bigint) => { const r = await send(takeCall(swap!, id), true); if (r) nav(`/swap/report?tx=${r.hash}`) }
+  const cancel = async (id: bigint) => { if (await send(cancelCall(swap!, id))) setFlash(`Offer #${id} cancelled; escrow returned.`) }
+  async function create(give: { asset: Asset; amount: bigint }, get: { asset: Asset; amount: bigint }) {
+    const r = await send(makeOfferCall(swap!, give.asset.address as Address, give.amount, get.asset.address as Address, get.amount))
+    if (!r) return false
+    const rc = (await chain!.request('eth_getTransactionReceipt', [r.hash]).catch(() => null)) as { logs: Parameters<typeof parseEventLogs>[0]['logs'] } | null
+    const id = rc && parseEventLogs({ abi: swapAbi, eventName: 'OfferMade', logs: rc.logs })[0]?.args.id
+    setFlash(`Offer${id ? ` #${id}` : ''} created; ${amountText(give.amount, give.asset.decimals)} ${give.asset.symbol} moved into escrow.`)
+    if (id) setSelected(id)
+    return true
+  }
+
   const setPair = (b: string, q: string) => setParams({ base: b, quote: q }, { replace: true })
   const tok = (a: Asset) => ({ address: a.address as Address, decimals: a.decimals })
-  const b = base && quote ? book(offers ?? [], tok(base), tok(quote)) : undefined
+  const b = base && quote && offers ? book(offers, tok(base), tok(quote)) : undefined
   const s = b && statsText(b, base!, quote!)
+  const loading = !!swap && !offers // no "no one is selling" or empty dashes while the offers load
+  const dash = loading ? '…' : '—'
   const asks = b ? [...b.asks].reverse() : [], bids = b?.bids ?? [] // asks shown highest first, so the best sits by the spread
-  const disabled = !!chain.info.ephemeral || swap === undefined || !s
-  const allow = (v: bigint | undefined, a: Asset) => (v === undefined ? '—' : v === MAX_UINT256 ? 'Unlimited' : amountText(v, a.decimals))
+  const disabled = !!chain.info.ephemeral || swap === undefined || !base || !quote
+  const allow = (v: bigint | undefined, a: Asset) => (v === undefined ? '—' : allowText(v, a.decimals))
   const two = (x: string | undefined, y: string | undefined) => (
-    <><span className={statLine}>{x ?? '—'} {base?.symbol}</span><span className={statLine}>{y ?? '—'} {quote?.symbol}</span></>
+    <><span className={statLine}>{x ?? dash} {base?.symbol}</span><span className={statLine}>{y ?? dash} {quote?.symbol}</span></>
   )
+  const funds: Funds = a => (a === base ? { bal: wallet.base, alw: wallet.allowBase } : { bal: wallet.quote, alw: wallet.allowQuote })
+  const name = (a: string) => makerLabel(a, undefined, people)
+  const offerOf = (id?: bigint) => offers?.find(o => o.id === id)
+  const inPair = (o?: Offer) => (o && base && quote ? rowOf(o, base, quote) : undefined)
+  const selRow = inPair(offerOf(selected))
+  const isMine = (maker: string) => makerLabel(maker, acting?.address, people) === 'you'
+  const mine = acting && offers?.filter(o => isMine(o.maker)).map(inPair).filter((r): r is BookRow => !!r).reverse()
+  const pairItems = offers && items?.filter(i => i.kind === 'approved' || inPair(offerOf(i.id))) // approvals are already pair-filtered
   const amt = (v: bigint | undefined, a?: Asset) => (v === undefined || !a ? undefined : amountText(v, a.decimals))
 
   const row = (o: BookRow) => {
     const maker = makerLabel(o.maker, acting?.address, people)
     const on = selected === o.id
     return (
-      <button key={String(o.id)} aria-pressed={on} onClick={() => setSelected(on ? undefined : o.id)}
+      <button key={String(o.id)} aria-pressed={on} onClick={() => { setSelected(o.id); setFlash(undefined) }}
         className={`${cols} min-h-9 items-center px-4 text-left font-mono text-[13px] text-text focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${on ? 'bg-selected shadow-[inset_3px_0_0_var(--c-accent)]' : 'hover:bg-surface-hover'}`}>
         <span className={o.side === 'ask' ? 'text-ask' : 'text-bid'}>{priceText(o.price)}</span>
         <span className="text-right">{amountText(o.base, base!.decimals)}</span>
@@ -155,14 +215,14 @@ export function Swap() {
 
       <div inert={disabled} className={`flex flex-col gap-[18px] ${disabled ? 'opacity-45' : ''}`}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <div className={stat}><span className={statLabel}>Best bid</span><span className="font-mono text-lg font-semibold text-bid">{s?.bestBid ?? '—'}</span></div>
-          <div className={stat}><span className={statLabel}>Best ask</span><span className="font-mono text-lg font-semibold text-ask">{s?.bestAsk ?? '—'}</span></div>
+          <div className={stat}><span className={statLabel}>Best bid</span><span className="font-mono text-lg font-semibold text-bid">{s?.bestBid ?? dash}</span></div>
+          <div className={stat}><span className={statLabel}>Best ask</span><span className="font-mono text-lg font-semibold text-ask">{s?.bestAsk ?? dash}</span></div>
           <div className={stat}><span className={statLabel}>Escrowed in Swap</span>{two(s?.escrowBase, s?.escrowQuote)}</div>
           <div className={stat}><span className={statLabel}>{acting?.label ?? 'No account'} · wallet</span>{two(amt(wallet.base, base), amt(wallet.quote, quote))}</div>
           <div className={stat}><span className={statLabel}>{acting?.label ?? 'No account'} · Swap may spend</span>{two(base && allow(wallet.allowBase, base), quote && allow(wallet.allowQuote, quote))}</div>
         </div>
 
-        {/* Task 6: success / failure flash (role="status", "View report →") goes here, between the stats and the cards. */}
+        {flash && <Notice tone="success">{flash}</Notice>}
 
         <div className="flex flex-wrap items-stretch gap-4">
           <section aria-labelledby="bk-h" className={`${card} flex max-w-[420px] flex-[1_1_340px] flex-col overflow-hidden`}>
@@ -174,22 +234,28 @@ export function Swap() {
               <span>Price ({quote?.symbol ?? '—'})</span><span className="text-right">{base?.symbol ?? '—'}</span><span className="text-right">{quote?.symbol ?? '—'}</span><span className="text-right">Maker</span>
             </div>
             {asks.map(row)}
-            {asks.length === 0 && <div className="px-4 py-2.5 text-xs text-subtle">No one is selling {base?.symbol ?? 'the base token'}.</div>}
+            {b && asks.length === 0 && <div className="px-4 py-2.5 text-xs text-subtle">No one is selling {base?.symbol ?? 'the base token'}.</div>}
             <div className="my-1 flex justify-between border-y border-line bg-panel px-4 py-2 text-xs text-muted">
-              <span>▲ selling {base?.symbol}</span><span>spread {s?.spread ?? '—'}</span><span>▼ buying {base?.symbol}</span>
+              <span>▲ selling {base?.symbol}</span><span>spread {s?.spread ?? dash}</span><span>▼ buying {base?.symbol}</span>
             </div>
             {bids.map(row)}
-            {bids.length === 0 && <div className="px-4 py-2.5 text-xs text-subtle">No one is buying {base?.symbol ?? 'the base token'}.</div>}
+            {b && bids.length === 0 && <div className="px-4 py-2.5 text-xs text-subtle">No one is buying {base?.symbol ?? 'the base token'}.</div>}
             <span className="mt-auto px-4 py-3 text-xs text-subtle">Click an offer to take it.</span>
           </section>
 
-          {/* Task 6: "Take offer #n" panel for `selected` — <section aria-labelledby="tk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}> */}
-          {/* Task 6: "Make an offer" card — <section aria-labelledby="mk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}> */}
+          {base && quote && <>
+            <TakePanel row={selRow} base={base} quote={quote} maker={selRow ? makerLabel(selRow.maker, acting?.address, people) : ''} own={!!selRow && isMine(selRow.maker)}
+              funds={funds} busy={busy || !acting} onApprove={approve} onTake={() => selRow && take(selRow.id)} onCancel={() => selRow && cancel(selRow.id)} />
+            <MakeOfferCard base={base} quote={quote} book={b} funds={funds} busy={busy || !acting} onApprove={approve} onCreate={create} />
+          </>}
         </div>
 
         <div className="flex flex-wrap items-start gap-4">
-          {/* Task 6: "{acting.label}’s offers" — <section aria-labelledby="my-h" className={`${card} flex-[1_1_420px] overflow-hidden`}> */}
-          {/* Task 6: "Activity" — <section aria-labelledby="ac-h" className={`${card} flex-[1_1_420px] overflow-hidden`}> */}
+          {base && quote && <>
+            <MyOffers who={acting?.label ?? 'No account'} rows={mine} base={base} busy={busy}
+              takerOf={id => (t => t && name(t.actor))(items?.find(i => i.kind === 'taken' && i.id === id))} onCancel={r => cancel(r.id)} />
+            <Activity items={pairItems} text={i => activityText(i, { name, offer: offerOf, base, quote })} />
+          </>}
         </div>
       </div>
     </div>

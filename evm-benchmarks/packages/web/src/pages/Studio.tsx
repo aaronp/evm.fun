@@ -116,15 +116,16 @@ export function Studio() {
   // "Deploy Swap.sol": from the acting account; one Swap per chain, none on benchmark chains
   const [swap, setSwap] = useState<string | null>() // null: looking
   const [swapBusy, setSwapBusy] = useState(false)
+  const [swapErr, setSwapErr] = useState<string>() // lookup failed: stay disabled rather than risk a second Swap
   useEffect(() => {
-    setSwap(null)
+    setSwap(null); setSwapErr(undefined)
     if (!chain) return
     let live = true
-    swapFor(chain).then(a => live && setSwap(a), () => live && setSwap(undefined))
+    swapFor(chain).then(a => live && setSwap(a), e => live && setSwapErr(e instanceof Error ? e.message : String(e)))
     return () => { live = false }
   }, [chain, deployed])
   const acting = list.find(a => a.address === account)
-  const swapWhyNot = !chain ? 'Select a chain first' : chain.info.ephemeral ? NO_RECORDS : swap ? `This chain already has Swap at ${swap}` : !acting ? 'Create an account first' : undefined
+  const swapWhyNot = !chain ? 'Select a chain first' : chain.info.ephemeral ? NO_RECORDS : swapErr ?? (swap ? `This chain already has Swap at ${swap}` : !acting ? 'Create an account first' : undefined)
   const deploySwapNow = async () => {
     if (!chain || !acting || swapWhyNot || swapBusy) return
     setSwapBusy(true)
