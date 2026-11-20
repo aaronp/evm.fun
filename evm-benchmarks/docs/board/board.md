@@ -174,13 +174,46 @@ ADR-0016: step 2 is ERC-20 only because ETH can't be escrowed with transferFrom.
 ADR-0016: a market is any (base, quote) pair of the chain's assets. The mockup's "New market" screen (named pairs, defaults, tick size) is deferred; revisit with the order book (t-64).
 ```
 
+### Swap: per-maker on-chain offer index
+- id: t-72
+- tags: swap, backlog
+- history:
+  - To Do @ 2026-11-20T12:39:29Z
+
+```md
+ADR-0016, R20: makeOffer records offer ids per maker so "your offers" reads the maker's ids in O(1) instead of filtering every offer.
+```
+
+### Swap: store the cancel block
+- id: t-73
+- tags: swap, backlog
+- history:
+  - To Do @ 2026-11-20T12:39:29Z
+
+```md
+ADR-0016, R21: cancel records its block in the offer so takeReport reads it directly instead of scanning logs from block 0 for cancelled offers.
+```
+
+### Swap: fee-on-transfer and rebasing tokens
+- id: t-74
+- tags: swap, backlog
+- history:
+  - To Do @ 2026-11-20T12:39:29Z
+
+```md
+ADR-0016, R22: measure the balance delta on deposit, or refuse such tokens, so escrow can't be left short.
+```
+
 ## Doing
+
+## Done
 
 ### Same-chain swap (one offer, settled atomically).
 - id: t-61
 - history:
   - To Do @ 2026-11-20T08:47:16.453Z
   - Doing @ 2026-11-20T08:48:52.373Z
+  - Done @ 2026-11-20T12:39:29Z
 
 ```md
 A small Swap.sol:
@@ -191,8 +224,6 @@ the maker can cancel.
 
 This is the smallest possible “trade”. It also introduces the execution report for successes and failures, for example a failure from a missing allowance. Benchmark scenario: offer-fill.
 ```
-
-## Done
 
 ### assets: README, ADR, risks, browser checklist
 - id: t-60
