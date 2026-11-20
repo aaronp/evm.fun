@@ -1,0 +1,49 @@
+{
+  "manifestVersion": 1,
+  "tools": [
+    {
+      "id": "schedule",
+      "aliases": [
+        "gantt"
+      ],
+      "name": "Schedule",
+      "tool": "Gantt",
+      "package": "@pritzlaff/gantt",
+      "bin": "gantt",
+      "file": "docs/schedule/schedule.md",
+      "srcEnv": "GANTT_SRC",
+      "homepage": "https://github.com/aaronp/gantt",
+      "spec": "https://aaronp.github.io/gantt/spec.md",
+      "viewer": "https://aaronp.github.io/gantt/",
+      "dashboard": {
+        "tint": "#FFEDB3",
+        "question": "Do you know when it’ll be done?",
+        "noLead": "Lay out milestones and dependencies on a timeline."
+      },
+      "starter": "# Schedule\n",
+      "order": 5
+    },
+    {
+      "id": "work",
+      "aliases": [
+        "agile"
+      ],
+      "name": "Delivery",
+      "tool": "Agile board",
+      "package": "@pritzlaff/agile",
+      "bin": "agile",
+      "file": "docs/board/board.md",
+      "srcEnv": "AGILE_SRC",
+      "homepage": "https://github.com/aaronp/agile",
+      "spec": "https://aaronp.github.io/agile/spec.md",
+      "viewer": "https://aaronp.github.io/agile/",
+      "dashboard": {
+        "tint": "#CFEDF3",
+        "question": "Do you know what’s happening right now?",
+        "noLead": "Put the work on the board and limit what is in progress."
+      },
+      "starter": "# Board\n\n## To Do\n\n## Doing\n\n## Done\n",
+      "order": 6
+    }
+  ]
+}

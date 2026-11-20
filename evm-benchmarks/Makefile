@@ -14,3 +14,11 @@ bench:   ## e.g. make bench ARGS="--approach all --scenario all --n 10000 --runs
 
 report:
 	bun run report
+
+# >>> @pritzlaff/project — managed by `project add/remove/update`; edits inside are overwritten
+.PHONY: snapshot dashboard gantt agile
+snapshot: ; npx project snapshot
+dashboard: ; npx project build
+gantt: ; npx gantt docs/schedule/schedule.md
+agile: ; npx agile docs/board/board.md
+# <<< @pritzlaff/project
