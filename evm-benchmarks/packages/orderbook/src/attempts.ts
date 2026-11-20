@@ -1,5 +1,6 @@
 import { getAddress, type Address, type Hex } from 'viem'
 import type { Store } from './store'
+import type { Wallet } from './types'
 
 /** One tx a venue sent (or tried to). `input` is whatever the venue needs to show it again (e.g. the OrderInput as
  * sent, plus `need`: the give amount it checked). `pending` = written before sending, never ended (tab closed). */
@@ -34,5 +35,18 @@ export function journal(store: Store, ctx: { chainId: number; venue: Address }) 
       const p = [ctx.chainId, venue, getAddress(owner)]
       return (await store.scan<Attempt>('attempts', 'owner', { from: p, to: p })).filter(a => a.status === 'reverted')
     },
+  }
+}
+
+/** Journals one tx around its send: `begin` before, `end` with the receipt's outcome (or the send error, rethrown). */
+export async function sendAndJournal(attempts: ReturnType<typeof journal>, wallet: Pick<Wallet, 'address' | 'sendTransaction'>, input: unknown, call: { to: Address; data: Hex }) {
+  const seq = await attempts.begin(input, wallet.address)
+  try {
+    const rc = await wallet.sendTransaction(call)
+    await attempts.end(seq, { tx: rc.transactionHash, block: rc.blockNumber, status: rc.status === 'success' ? 'success' : 'reverted' })
+    return { rc, seq }
+  } catch (e) {
+    await attempts.end(seq, { status: 'error', error: String((e as Error)?.message ?? e) })
+    throw e
   }
 }

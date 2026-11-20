@@ -1,5 +1,5 @@
 import { createPublicClient, custom, decodeFunctionData, getAddress, parseEventLogs, type Address, type Hash, type Log } from 'viem'
-import { journal, type Attempt } from './attempts'
+import { journal, sendAndJournal, type Attempt } from './attempts'
 import { cancelCall, erc20Abi, orderBookAbi, placeCall, sideNum } from './calls'
 import { match, worstPrice } from './match'
 import { quoteFor } from './price'
@@ -62,18 +62,6 @@ export function onchainVenue(o: {
     return out
   }
 
-  async function sendAndJournal(wallet: { address: Address; sendTransaction: (tx: any) => Promise<any> }, input: unknown, call: { to: Address; data: `0x${string}` }) {
-    const seq = await attempts.begin(input, wallet.address)
-    try {
-      const rc = await wallet.sendTransaction(call)
-      await attempts.end(seq, { tx: rc.transactionHash, block: rc.blockNumber, status: rc.status === 'success' ? 'success' : 'reverted' })
-      return { rc, seq }
-    } catch (e) {
-      await attempts.end(seq, { status: 'error', error: String((e as Error)?.message ?? e) })
-      throw e
-    }
-  }
-
   return {
     kind: 'onchain',
 
@@ -126,7 +114,7 @@ export function onchainVenue(o: {
       const hint = better.at(-1)?.price ?? 0n
 
       const sent = { market: m, side, type: input.type, price, amount, need }
-      const { rc } = await sendAndJournal(wallet, sent, placeCall(book, { base: m.base, quote: m.quote, side, price, amount, maxLevels, hint, rest: input.type === 'limit' }))
+      const { rc } = await sendAndJournal(attempts, wallet, sent, placeCall(book, { base: m.base, quote: m.quote, side, price, amount, maxLevels, hint, rest: input.type === 'limit' }))
       const tx: Hash = rc.transactionHash
       if (rc.status !== 'success') {
         const e = await replayError(o.request, tx, orderBookAbi)
@@ -143,7 +131,7 @@ export function onchainVenue(o: {
 
     async cancel(wallet, id) {
       if (!/^\d+$/.test(id)) throw new Error(`Not an on-chain order: ${id}`)
-      const { rc } = await sendAndJournal(wallet, { cancel: id }, cancelCall(book, BigInt(id)))
+      const { rc } = await sendAndJournal(attempts, wallet, { cancel: id }, cancelCall(book, BigInt(id)))
       if (rc.status !== 'success') {
         const e = await replayError(o.request, rc.transactionHash, orderBookAbi)
         throw new Error(`Cancel reverted: ${e.error}(${e.args.join(', ')})`)
