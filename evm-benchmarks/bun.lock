@@ -72,6 +72,15 @@
         "@evmb/approach-01-webevm-baseline": "workspace:*",
       },
     },
+    "packages/orderbook": {
+      "name": "@evmb/orderbook",
+      "dependencies": {
+        "viem": "^2.58.1",
+      },
+      "devDependencies": {
+        "fake-indexeddb": "6.0.1",
+      },
+    },
     "packages/swap": {
       "name": "@evmb/swap",
       "dependencies": {
@@ -260,6 +269,8 @@
     "@evmb/contracts": ["@evmb/contracts@workspace:packages/contracts"],
 
     "@evmb/core": ["@evmb/core@workspace:packages/core"],
+
+    "@evmb/orderbook": ["@evmb/orderbook@workspace:packages/orderbook"],
 
     "@evmb/swap": ["@evmb/swap@workspace:packages/swap"],
 
@@ -454,6 +465,8 @@
     "escalade": ["escalade@3.2.0", "", {}, "sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA=="],
 
     "eventemitter3": ["eventemitter3@5.0.1", "", {}, "sha512-GWkBvjiSZK87ELrYOSESUYeVIc9mvLLf/nXalMOS5dYrgZq9o5OVkbZAVM06CVxYsCwH9BDZFPlQTlPA1j4ahA=="],
+
+    "fake-indexeddb": ["fake-indexeddb@6.0.1", "", {}, "sha512-He2AjQGHe46svIFq5+L2Nx/eHDTI1oKgoevBP+TthnjymXiKkeJQ3+ITeWey99Y5+2OaPFbI1qEsx/5RsGtWnQ=="],
 
     "fdir": ["fdir@6.5.0", "", { "peerDependencies": { "picomatch": "^3 || ^4" }, "optionalPeers": ["picomatch"] }, "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="],
 
