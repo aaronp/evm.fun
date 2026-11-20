@@ -639,3 +639,188 @@ A. Store only identity and metadata (symbol, name, decimals, origin, issuer, min
 ## Consequences
 - Every Assets view costs chain reads; allowance discovery scans all logs from block 0 (risk R16).
 - Upgrade path to B (an incremental indexer keyed by block) stays open: the registry's stored shape does not change.
+
+---
+id: ADR-0016
+title: "Swap: one contract per chain, offer book read from contract storage"
+status: accepted
+date: 2026-11-20
+tags: architecture, swap, step-2
+decision: storage
+---
+
+## Goal
+Read the same-chain swap's offer book (roadmap step 2, board t-61) so the Swap page never shows an offer as open when the chain says it isn't, with as little machinery as possible.
+
+## Hypothesis
+- We believe: keeping offers in a `Swap.sol` mapping with a public getter and `nextId`, read directly by `@evmb/swap`, is enough for the playground
+- Will result in: a book that is always correct, needs no stored state, and travels with snapshots, forks and imports for free
+- Measured by: the Swap page loads its book in well under a second with a few hundred offers on a chain; no stale-offer bug reports
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| truth | Never stale | 5 | Higher = the book always matches the chain. |
+| effort | Low effort | 4 | Higher = less to build and maintain. |
+| travel | Travels with chains | 3 | Higher = no extra state to carry through snapshot, fork and export/import. |
+| scale | Scales with history | 2 | Higher = read cost does not grow with every offer ever made. |
+
+## Solution: storage — A: offers in a mapping, read with offers(1..nextId-1)
+Events are used only for Activity and execution reports.
+
+| criterion | score |
+| --- | --- |
+| truth | 5 |
+| effort | 5 |
+| travel | 5 |
+| scale | 2 |
+
+Pros:
+- Can't go stale; nothing to cache or invalidate
+- No new stored state; snapshots, forks and imports just work
+- The contract is the single source of truth, which step 5 (on-chain order book) builds on
+
+Cons:
+- Reads every offer ever made, open or not (one call per offer)
+
+## Solution: logs — B: rebuild the book from OfferMade/Taken/Cancelled logs
+| criterion | score |
+| --- | --- |
+| truth | 4 |
+| effort | 3 |
+| travel | 5 |
+| scale | 1 |
+
+Pros:
+- No getter needed in the contract
+
+Cons:
+- Another from-block-0 log scan (the same cost as R16)
+- State must be reconstructed from events; easy to get subtly wrong
+
+## Solution: index — C: index offers in the app's key-value store
+| criterion | score |
+| --- | --- |
+| truth | 2 |
+| effort | 2 |
+| travel | 1 |
+| scale | 5 |
+
+Pros:
+- Fastest reads; cost independent of history
+
+Cons:
+- Goes stale on restore, fork and import unless every path rebuilds it
+- New state to validate in imported files
+
+## Decision
+A. Also decided with Aaron: one `Swap` per chain, deployed explicitly (Studio's "Deploy Swap.sol", or the Swap page's "Deploy Swap.sol?" button) and found from contract records (name `Swap`, matching ABI, newest wins). Reports take the Swap address from the transaction's `to`.
+
+Calls made after the builder check (spec `docs/superpowers/specs/2026-11-20-swap-design.md`):
+- **Revert reasons.** "Already taken/cancelled" is worked out from logs ordered by block and tx index, so a same-block race names the winner. Other failures are replayed with `eth_call` at the parent block; an approve or transfer earlier in the same block is not seen (backlog t-68).
+- **Activity** finds reverted takes by scanning blocks for txs to the Swap with status 0 (backlog t-69).
+- **Price.** Quote amount = amount × price, rounded half-up to the quote token's decimals; the book shows the price from stored amounts (4 dp), compared exactly with BigInt, ties lowest id first.
+- **Crossing offers** get the mockup's advisory note only; Swap does not match.
+- **ERC-20s only**; native ETH can't be escrowed with `transferFrom` (backlog t-70).
+- **No named markets**: a market is any (base, quote) pair of the chain's assets (backlog t-71).
+- **Rich data at its point of origin.** `take` stores the `taker` and `closedBlock` in the offer, and `cancel` stores `closedBlock` too, so "who took it, and when it closed" is O(1) via `offers(id)` with no event join. A report's winner (taker and block) and "your offers" ("taken by …") read them from the offer, and the report's status-log query is narrowed to `closedBlock`; an open offer needs no log query. Activity reads `OfferTaken`/`OfferCancelled` logs: it is an event feed by design.
+- **History window.** Playground chains keep webevm `stateHistory: {blocks: 256}` (benchmark chains keep none), so a failure report replays at the parent block while it is within 256 blocks; older than that falls back to `latest` and the report says so.
+- **A take stays on the page.** The mockup wins over the spec's "navigates to": after a take the page shows a success or danger flash with a "View report →" link.
+
+## Consequences
+- Book reads grow with every offer ever made (risk R17); upgrade path is an indexer keyed by block (backlog t-67) without changing the contract.
+- Known O(n) spots, each a logged risk with a backlog card: Activity's block scan (R19, t-69), "your offers" filtering all offers (R20, t-72), replay blind spots and the 256-block window (R18, t-68). Fee-on-transfer and rebasing tokens leave escrow short (R22, t-74; ERC-20-only scope).
+- A report's status lookup is one block's logs since `cancel` also stores `closedBlock` (R21 closed, t-73).
+- Reports and Activity are derived from the chain, so they work after reload, fork and import.
+
+---
+id: ADR-0017
+title: "Walkthroughs: one file, two runners; pages exchange values with the running walkthrough"
+status: accepted
+date: 2026-11-20
+tags: architecture, web, walkthrough
+decision: declare
+---
+
+## Goal
+Give newcomers a clear, jargon-free path through the playground, and let anyone load, replay and step through the scenarios our tests run, on the real pages, editing values as they go.
+
+## Hypothesis
+- We believe: a walkthrough as a JSON file (keys with initial values, plus steps and checks) run by both `bun test` and an in-app wizard ribbon that fills and presses the real pages
+- Will result in: walkthroughs that can't drift from the tests, and a guided UI that teaches the actual app
+- Measured by: every bundled walkthrough passes headless and completes in the browser by pressing Next only; an edited run records the values actually used
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| robust | Robust to UI change | 5 | Higher = page markup changes don't break walkthroughs. |
+| shared | Shared with tests | 5 | Higher = the headless and UI runs share code and outputs. |
+| reach | Reaches all page state | 4 | Higher = dialogs and component state can be filled and read back. |
+| effort | Low effort | 3 | Higher = less to build and less per page. |
+
+## Solution: declare — 1: pages declare fields, actions and outputs
+`useWizardField` (in, and read back), `useWizardAction` (what Next presses), `useWizardReport` (outputs after an action, whoever pressed), `data-wizard` markers for pulse and focus mode.
+
+| criterion | score |
+| --- | --- |
+| robust | 5 |
+| shared | 5 |
+| reach | 5 |
+| effort | 3 |
+
+Pros:
+- Typed and explicit; works for dialogs and internal state
+- Pages report the same `Outputs` the headless runner returns, so both runs record identically
+- The same markers drive pulse and focus mode
+
+Cons:
+- A few lines per page per step type
+
+## Solution: url — 2: URL pre-fill
+| criterion | score |
+| --- | --- |
+| robust | 4 |
+| shared | 2 |
+| reach | 2 |
+| effort | 4 |
+
+Pros:
+- Least machinery; deep links to pre-filled screens
+
+Cons:
+- Dialog open state must go in the URL; values are strings; no way back for outputs
+
+## Solution: robot — 3: drive the DOM with selectors
+| criterion | score |
+| --- | --- |
+| robust | 1 |
+| shared | 1 |
+| reach | 3 |
+| effort | 4 |
+
+Pros:
+- No page changes
+
+Cons:
+- Breaks with markup changes; React controlled-input hacks; shares nothing with the headless runner
+
+## Decision
+1. Also decided with Aaron: one file, two runners (the test is the walkthrough); the ribbon drives the real pages with a focus mode for newcomers, not separate simplified pages; a walkthrough's named things are **keys** with initial values the user may change, and their **actual values** (addresses, ids, tx hashes) are captured when each step completes.
+
+Claude's calls (spec `docs/superpowers/specs/2026-11-20-walkthroughs-design.md`): the name "walkthrough" ("scenario" is taken by benchmarks); the runner lives in `packages/web/src/walkthrough/` because steps act on the web app's stores; one fresh chain per run; `approve` is its own step; `from` switches the acting account; checks broken by a user edit show amber; Back doesn't undo; only the step types the two bundled walkthroughs use.
+
+## Consequences
+- Each page that takes part grows a few wizard lines, and handlers that keep outcomes internal (e.g. the take receipt) report them.
+- Pages report errors to the ribbon by throwing from their registered action; the ribbon shows the message.
+- Next waits for a chain or account switch to land before pressing the page's action (R23).
+- Focus mode dims the sidebar as well as the page chrome.
+- Render-time writes in `useWizardField` / `useWizardAction` and the missing DOM harness are logged risks (R24, R25, backlog t-79, t-80).
+- Deferred, each a backlog card: `transfer`, `cancel`, snapshot / fork / restore steps (t-77); reusing an existing chain and funding traders on it (t-78).

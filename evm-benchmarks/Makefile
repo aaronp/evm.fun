@@ -16,9 +16,11 @@ report:
 	bun run report
 
 # >>> @pritzlaff/project — managed by `project add/remove/update`; edits inside are overwritten
-.PHONY: snapshot dashboard gantt agile
+.PHONY: snapshot dashboard adr risks gantt agile
 snapshot: ; npx project snapshot
 dashboard: ; npx project build
+adr: ; npx adr docs/adr/decisions.md
+risks: ; npx risk-register docs/risks/risks.md
 gantt: ; npx gantt docs/schedule/schedule.md
 agile: ; npx agile docs/board/board.md
 # <<< @pritzlaff/project

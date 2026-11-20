@@ -3,11 +3,12 @@
   "devDependencies": {
     "@pritzlaff/adr": "^1.1.1",
     "@pritzlaff/agile": "^1.0.3",
+    "@pritzlaff/project": "^0.2.0",
     "@pritzlaff/risk-register": "^0.2.0"
   },
   "scripts": {
-    "agile": "agile docs/board/board.md",
-    "adr": "adr docs/adr/decisions.md",
-    "risks": "risk-register docs/risks/risks.md"
+    "agile": "agile evm-benchmarks/docs/board/board.md",
+    "adr": "adr evm-benchmarks/docs/adr/decisions.md",
+    "risks": "risk-register evm-benchmarks/docs/risks/risks.md"
   }
 }

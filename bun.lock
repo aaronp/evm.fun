@@ -6,6 +6,7 @@
       "devDependencies": {
         "@pritzlaff/adr": "^1.1.1",
         "@pritzlaff/agile": "^1.0.3",
+        "@pritzlaff/project": "^0.2.0",
         "@pritzlaff/risk-register": "^0.2.0",
       },
     },
@@ -14,6 +15,8 @@
     "@pritzlaff/adr": ["@pritzlaff/adr@1.1.1", "", { "bin": { "adr": "bin/adr.mjs" } }, "sha512-y3Y/WaddeY8AGZIKt5GhLIkbhl7fkLMqIDGZkkW6wDQnOOlqTVCZNTapjAN+4qE2mepMGXoK76EUTMLopQR23Q=="],
 
     "@pritzlaff/agile": ["@pritzlaff/agile@1.0.3", "", { "bin": { "agile": "bin/agile.mjs" } }, "sha512-rxt4Q+uGKRpXHXSP79Ivpff/o8bdYY4PEkG5YwKuvRQsxTzLbkqxCrq1wXezUbQpFMQCmMfk9JHna6jMdEH8sg=="],
+
+    "@pritzlaff/project": ["@pritzlaff/project@0.2.0", "", { "bin": { "project": "bin/project.mjs" } }, "sha512-KUmw5e+nj2e9yL425onE5dUFVfdMLzhYaIPhpUf1W8FbXevWBwrkg1wW0TWEEE+8lf43Sb5HRv3QN4Lq9EzE7Q=="],
 
     "@pritzlaff/risk-register": ["@pritzlaff/risk-register@0.2.0", "", { "bin": { "risk-register": "bin/risk-register.mjs" } }, "sha512-vSx7uN5Wapiljf6fppWZcIeImiFDMZcMaothe3G7iWLvAoGu77l74ZtrujPy0w5P49BBGM8MD+Sg05hOPXi0Nw=="],
   }

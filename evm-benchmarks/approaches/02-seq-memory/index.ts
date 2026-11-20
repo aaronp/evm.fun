@@ -109,6 +109,7 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
       blockGasLimit: BigInt(block) * MAX_TX_GAS, // a full block of the heaviest tx always fits
       initialBalances,
       ...(host.createEngine && {engine: (await host.createEngine()) as any}),
+      ...(host.stateHistory && {stateHistory: host.stateHistory}),
       ...(p && {persistence: {load: () => p.load(), save: (s) => (run?.node === me ? p.save(s) : Promise.resolve())}}),
     });
     return me;

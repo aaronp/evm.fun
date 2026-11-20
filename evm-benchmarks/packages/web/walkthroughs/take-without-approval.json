@@ -1,0 +1,165 @@
+{
+  "id": "take-without-approval",
+  "title": "What happens without permission",
+  "summary": "Bob tries to accept Alice's offer without giving the swap permission, and the chain refuses.",
+  "keys": {
+    "alice": {
+      "account": {
+        "label": "alice"
+      }
+    },
+    "bob": {
+      "account": {
+        "label": "bob"
+      }
+    },
+    "chain": {
+      "chain": {
+        "name": "Example"
+      }
+    },
+    "GBP": {
+      "asset": {
+        "symbol": "GBP",
+        "name": "Pound",
+        "decimals": 2
+      }
+    },
+    "USD": {
+      "asset": {
+        "symbol": "USD",
+        "name": "Dollar",
+        "decimals": 6
+      }
+    },
+    "swap": {
+      "swap": {}
+    },
+    "offer": {
+      "offer": {}
+    }
+  },
+  "steps": [
+    {
+      "id": "alice",
+      "do": "account",
+      "key": "alice",
+      "title": "Make Alice",
+      "text": "Every action on a blockchain is signed by a key. This step creates Alice's key, which is how she proves she is Alice."
+    },
+    {
+      "id": "bob",
+      "do": "account",
+      "key": "bob",
+      "title": "Make Bob",
+      "text": "Bob gets his own key too, so he can act separately from Alice."
+    },
+    {
+      "id": "chain",
+      "do": "chain",
+      "key": "chain",
+      "title": "Start a chain",
+      "text": "A chain is a private practice network, like a sandbox. This makes a fresh one and gives Alice and Bob some of its native coin to pay fees.",
+      "args": {
+        "prefund": [
+          "$alice",
+          "$bob"
+        ]
+      }
+    },
+    {
+      "id": "gbp",
+      "do": "launchAsset",
+      "key": "GBP",
+      "title": "Create the pound token",
+      "text": "A token is a made-up currency tracked by a program on the chain. Alice creates pounds (GBP, two decimal places) and receives all one million of them.",
+      "args": {
+        "supply": "1000000",
+        "issuer": "$alice"
+      }
+    },
+    {
+      "id": "usd",
+      "do": "launchAsset",
+      "key": "USD",
+      "title": "Create the dollar token",
+      "text": "Bob creates dollars (USD, six decimal places) and receives all one million of them.",
+      "args": {
+        "supply": "1000000",
+        "issuer": "$bob"
+      }
+    },
+    {
+      "id": "swap",
+      "do": "deploySwap",
+      "key": "swap",
+      "title": "Put up a swap",
+      "text": "A swap is a small shared program that holds one trader's tokens until another trader accepts the deal. Alice puts one on the chain.",
+      "args": {
+        "from": "$alice"
+      }
+    },
+    {
+      "id": "aliceOk",
+      "do": "approve",
+      "title": "Alice allows the swap to move her pounds",
+      "text": "Before a program can move your tokens, you must say it may, and how many. Alice allows the swap to take up to 1,000 of her pounds.",
+      "args": {
+        "from": "$alice",
+        "amount": "1000 $GBP",
+        "before": "offer"
+      }
+    },
+    {
+      "id": "offer",
+      "do": "makeOffer",
+      "key": "offer",
+      "title": "Alice offers 1,000 pounds for 1,270 dollars",
+      "text": "Alice posts her deal. The swap takes her 1,000 pounds and holds them safely (this is called escrow) until someone accepts.",
+      "args": {
+        "from": "$alice",
+        "sell": "1000 $GBP",
+        "for": "1270 $USD"
+      },
+      "expect": [
+        {
+          "escrowed": "1000 $GBP"
+        }
+      ]
+    },
+    {
+      "id": "take",
+      "do": "take",
+      "title": "Bob tries to accept without permission",
+      "text": "Bob accepts, but he never gave the swap permission to move his dollars. The chain refuses, nothing moves, and Alice's pounds stay held safely.",
+      "args": {
+        "from": "$bob",
+        "offer": "$offer"
+      },
+      "expectRevert": true,
+      "expect": [
+        {
+          "outcome": "reverted",
+          "error": "ERC20InsufficientAllowance"
+        },
+        {
+          "offer": "$offer",
+          "status": "Open"
+        },
+        {
+          "escrowed": "1000 $GBP"
+        }
+      ]
+    },
+    {
+      "id": "view",
+      "do": "view",
+      "title": "See what happened",
+      "text": "Here is the record of Bob's attempt: what was sent, what happened, and why.",
+      "args": {
+        "page": "report",
+        "step": "take"
+      }
+    }
+  ]
+}

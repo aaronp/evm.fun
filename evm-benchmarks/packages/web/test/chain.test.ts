@@ -3,6 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry, LIVE_MAX, LIVE_WARN, type ChainType } from '../src/chain/registry'
 import { createChainPersistence, deleteChainDb } from '../src/chain/idb'
+import { runInBrowser } from '../src/bench/run'
 
 const a = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 const B = '0x000000000000000000000000000000000000dEaD' as const
@@ -158,5 +159,29 @@ describe('live chain cap', () => {
     const id = (await reg.list())[0]!.id
     await reg.remove(id); await reg.create('y', 'plain', []) // room again after delete
     expect(built.length).toBe(n + 1)
+  })
+})
+
+describe('state history (swap failure reports replay at the parent block)', () => {
+  const pastCall = async (request: (m: string, p?: unknown[]) => Promise<unknown>) => {
+    const head = BigInt((await request('eth_blockNumber')) as string)
+    expect(head).toBeGreaterThan(1n)
+    return request('eth_call', [{ to: B, data: '0x' }, `0x${(head - 1n).toString(16)}`])
+  }
+  for (const type of ['plain', 'sequencer'] as ChainType[]) {
+    test(`${type} playground chain answers eth_call at head-1`, async () => {
+      const h = await createChainRegistry(env().deps()).create('c', type, [a.address])
+      try {
+        await h.send(await sign(0))
+        await h.send(await sign(1))
+        expect(await pastCall(h.request)).toBe('0x')
+      } finally { await h.dispose() }
+    })
+  }
+  test('benchmark path keeps no history: eth_call at head-1 is refused', async () => {
+    const { handle } = await runInBrowser({ type: 'plain', scenario: 'eth-transfer', n: 4, senders: 2, host: {} })
+    try {
+      await expect(pastCall(handle.request)).rejects.toThrow('historical state not available')
+    } finally { await handle.dispose() }
   })
 })

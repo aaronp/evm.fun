@@ -29,6 +29,8 @@
   --color-danger: var(--c-danger);
   --color-danger-soft: var(--c-danger-soft);
   --color-danger-line: var(--c-danger-line);
+  --color-ask: var(--c-ask);
+  --color-bid: var(--c-bid);
   --color-code-keyword: var(--c-code-keyword);
   --color-code-string: var(--c-code-string);
   --color-series-1: var(--c-series-1);
@@ -56,3 +58,34 @@ body {
 
 /* long hashes/addresses wrap instead of widening the page at phone width */
 .font-mono { overflow-wrap: anywhere; }
+
+/* Walkthrough focus: dim everything in the page area that is not, and does not hold, a marked area of the current
+   step. Only the outermost unmarked element dims, so opacity never compounds; the ribbon and errors stay bright. */
+:root { --wz-dim: 0.4; }
+main[data-wz-focus] :has([data-wz-on]) > :not([data-wz-on]):not(:has([data-wz-on])):not([data-wz-ribbon]):not([role=alert]),
+main[data-wz-focus] > :not(:has([data-wz-on])):not([data-wz-on]):not([data-wz-ribbon]):not([role=alert]) {
+  opacity: var(--wz-dim);
+  transition: opacity 150ms;
+}
+
+/* ...and the sidebar, as one block (no compounding); it brightens while pointed at or focused, so it stays usable. */
+:has(> main[data-wz-focus]) > aside:not(:hover, :focus-within) { opacity: var(--wz-dim); transition: opacity 150ms; }
+
+/* Walkthrough pulse: a solid ring on the control Next would press now, with a halo that pings outwards. */
+@keyframes wz-pulse {
+  0% { box-shadow: 0 0 0 2px var(--c-accent), 0 0 0 2px color-mix(in srgb, var(--c-accent) 60%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 2px var(--c-accent), 0 0 0 12px color-mix(in srgb, var(--c-accent) 0%, transparent); }
+}
+[data-wz-pulse] { animation: wz-pulse 1.3s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  [data-wz-pulse] { animation: none; box-shadow: 0 0 0 2px var(--c-accent), 0 0 0 6px color-mix(in srgb, var(--c-accent) 35%, transparent); }
+}
+
+/* Walkthrough auto-advance (?auto=5s): a ring around Next drains as --fuse goes 1 → 0 (set each frame), then Next is pressed.
+   Reduced motion: no ring; the countdown beside the button says when. */
+[data-wz-fuse]::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 11px; padding: 2px; pointer-events: none;
+  background: conic-gradient(var(--c-accent) calc(var(--fuse, 1) * 360deg), var(--c-line) 0);
+  mask: linear-gradient(var(--c-accent) 0 0) content-box exclude, linear-gradient(var(--c-accent) 0 0);
+}
+@media (prefers-reduced-motion: reduce) { [data-wz-fuse]::after { display: none; } }

@@ -9,6 +9,7 @@ import { Card } from '../ui/card'
 import { CopyIcon } from '../ui/icons'
 import { Input } from '../ui/input'
 import { KEYS_WARNING, Notice } from '../ui/notice'
+import { useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
 
 function Balance({ address }: { address: `0x${string}` }) {
   const { chain } = useApp()
@@ -23,21 +24,22 @@ export function Accounts() {
   const [, bump] = useState(0)
   const [label, setLabel] = useState('')
   const list = accounts.list()
+  useWizardField('account.label', label, setLabel)
+  const report = useWizardReport(), mark = useWizardMark()
+  function create() {
+    const a = accounts.create(label.trim() || `Account ${list.length + 1}`)
+    if (!account) selectAccount(a.address)
+    setLabel('')
+    bump(n => n + 1)
+    report('account.create', { label: a.label, address: a.address })
+  }
+  useWizardAction('account.create', create)
   return (
     <div className="space-y-4">
       <Notice>{KEYS_WARNING}</Notice>
-      <form
-        className="flex gap-2"
-        onSubmit={e => {
-          e.preventDefault()
-          const a = accounts.create(label.trim() || `Account ${list.length + 1}`)
-          if (!account) selectAccount(a.address)
-          setLabel('')
-          bump(n => n + 1)
-        }}
-      >
-        <Input className="min-w-0 flex-1 sm:flex-none" placeholder="Label" value={label} onChange={e => setLabel(e.target.value)} />
-        <Button type="submit">Create account</Button>
+      <form {...mark('account.card')} className="flex gap-2" onSubmit={e => { e.preventDefault(); create() }}>
+        <Input {...mark('account.label')} className="min-w-0 flex-1 sm:flex-none" placeholder="Label" value={label} onChange={e => setLabel(e.target.value)} />
+        <Button {...mark('account.create')} type="submit">Create account</Button>
       </form>
       {list.length === 0 && <p className="text-sm text-muted">No accounts yet.</p>}
       {list.map(a => (

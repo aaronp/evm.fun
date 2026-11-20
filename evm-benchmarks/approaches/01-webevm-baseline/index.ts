@@ -34,6 +34,7 @@ const factory: ApproachFactory = (_opts, host = {}) => {
       miningConfig: {type: 'auto'},
       initialBalances,
       ...(host.createEngine && {engine: (await host.createEngine()) as any}),
+      ...(host.stateHistory && {stateHistory: host.stateHistory}),
       ...(p && {persistence: {load: () => p.load(), save: (s) => (node === me ? p.save(s) : Promise.resolve())}}),
     });
     return me;

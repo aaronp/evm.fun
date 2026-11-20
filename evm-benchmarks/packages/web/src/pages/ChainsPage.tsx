@@ -13,6 +13,7 @@ import { ImportButton } from '../components/ImportButton'
 import { exportChain } from '../components/exportFile'
 import { NO_FUNDS } from '../chain/snapshotUi'
 import { Explorer } from './Explorer'
+import { useWizardAction, useWizardMark } from '../walkthrough/wizard'
 import { useBlockWindow } from '../explorer/useBlockWindow'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
@@ -81,8 +82,10 @@ export function Chains() {
     ],
   })
   const shown = filterChains(chains, q, tab)
+  const mark = useWizardMark()
+  useWizardAction('chains.new', () => dialog.current?.showModal())
   const add = (
-    <Button className="!size-9 !rounded-full !p-0" aria-label="New chain" title="New chain" onClick={() => dialog.current?.showModal()}>
+    <Button {...mark('chains.new')} className="!size-9 !rounded-full !p-0" aria-label="New chain" title="New chain" onClick={() => dialog.current?.showModal()}>
       <PlusIcon /><span className="sr-only">New chain</span>
     </Button>
   )

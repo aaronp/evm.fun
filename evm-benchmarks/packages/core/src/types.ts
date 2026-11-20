@@ -62,6 +62,8 @@ export interface ApproachHost {
   createEngine?: () => Promise<unknown>;
   /** webevm PersistenceAdapter */
   persistence?: unknown;
+  /** webevm StateHistoryOptions: keep the last N blocks readable (eth_call at a past block). Playground chains only. */
+  stateHistory?: {blocks: number};
 }
 
 export type ApproachFactory = (opts?: Record<string, string>, host?: ApproachHost) => Approach;

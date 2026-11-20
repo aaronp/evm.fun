@@ -23,6 +23,7 @@ import { isErc20Abi, isMintable, readTokenInfo } from '@evmb/assets'
 import { assetRegistry } from '../assets/registry'
 import { tokenAsset } from '../assets/build'
 import { contractsRegistry, type DeployedContract } from '../contracts/registry'
+import { deploySwap, NO_RECORDS, swapFor } from '../swap/locate'
 
 // Only var(--c-…) strings: a theme switch recolours the editor live, no remount.
 const editorTheme = EditorView.theme({
@@ -90,7 +91,6 @@ function Editor({ value, onChange, viewRef }: { value: string; onChange(v: strin
 }
 
 export function Studio() {
-  useAppBar({ title: 'Studio' })
   const { chain, account, bumpBalance } = useApp()
   const [source, setSource] = useState(templates[0]!.source)
   const [fileName, setFileName] = useState(templates[0]!.name) // unit name feeds the metadata hash
@@ -112,6 +112,38 @@ export function Studio() {
     else setDeployed([])
   }, [chain])
   useEffect(() => setDeployer(d => d || account || ''), [account])
+
+  // "Deploy Swap.sol": from the acting account; one Swap per chain, none on benchmark chains
+  const [swap, setSwap] = useState<string | null>() // null: looking
+  const [swapBusy, setSwapBusy] = useState(false)
+  const [swapErr, setSwapErr] = useState<string>() // lookup failed: stay disabled rather than risk a second Swap
+  useEffect(() => {
+    setSwap(null); setSwapErr(undefined)
+    if (!chain) return
+    let live = true
+    swapFor(chain).then(a => live && setSwap(a), e => live && setSwapErr(e instanceof Error ? e.message : String(e)))
+    return () => { live = false }
+  }, [chain, deployed])
+  const acting = list.find(a => a.address === account)
+  const swapWhyNot = !chain ? 'Select a chain first' : chain.info.ephemeral ? NO_RECORDS : swapErr ?? (swap ? `This chain already has Swap at ${swap}` : !acting ? 'Create an account first' : undefined)
+  const deploySwapNow = async () => {
+    if (!chain || !acting || swapWhyNot || swapBusy) return
+    setSwapBusy(true)
+    setStatus(undefined)
+    try {
+      const at = await deploySwap(chain, acting, bumpBalance)
+      setDeployed(await contractsRegistry.list(chain.info.id))
+      setStatus({ ok: true, text: `Deployed Swap at ${at}` })
+    } catch (e) {
+      setStatus({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setSwapBusy(false)
+    }
+  }
+  useAppBar({
+    title: 'Studio',
+    actions: [{ kind: 'button', id: 'swap', label: swapBusy ? 'Deploying Swap.sol…' : 'Deploy Swap.sol', icon: null, text: true, title: swapWhyNot, disabled: !!swapWhyNot || swap === null || swapBusy, onClick: deploySwapNow }],
+  })
 
   const compile = async () => {
     setBusy(true)
@@ -214,6 +246,7 @@ export function Studio() {
         </div>
 
         <div className="min-w-0 space-y-4">
+          {!contract && status && <Card role="status" className={`break-words text-sm ${status.ok ? 'text-success-text' : 'text-danger'}`}>{status.text}</Card>}
           {contract && (
             <Card className="space-y-3">
               {result!.contracts.length > 1 && (

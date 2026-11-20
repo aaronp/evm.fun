@@ -213,6 +213,8 @@ Update during plan 6 (snapshots): the crash now reproduces in about 1 of 2 to 3 
 
 Root cause of most of that rise, found 2026-11-19 at the end of plan 6: one snapshot test (`createFrom: storage failing…`) never disposed its source sequencer chain, leaving 11 verify workers alive at exit (found with a `Worker`-counting `--preload`; that test was the only leaker). After the fix, every suite ends with 0 live workers, and the remaining rate is about 1 crash in 5 to 6 runs (single process or split, so splitting doesn't help). That residue is Bun's.
 
+Update during plan 8 (swap): the residual rate is now about 1 in 3 full runs (a Task 6 check at e5916ac: 3 runs, 1 segfault, 2 clean). A `Worker`-counting preload at e5916ac found no leaks, so the new tests dispose their chains and the rise is Bun's, not ours. Likelihood stays 4.
+
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
@@ -318,3 +320,193 @@ The Allowances card finds (owner, spender) pairs with `eth_getLogs` for the toke
 |---|---|---|
 | Playground scale: chains are small, and the filter is one address and one topic | Preventive | Partial |
 | Upgrade path: page the log scan, or index incrementally and cache by block (ADR approach B) when a chain gets long | Corrective | Partial |
+
+## R17 · Swap book read grows with every offer
+- impact: 2
+- likelihood: 4
+- target: 2x2
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+The Swap page reads `nextId` and then `offers(1..nextId-1)`, every offer ever made, open or not, one `eth_call` per offer, on load and after every transaction (ADR-0016, solution A). A chain with thousands of offers makes the page slow.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Playground scale: a few hundred offers load in well under a second | Preventive | Partial |
+| Upgrade path: an incremental indexer keyed by block without changing Swap.sol (backlog t-67) | Corrective | Partial |
+
+## R18 · Swap failure reports can miss earlier same-block txs and old state
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+Already taken or cancelled is decided from the Swap's `OfferTaken`/`OfferCancelled` logs ordered by block and tx index, so a same-block race names the winner; the offer's stored `taker` and `closedBlock` name the winner and narrow that log query to one block. Any other reverted take is replayed with `eth_call` at the parent block. An approve or transfer earlier in the same block is not seen, so the reason can be wrong. Playground chains also keep only the last 256 blocks of state history; for an older failure the replay falls back to `latest`, which the report says in a note.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| The report states when it reconstructed at `latest` instead of the failing block | Detective | Partial |
+| Bounded history window (256 blocks) keeps memory small | Preventive | Partial |
+| Replay with the block's preceding txs applied, or trace the tx (backlog t-68) | Corrective | Partial |
+
+## R19 · Swap Activity scans every block
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+Activity finds reverted takes by scanning blocks for txs to the Swap with status 0, and fetches logs from block 0, with unbounded parallel reads; it then runs one `takeReport` per reverted take to get its reason. The cost grows with chain length and with the number of failed takes.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Playground scale: chains are small | Preventive | Partial |
+| Index failed attempts or use the explorer's tx index (backlog t-69) | Corrective | Partial |
+
+## R20 · Swap "your offers" filters all offers
+- impact: 1
+- likelihood: 4
+- target: 1x2
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+The page builds a maker's offers by filtering the full offer list, so it costs the same as the whole book read (R17) even for a maker with one offer. The contract records no per-maker index.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Playground scale: same bound as R17 | Preventive | Partial |
+| Per-maker on-chain offer index: `makeOffer` records ids per maker (backlog t-72) | Corrective | Partial |
+
+## R21 · Swap report status lookup scans logs from block 0
+- impact: 1
+- likelihood: 1
+- target: 1x1
+- appetite: 1
+- category: Technology
+- driver: Claude
+- approver: Aaron
+- status: closed
+- closed: 2026-11-20
+
+`take` stored the taker and fill block, but `cancel` stored no block, so the report for a take that hit a cancelled offer (and any reverted take on an open offer) found the status change by scanning logs from block 0.
+
+Closed 2026-11-20 (t-73): `cancel` now stores `closedBlock` as `take` does, so a filled or cancelled offer's report reads one block's logs. An open offer cannot have been taken or cancelled (offers never reopen), so its report makes no log query at all.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| `take` and `cancel` store `closedBlock`; the report queries that one block | Preventive | Strong |
+| No log query for an offer that is still open | Preventive | Strong |
+
+## R22 · Fee-on-transfer and rebasing tokens leave Swap escrow short
+- impact: 3
+- likelihood: 2
+- target: 3x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+Swap escrows `giveAmt` with `transferFrom` and pays out the same nominal amount. A fee-on-transfer or rebasing token delivers less than it records, so the escrow can be short and a take or cancel can revert or pay out of other offers' funds.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Scope: playground tokens are the plain OpenZeppelin ERC-20s the app launches; offers hold ERC-20s only (ADR-0016) | Preventive | Partial |
+| Measure the balance delta on deposit, or refuse such tokens (backlog t-74) | Corrective | Partial |
+
+## R23 · Ribbon waits on a page that never offers its action
+- impact: 2
+- likelihood: 3
+- target: 2x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0017. Next waits up to 5 s for the page to register its action or for the chain/account switch to land, then shows a generic error. A failing `selectChain` is not surfaced, so the user waits the full 5 s and sees "Couldn't switch" instead of the cause.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| The 5 s timeout ends the wait with a visible error; the user can retry or Exit | Detective | Partial |
+| Surface selectChain errors in the ribbon (backlog t-79) | Corrective | Partial |
+
+## R24 · Render-time writes in the wizard hooks may misbehave under concurrent rendering
+- impact: 2
+- likelihood: 2
+- target: 2x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0017. `useWizardField` and `useWizardAction` register with the ribbon while rendering. React may render without committing, so a registration can come from a render that never lands. The app does not use concurrent features today, so it works.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| No concurrent features (transitions, Suspense) around wizard pages today | Preventive | Partial |
+| Move registration into effects or useSyncExternalStore (backlog t-79) | Corrective | Partial |
+
+## R25 · No DOM test harness for the ribbon
+- impact: 3
+- likelihood: 3
+- target: 3x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0017. Ribbon effects, Next's switch wait and field refill have no automated test: the runner and the render output are tested, but behaviour that needs a live DOM is checked only in the browser (checklist in the task 6 report).
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Runner, validation and render tests cover the logic; a browser checklist covers the rest | Detective | Partial |
+| Add a DOM harness (backlog t-80) | Corrective | Partial |
+
+## Example design risk
+- impact: 5
+- likelihood: 3
+- stars: 3
+- category: some-category-tag
+- slugs: some-slug
+- inherent: 3x3
+- target: 4x4
+- confidence: 3
+- appetite: 25
+- driver: who's owning this
+- approver: who approves this risk
+- contributors: who's involved; another person
+- informed: who's informed
+
+design risk decision
+
+### Clarification
+25 is the max 'appetite' for this risk.
+We gave it 3/5 stars in confidence.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Some Control - how we mitigate this risk | Preventive | Partial |
+| Detective controle | Detective | Effective |
+
+### Evidence
+| Title | Description | Resources |
+|---|---|---|
+| Risk Evidence | anything we've observed | some resource |

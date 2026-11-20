@@ -1,0 +1,15 @@
+{
+  "name": "@evmb/swap",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@evmb/assets": "workspace:*",
+    "viem": "^2.58.1"
+  },
+  "devDependencies": {
+    "@evmb/approach-02-seq-memory": "workspace:*",
+    "@evmb/contracts": "workspace:*",
+    "webevm": "0.9.1"
+  }
+}

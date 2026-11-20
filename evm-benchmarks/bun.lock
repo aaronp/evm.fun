@@ -10,9 +10,11 @@
         "webevm": "0.9.1",
       },
       "devDependencies": {
+        "@pritzlaff/adr": "^1.2.0",
         "@pritzlaff/agile": "^1.1.0",
         "@pritzlaff/gantt": "^1.0.1",
         "@pritzlaff/project": "^0.1.1",
+        "@pritzlaff/risk-register": "^0.2.0",
         "@types/bun": "^1.4.4",
       },
     },
@@ -70,6 +72,18 @@
         "@evmb/approach-01-webevm-baseline": "workspace:*",
       },
     },
+    "packages/swap": {
+      "name": "@evmb/swap",
+      "dependencies": {
+        "@evmb/assets": "workspace:*",
+        "viem": "^2.58.1",
+      },
+      "devDependencies": {
+        "@evmb/approach-02-seq-memory": "workspace:*",
+        "@evmb/contracts": "workspace:*",
+        "webevm": "0.9.1",
+      },
+    },
     "packages/web": {
       "name": "@evmb/web",
       "dependencies": {
@@ -81,6 +95,7 @@
         "@evmb/assets": "workspace:*",
         "@evmb/contracts": "workspace:*",
         "@evmb/core": "workspace:*",
+        "@evmb/swap": "workspace:*",
         "@lezer/highlight": "^1.2.1",
         "@openzeppelin/contracts": "5.6.1",
         "@replit/codemirror-lang-solidity": "^6.0.2",
@@ -246,6 +261,8 @@
 
     "@evmb/core": ["@evmb/core@workspace:packages/core"],
 
+    "@evmb/swap": ["@evmb/swap@workspace:packages/swap"],
+
     "@evmb/web": ["@evmb/web@workspace:packages/web"],
 
     "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
@@ -276,11 +293,15 @@
 
     "@openzeppelin/contracts": ["@openzeppelin/contracts@5.6.1", "", {}, "sha512-Ly6SlsVJ3mj+b18W3R8gNufB7dTICT105fJhodGAGgyC2oqnBAhqSiNDJ8V8DLY05cCz81GLI0CU5vNYA1EC/w=="],
 
+    "@pritzlaff/adr": ["@pritzlaff/adr@1.2.0", "", { "bin": { "adr": "bin/adr.mjs" } }, "sha512-nuwLQQ2blU7EJvPHEwtSOiDmtaVP/+DJGhrL8MAAIsv3NLJEf/5KosSW1WO92ke7arG9L2QWITULlGk/zh92IQ=="],
+
     "@pritzlaff/agile": ["@pritzlaff/agile@1.1.0", "", { "bin": { "agile": "bin/agile.mjs" } }, "sha512-Id8IfkILi6Q+0CE37IA/FWB4mpCCMADiFqND2xFgz7CdZdjE/LpONnEAkUzT+usFdVThq9h/F/j03LflJjlmWQ=="],
 
     "@pritzlaff/gantt": ["@pritzlaff/gantt@1.0.1", "", { "bin": { "gantt": "bin/gantt.mjs" } }, "sha512-GUb4DnOCqFPEoEJaoX8UxQrXdZvrPQ9/Nv3cZ77FImQY5a4oJvUsdziAR7aquXvbpcDl9MPegbVU8lC7WlL7fQ=="],
 
     "@pritzlaff/project": ["@pritzlaff/project@0.1.1", "", { "bin": { "project": "bin/project.mjs" } }, "sha512-UZVyOpS2Jt2WakEMp1ZaY1ed3hh4gKCd217Hjlnm1v8SDVE8ARmli/7v712tbebRzQlunDNFo9VTKFSDp74yvQ=="],
+
+    "@pritzlaff/risk-register": ["@pritzlaff/risk-register@0.2.0", "", { "bin": { "risk-register": "bin/risk-register.mjs" } }, "sha512-vSx7uN5Wapiljf6fppWZcIeImiFDMZcMaothe3G7iWLvAoGu77l74ZtrujPy0w5P49BBGM8MD+Sg05hOPXi0Nw=="],
 
     "@replit/codemirror-lang-solidity": ["@replit/codemirror-lang-solidity@6.0.2", "", { "dependencies": { "@lezer/highlight": "^1.2.0" }, "peerDependencies": { "@codemirror/language": "^6.0.0" } }, "sha512-/dpTVH338KFV6SaDYYSadkB4bI/0B0QRF/bkt1XS3t3QtyR49mn6+2k0OUQhvt2ZSO7kt10J+OPilRAtgbmX0w=="],
 

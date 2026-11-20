@@ -15,6 +15,7 @@
     "@evmb/assets": "workspace:*",
     "@evmb/contracts": "workspace:*",
     "@evmb/core": "workspace:*",
+    "@evmb/swap": "workspace:*",
     "@lezer/highlight": "^1.2.1",
     "@openzeppelin/contracts": "5.6.1",
     "@replit/codemirror-lang-solidity": "^6.0.2",

@@ -27,11 +27,14 @@ for (const bg of ['bg', 'surface']) pairs.push(['faint', bg, 4.5])
 for (const [fg, soft] of [['accent', 'accent-soft'], ['success-text', 'success-soft'], ['warn-text', 'warn-soft'], ['danger', 'danger-soft']] as const)
   for (const bg of ['surface', soft]) pairs.push([fg, bg, 4.5])
 pairs.push(['on-accent', 'accent', 4.5])
+for (const fg of ['text', 'text-2', 'muted', 'success-text', 'warn-text', 'danger']) pairs.push([fg, 'accent-soft', 4.5]) // walkthrough ribbon
 for (const bg of ['bg', 'surface']) pairs.push(['accent', bg, 3]) // focus ring
 for (const fg of ['text-2', 'muted', 'faint', 'accent', 'code-keyword', 'code-string', 'success-text', 'warn-text']) pairs.push([fg, 'panel', 4.5]) // editor background
 pairs.push(['accent', 'selected', 3]) // selected-state border/outline
 for (let i = 1; i <= 6; i++) pairs.push([`series-${i}`, 'surface', 3]) // chart graphics
 
+for (const fg of ['ask', 'bid']) for (const bg of ['surface', 'selected', 'surface-hover']) pairs.push([fg, bg, 4.5]) // swap book prices
+for (const bg of ['ask', 'bid']) pairs.push(['on-accent', bg, 4.5]) // swap side toggle, Take and Create buttons
 for (let i = 1; i <= 4; i++) pairs.push([`tone-${i}-fg`, `tone-${i}-bg`, 4.5]) // asset badges
 
 const cssThemes = [...css.matchAll(/:root\[data-theme="(\w+)"\]/g)].map((m) => m[1]!)

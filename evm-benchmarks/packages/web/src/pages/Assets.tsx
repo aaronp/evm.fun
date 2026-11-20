@@ -14,8 +14,8 @@ import { ImportTokenDialog } from '../components/ImportTokenDialog'
 import { LaunchAssetDialog } from '../components/LaunchAssetDialog'
 import { SendDialog } from '../components/SendDialog'
 import { Button } from '../ui/button'
-import { Select } from '../ui/input'
 import { InfoIcon, PlusIcon } from '../ui/icons'
+import { useWizardAction } from '../walkthrough/wizard'
 
 const NATIVE_DP = 8
 const kindText = (a: Asset) => (a.kind === 'native' ? 'Native' : `ERC-20${a.mintable ? ' · Mintable' : ''}`)
@@ -30,7 +30,7 @@ function Glyph({ a, size }: { a: Asset; size: number }) {
 }
 
 export function Assets() {
-  const { chains, chain, selectChain, balanceTick, bumpBalance } = useApp()
+  const { chain, balanceTick, bumpBalance } = useApp()
   const [params, setParams] = useSearchParams()
   const [assets, setAssets] = useState<Asset[]>([])
   const [listErr, setListErr] = useState<string>()
@@ -50,9 +50,11 @@ export function Assets() {
     crumbs: chain ? [{ label: chain.info.name, to: '/chains' }, { label: 'Assets' }] : undefined,
     actions: [
       { kind: 'button', id: 'import', label: 'Import token by address', icon: null, text: true, title: noWrites ?? (chain ? undefined : 'Select a chain first'), disabled: !chain || !!noWrites, onClick: () => setDlg('import') },
-      { kind: 'button', id: 'launch', label: 'Launch asset', icon: <PlusIcon width={14} height={14} />, text: true, primary: true, title: noWrites ?? (chain ? undefined : 'Select a chain first'), disabled: !chain || !!noWrites, onClick: () => setDlg('launch') },
+      { kind: 'button', id: 'launch', label: 'Launch asset', icon: <PlusIcon width={14} height={14} />, text: true, primary: true, title: noWrites ?? (chain ? undefined : 'Select a chain first'), disabled: !chain || !!noWrites, onClick: () => setDlg('launch'), wizard: 'assets.launch' },
     ],
   })
+
+  useWizardAction('assets.launch', chain && !noWrites ? () => setDlg('launch') : undefined)
 
   // Reload the list, first adopting already-deployed tokens once per chain per mount (never on benchmark chains).
   useEffect(() => {
@@ -96,21 +98,14 @@ export function Assets() {
 
   const barShares = useMemo(() => shares(people.map(p => bals?.get(p.address) ?? 0n)), [bals, addrKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const picker = (
-    <Select aria-label="Chain" className="w-full" value={chainId ?? ''} onChange={e => { setParams({}, { replace: true }); void selectChain(e.target.value || undefined) }}>
-      <option value="">Select a chain</option>
-      {chains.map(c => <option key={c.id} value={c.id}>{c.name}{c.ephemeral ? ' (benchmark)' : ''}</option>)}
-    </Select>
-  )
-  if (!chain) return <div className="flex max-w-[260px] flex-col gap-2">{picker}<p className="text-sm text-muted">Select a chain first.</p></div>
-  if (!cur) return <div className="flex max-w-[260px] flex-col gap-2">{picker}{listErr && <p role="alert" className="text-sm text-danger">Couldn’t load assets: {listErr}</p>}</div>
+  if (!chain) return <p className="text-sm text-muted">Select a chain first.</p>
+  if (!cur) return <div className="flex max-w-[260px] flex-col gap-2">{listErr && <p role="alert" className="text-sm text-danger">Couldn’t load assets: {listErr}</p>}</div>
 
   const dp = cur.kind === 'native' ? NATIVE_DP : undefined
   const native = cur.kind === 'native'
   return (
     <div className="flex flex-wrap items-start gap-5">
       <aside aria-labelledby="al-h" className="flex max-w-[260px] flex-[1_1_220px] flex-col gap-2">
-        {picker}
         <h2 id="al-h" className={`${label} mb-1`}>Assets on {chain.info.name} · {mine.length}</h2>
         {mine.map(a => (
           <button key={a.id} aria-pressed={a.id === cur.id} onClick={() => setParams({ asset: a.id }, { replace: true })}
