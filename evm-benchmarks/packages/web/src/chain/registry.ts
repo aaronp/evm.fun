@@ -17,6 +17,8 @@ const factories = { plain, sequencer }
 export const LIVE_WARN = 4
 export const LIVE_MAX = 8
 const PREFUND = 10n ** 21n
+/** Playground chains keep recent state so swap failure reports can replay at the parent block; benchmark chains don't pay for it. */
+const STATE_HISTORY = { blocks: 256 }
 
 export function createChainRegistry(deps: {
   kv: Kv
@@ -26,7 +28,7 @@ export function createChainRegistry(deps: {
 }) {
   const live = new Map<string, ChainHandle>()
   const opening = new Map<string, Promise<ChainHandle>>() // concurrent open(id) shares one node
-  const build = (info: ChainInfo) => makeHandle(info, factories[info.type]({}, deps.host(info.id)))
+  const build = (info: ChainInfo) => makeHandle(info, factories[info.type]({}, { ...deps.host(info.id), stateHistory: STATE_HISTORY }))
   const assertRoom = () => {
     if (live.size >= LIVE_MAX) throw new Error(`${LIVE_MAX} chains are already running in this tab — delete one or reload the page`)
   }
