@@ -184,16 +184,6 @@ ADR-0016: a market is any (base, quote) pair of the chain's assets. The mockup's
 ADR-0016, R20: makeOffer records offer ids per maker so "your offers" reads the maker's ids in O(1) instead of filtering every offer.
 ```
 
-### Swap: store the cancel block
-- id: t-73
-- tags: swap, backlog
-- history:
-  - To Do @ 2026-11-20T12:39:29Z
-
-```md
-ADR-0016, R21: cancel records its block in the offer so takeReport reads it directly instead of scanning logs from block 0 for cancelled offers.
-```
-
 ### Swap: fee-on-transfer and rebasing tokens
 - id: t-74
 - tags: swap, backlog
@@ -207,6 +197,17 @@ ADR-0016, R22: measure the balance delta on deposit, or refuse such tokens, so e
 ## Doing
 
 ## Done
+
+### Swap: store the cancel block
+- id: t-73
+- tags: swap, backlog
+- history:
+  - To Do @ 2026-11-20T12:39:29Z
+  - Done @ 2026-11-20T13:06:16Z
+
+```md
+ADR-0016, R21: cancel records its block in the offer so takeReport reads it directly instead of scanning logs from block 0 for cancelled offers.
+```
 
 ### Same-chain swap (one offer, settled atomically).
 - id: t-61
