@@ -6,6 +6,7 @@ import { formatAmount, parseAmount } from '../assets/ui'
 import { allowanceNote, approveFor, percentAmount, plan, priceAway, slippageOf, submitText } from '../orderbook/form'
 import { card, solid } from './TakePanel'
 import { venueName, type VenueKind } from '../orderbook/locate'
+import { orThrow, useWizardAction, useWizardField, useWizardMark } from '../walkthrough/wizard'
 
 export type Funds = { bal?: bigint; alw?: bigint }
 type Outcome = string | undefined
@@ -38,6 +39,14 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
   const [amountIn, setAmountIn] = useState('')
   const [slipIn, setSlipIn] = useState('1')
   const [error, setError] = useState<string>()
+  useWizardField('order.side', side, v => (v === 'buy' || v === 'sell') && setSide(v))
+  useWizardField('order.type', type, v => (v === 'limit' || v === 'market') && setType(v))
+  useWizardField('order.price', priceIn, setPriceIn)
+  useWizardField('order.amount', amountIn, setAmountIn)
+  // a walkthrough's approve step: its own amount, which may cover more than this order (cleared once approved)
+  const [allowIn, setAllowIn] = useState('')
+  useWizardField('approve.amount', allowIn, setAllowIn)
+  const mark = useWizardMark()
   useEffect(() => setError(undefined), [base, quote])
   useEffect(() => { if (picked) { setPriceIn(priceText(picked.price, quote.decimals)); setType('limit'); setError(undefined) } }, [picked]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -53,7 +62,8 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
   const shape = { side, type, price, slippageBps: bps ?? 100 }
   const p = amount && (type === 'market' ? bps !== undefined : price !== undefined) ? plan({ ...shape, amount }, levels, base.decimals, venue) : undefined
   const give = buy ? quote : base, f = buy ? funds.quote : funds.base
-  const toApprove = p?.need !== undefined && f.alw !== undefined ? approveFor(p.need, f.alw) : undefined
+  const want = (x => ('ok' in x ? x.ok : 0n))(parseAmount(allowIn, give.decimals))
+  const toApprove = p?.need !== undefined && f.alw !== undefined ? approveFor(want > p.need ? want : p.need, f.alw) : undefined
   const thin = p?.thin ? `Book too thin: only ${amountText(p.filled, base)} of ${amountText(amount!, base)} can fill` : undefined
   const total = !p || p.bound === undefined ? '—'
     : type === 'limit' ? amountText(p.bound, quote)
@@ -77,8 +87,11 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
     if (toApprove === undefined) return
     const e = await onApprove(give, toApprove)
     setError(e)
+    if (!e) setAllowIn('')
     return e
   }
+  useWizardAction('order.approve', toApprove !== undefined && !busy ? () => orThrow(approve()) : undefined)
+  useWizardAction('order.submit', toApprove === undefined && !busy ? () => orThrow(submit()) : undefined)
   function percent(pct: number) {
     if (f.bal === undefined) return
     if (buy && type === 'limit' && price === undefined) return setError(priceErr ?? 'Enter a limit price')
@@ -101,14 +114,14 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
   )
 
   return (
-    <section aria-labelledby="of-h" className={`${card} flex max-w-[340px] flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
+    <section {...mark('order.card')} aria-labelledby="of-h" className={`${card} flex max-w-[340px] flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
       <h2 id="of-h" className="sr-only">Place order</h2>
-      <div role="group" aria-label="Side" className="grid grid-cols-2 gap-1 rounded-[10px] border border-line bg-panel p-1">{sideBtn('buy')}{sideBtn('sell')}</div>
-      <div role="group" aria-label="Order type" className="flex gap-4">{typeBtn('limit', 'Limit')}{typeBtn('market', 'Market')}</div>
+      <div role="group" aria-label="Side" {...mark('order.side')} className="grid grid-cols-2 gap-1 rounded-[10px] border border-line bg-panel p-1">{sideBtn('buy')}{sideBtn('sell')}</div>
+      <div role="group" aria-label="Order type" {...mark('order.type')} className="flex gap-4">{typeBtn('limit', 'Limit')}{typeBtn('market', 'Market')}</div>
       {type === 'limit' ? (
         <div className="flex flex-col gap-1.5">
           <label htmlFor="op" className={label}>Limit price</label>
-          <div className={box}><input id="op" className={field} inputMode="decimal" value={priceIn} placeholder={priceText(levels[0]?.price ?? 0n, quote.decimals)} onChange={edit(setPriceIn)} /><span className={suffix}>{quote.symbol}</span></div>
+          <div {...mark('order.price')} className={box}><input id="op" className={field} inputMode="decimal" value={priceIn} placeholder={priceText(levels[0]?.price ?? 0n, quote.decimals)} onChange={edit(setPriceIn)} /><span className={suffix}>{quote.symbol}</span></div>
         </div>
       ) : onchain && (
         <div className="flex flex-col gap-1.5">
@@ -119,7 +132,7 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
       )}
       <div className="flex flex-col gap-1.5">
         <label htmlFor="oa" className={label}>Amount</label>
-        <div className={box}><input id="oa" className={field} inputMode="decimal" value={amountIn} placeholder="0" onChange={edit(setAmountIn)} /><span className={suffix}>{base.symbol}</span></div>
+        <div {...mark('order.amount')} className={box}><input id="oa" className={field} inputMode="decimal" value={amountIn} placeholder="0" onChange={edit(setAmountIn)} /><span className={suffix}>{base.symbol}</span></div>
         <div className="grid grid-cols-4 gap-1.5">
           {([[25, '25%'], [50, '50%'], [75, '75%'], [100, 'Max']] as const).map(([n, t]) => (
             <button key={n} type="button" disabled={f.bal === undefined} onClick={() => percent(n)}
@@ -136,12 +149,12 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-0.5 flex-none text-warn"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>
           <span>
             {allowanceNote(spender, f.alw!, p!.need!, give)}{' '}
-            <button type="button" disabled={busy} onClick={approve} className="font-semibold underline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-45">Approve more</button> or lower the amount.
+            <button type="button" {...mark('order.approve')} disabled={busy} onClick={approve} className="font-semibold underline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-45">Approve more</button> or lower the amount.
           </span>
         </div>
       )}
       {(error ?? thin) && <span role="alert" className="text-xs text-danger">{error ?? thin}</span>}
-      <button type="button" disabled={busy} onClick={submit} className={`${solid} mt-auto min-h-12 text-[15px] ${buy ? 'bg-bid' : 'bg-ask'}`}>{submitText(side, amount, base)}</button>
+      <button type="button" {...mark('order.submit')} disabled={busy} onClick={submit} className={`${solid} mt-auto min-h-12 text-[15px] ${buy ? 'bg-bid' : 'bg-ask'}`}>{submitText(side, amount, base)}</button>
     </section>
   )
 }

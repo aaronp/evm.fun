@@ -1,0 +1,213 @@
+{
+  "id": "gbp-usd-book-onchain",
+  "title": "Trade pounds on an on-chain order book",
+  "summary": "Alice posts two offers to sell pounds on a book kept by a contract; Bob buys 1,500 in one order, filling the first and half the second.",
+  "keys": {
+    "alice": {
+      "account": {
+        "label": "alice"
+      }
+    },
+    "bob": {
+      "account": {
+        "label": "bob"
+      }
+    },
+    "chain": {
+      "chain": {
+        "name": "Example"
+      }
+    },
+    "GBP": {
+      "asset": {
+        "symbol": "GBP",
+        "name": "Pound",
+        "decimals": 2
+      }
+    },
+    "USD": {
+      "asset": {
+        "symbol": "USD",
+        "name": "Dollar",
+        "decimals": 6
+      }
+    },
+    "book": {
+      "venue": {
+        "venue": "onchain"
+      }
+    },
+    "ask1": {
+      "order": {}
+    },
+    "ask2": {
+      "order": {}
+    }
+  },
+  "steps": [
+    {
+      "id": "alice",
+      "do": "account",
+      "key": "alice",
+      "title": "Make Alice",
+      "text": "Every action on a blockchain is signed by a key. This step creates Alice's key, which is how she proves she is Alice."
+    },
+    {
+      "id": "bob",
+      "do": "account",
+      "key": "bob",
+      "title": "Make Bob",
+      "text": "Bob gets his own key too, so he can act separately from Alice."
+    },
+    {
+      "id": "chain",
+      "do": "chain",
+      "key": "chain",
+      "title": "Start a chain",
+      "text": "A chain is a private practice network, like a sandbox. This makes a fresh one and gives Alice and Bob some of its native coin to pay fees.",
+      "args": {
+        "prefund": [
+          "$alice",
+          "$bob"
+        ]
+      }
+    },
+    {
+      "id": "gbp",
+      "do": "launchAsset",
+      "key": "GBP",
+      "title": "Create the pound token",
+      "text": "A token is a made-up currency tracked by a program on the chain. Alice creates pounds (GBP, two decimal places) and receives all one million of them.",
+      "args": {
+        "supply": "1000000",
+        "issuer": "$alice"
+      }
+    },
+    {
+      "id": "usd",
+      "do": "launchAsset",
+      "key": "USD",
+      "title": "Create the dollar token",
+      "text": "Bob creates dollars (USD, six decimal places) and receives all one million of them.",
+      "args": {
+        "supply": "1000000",
+        "issuer": "$bob"
+      }
+    },
+    {
+      "id": "book",
+      "do": "deployVenue",
+      "key": "book",
+      "title": "Put up an order book",
+      "text": "An order book lists offers to buy and sell, best price first. This one is a program on the chain: it keeps every offer and matches them itself. Alice puts it on the chain.",
+      "args": {
+        "from": "$alice",
+        "venue": "onchain"
+      }
+    },
+    {
+      "id": "aliceOk",
+      "do": "approve",
+      "title": "Alice allows the order book to move her pounds",
+      "text": "Alice will offer 2,000 pounds in two parts, so she allows the order book to take up to 2,000 of them.",
+      "args": {
+        "from": "$alice",
+        "amount": "2000 $GBP",
+        "before": "ask1"
+      }
+    },
+    {
+      "id": "ask1",
+      "do": "placeOrder",
+      "key": "ask1",
+      "title": "Alice offers 1,000 pounds at 1.2700 dollars each",
+      "text": "Alice posts a limit order: sell 1,000 pounds, at no less than 1.2700 dollars each. The order book holds her pounds until it fills.",
+      "args": {
+        "from": "$alice",
+        "venue": "$book",
+        "side": "sell",
+        "type": "limit",
+        "price": "1.27",
+        "amount": "1000 $GBP",
+        "quote": "$USD"
+      }
+    },
+    {
+      "id": "ask2",
+      "do": "placeOrder",
+      "key": "ask2",
+      "title": "Alice offers 1,000 more at 1.2800",
+      "text": "A second offer at a higher price sits behind the first: buyers get the cheaper one first.",
+      "args": {
+        "from": "$alice",
+        "venue": "$book",
+        "side": "sell",
+        "type": "limit",
+        "price": "1.28",
+        "amount": "1000 $GBP",
+        "quote": "$USD"
+      }
+    },
+    {
+      "id": "bobOk",
+      "do": "approve",
+      "title": "Bob allows the order book to move his dollars",
+      "text": "Bob will pay at most 1.2800 dollars for each of 1,500 pounds, so he allows up to 2,000 of his dollars to be taken.",
+      "args": {
+        "from": "$bob",
+        "amount": "2000 $USD",
+        "before": "buy"
+      }
+    },
+    {
+      "id": "buy",
+      "do": "placeOrder",
+      "title": "Bob buys 1,500 pounds at up to 1.2800",
+      "text": "Bob posts one order to buy 1,500 pounds at no more than 1.2800 each. The order book fills all of Alice's cheaper offer and half of the second, in one transaction.",
+      "args": {
+        "from": "$bob",
+        "venue": "$book",
+        "side": "buy",
+        "type": "limit",
+        "price": "1.28",
+        "amount": "1500 $GBP",
+        "quote": "$USD"
+      },
+      "expect": [
+        {
+          "order": "$ask1",
+          "status": "filled"
+        },
+        {
+          "order": "$ask2",
+          "status": "partial",
+          "filled": "500 $GBP"
+        },
+        {
+          "balance": "$bob",
+          "has": "1500 $GBP"
+        },
+        {
+          "balance": "$alice",
+          "has": "1910 $USD"
+        },
+        {
+          "trades": "$book",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "id": "view",
+      "do": "view",
+      "title": "See the book",
+      "text": "Here is the market now: the 500 pounds still offered at 1.2800, the two trades, and Alice's orders.",
+      "args": {
+        "page": "trade",
+        "venue": "$book",
+        "base": "$GBP",
+        "quote": "$USD"
+      }
+    }
+  ]
+}

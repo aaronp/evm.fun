@@ -1,6 +1,7 @@
 import { erc20Abi, formatUnits, parseEventLogs, type Address } from 'viem'
 import { approveCall, type Asset } from '@evmb/assets'
 import { makeOfferCall, readOffer, swapAbi, takeCall, takeReport } from '@evmb/swap'
+import { parsePrice, type PlaceResult, type Store } from '@evmb/orderbook'
 import type { createChainRegistry } from '../chain/registry'
 import type { ChainHandle } from '../chain/handle'
 import type { Account } from '../store/accounts'
@@ -9,11 +10,15 @@ import { exactText } from '../swap/ui'
 import { launchToken } from '../assets/launch'
 import { deploySwap } from '../swap/locate'
 import { readContract, signAndSend } from '../tx/send'
+import { deployVenue, venueAt } from '../orderbook/locate'
+import { bookStore } from '../orderbook/store'
+import { walletOf } from '../orderbook/wallet'
 import { amount, ref, uniqueName } from './resolve'
 import type { Check, KeyDef, Outputs, Run, Step, StepType, Walkthrough } from './types'
 
 export type ChainRegistry = ReturnType<typeof createChainRegistry>
-export type Env = { accounts: { list(): Account[]; create(label: string): Account }; registry: ChainRegistry }
+/** `book`: the order-book store (default the app's `bookStore`); off-chain orders live only there. */
+export type Env = { accounts: { list(): Account[]; create(label: string): Account }; registry: ChainRegistry; book?: Store }
 type Out = Outputs[StepType]
 
 export const newRun = (w: Walkthrough): Run => ({ walkthrough: w.id, started: new Date().toISOString(), edited: false, values: {}, steps: {} })
@@ -56,7 +61,18 @@ export function initialInputs(w: Walkthrough, step: Step, run: Run, taken: strin
       return { 'offer.side': 'ask', 'offer.amount': formatUnits(sell.raw, sell.asset.decimals), 'offer.price': formatUnits(price, get.asset.decimals) }
     }
     case 'take': return { 'take.offer': (ref(run, arg(step, 'offer'), step.id) as Outputs['makeOffer']).offerId }
-    case 'approve': return initialInputs(w, w.steps.find(s => s.id === arg(step, 'before'))!, run, taken)
+    case 'placeOrder': {
+      const { asset, raw } = amount(run, arg(step, 'amount'), step.id)
+      return { 'order.side': arg(step, 'side'), 'order.type': arg(step, 'type'), 'order.price': arg(step, 'price') ?? '', 'order.amount': formatUnits(raw, asset.decimals) }
+    }
+    case 'cancelOrder': return { 'cancel.order': (ref(run, arg(step, 'order'), step.id) as Outputs['placeOrder']).orderId ?? '' }
+    case 'approve': {
+      const before = w.steps.find(s => s.id === arg(step, 'before'))!
+      if (before.do !== 'placeOrder') return initialInputs(w, before, run, taken)
+      // the step's own amount: an order's need alone may not cover the orders after it (two asks, one approve)
+      const { asset, raw } = amount(run, arg(step, 'amount'), step.id)
+      return { ...initialInputs(w, before, run, taken), 'approve.amount': formatUnits(raw, asset.decimals) }
+    }
     default: return {}
   }
 }
@@ -77,6 +93,36 @@ const sent = async (c: ChainHandle, from: Account, tx: { to: Address; data: `0x$
   const r = await signAndSend(c, from, tx)
   if (r.status !== 'success') throw new Error(`Transaction ${r.status}${r.error ? `: ${r.error}` : ''}`)
   return r.hash
+}
+/** The order-book venue a deployVenue recorded, on chain `c`. */
+export const venueOf = (c: ChainHandle, v: Outputs['deployVenue'], store: Store = bookStore) => venueAt(c, v.venue, v.address, store)
+/** What a placeOrder step records from the venue's result (the Trade page reports the same). */
+export const placedOutputs = (r: PlaceResult): Outputs['placeOrder'] => ({
+  ...(r.order && { orderId: r.order.id }), ...(r.tx && { tx: r.tx }), filled: String(r.fills.reduce((n, f) => n + f.amount, 0n)),
+})
+/** A placeOrder step's venue, owner and market, through the run's actual values. */
+async function placed(w: Walkthrough, env: Env, run: Run, place: Step, c: ChainHandle) {
+  const id = place.id
+  return {
+    venue: await venueOf(c, ref(run, arg(place, 'venue'), id) as Outputs['deployVenue'], env.book),
+    owner: addr(run, arg(place, 'from'), id),
+    market: { base: amount(run, arg(place, 'amount'), id).asset.address, quote: addr(run, arg(place, 'quote'), id) },
+  }
+}
+const placeStepOf = (w: Walkthrough, orderRef: string) => w.steps.find(s => s.do === 'placeOrder' && s.key === orderRef.replace(/^\$/, ''))!
+/** Order `id` of a placeOrder step as its venue lists it now (undefined when the venue has no such order). */
+async function orderNow(w: Walkthrough, env: Env, run: Run, place: Step, id: string | undefined, c: ChainHandle) {
+  if (id === undefined) return
+  const { venue, owner, market } = await placed(w, env, run, place, c)
+  return (await venue.orders({ owner, market })).find(o => o.id === id)
+}
+/** `$key` of an order: its placeOrder step and recorded id. */
+const orderRef = (w: Walkthrough, run: Run, name: string, stepId: string) =>
+  [placeStepOf(w, name), (ref(run, name, stepId) as Outputs['placeOrder']).orderId] as const
+/** Who an approve is for: the venue of a placeOrder it comes before, else the Swap. */
+const spenderOf = (w: Walkthrough, run: Run, step: Step) => {
+  const before = w.steps.find(s => s.id === arg(step, 'before'))
+  return before?.do === 'placeOrder' ? addr(run, arg(before, 'venue'), step.id) : swapOf(w, run, step.id)
 }
 const balanceOf = async (c: ChainHandle, tok: Address, holder: Address) => (await readContract(c, tok, erc20Abi, 'balanceOf', [holder])) as bigint
 
@@ -108,7 +154,7 @@ export async function perform(w: Walkthrough, step: Step, env: Env, run: Run): P
     case 'approve': {
       const { asset, raw } = amount(run, arg(step, 'amount'), id)
       const c = await chainFor(w, env, run, id)
-      return { tx: await sent(c, signer(env, run, arg(step, 'from'), id), approveCall(token(asset.address), swapOf(w, run, id), raw)) }
+      return { tx: await sent(c, signer(env, run, arg(step, 'from'), id), approveCall(token(asset.address), spenderOf(w, run, step), raw)) }
     }
     case 'makeOffer': {
       const sell = amount(run, arg(step, 'sell'), id), get = amount(run, arg(step, 'for'), id)
@@ -127,6 +173,27 @@ export async function perform(w: Walkthrough, step: Step, env: Env, run: Run): P
       if (r.status !== 'reverted') throw new Error(`Transaction ${r.status}${r.error ? `: ${r.error}` : ''}`)
       const error = (await takeReport(request(c), r.hash)).error?.name
       return { tx: r.hash, reverted: true, ...(error && { error }) }
+    }
+    case 'deployVenue': {
+      const venue = arg(step, 'venue') as Outputs['deployVenue']['venue']
+      return { address: await deployVenue(await chainFor(w, env, run, id), venue, signer(env, run, arg(step, 'from'), id)), venue }
+    }
+    case 'placeOrder': {
+      const c = await chainFor(w, env, run, id), { venue, market } = await placed(w, env, run, step, c)
+      const type = arg(step, 'type') as 'limit' | 'market', { raw } = amount(run, arg(step, 'amount'), id)
+      const quote = ref(run, arg(step, 'quote'), id) as Outputs['launchAsset']
+      const r = await venue.place(walletOf(c, signer(env, run, arg(step, 'from'), id)), {
+        market, side: arg(step, 'side') as 'buy' | 'sell', type, amount: raw, ...(type === 'limit' && { price: parsePrice(arg(step, 'price'), quote.decimals) }),
+      })
+      if (r.reverted) throw new Error(`Order reverted: ${r.reverted.error}`)
+      return placedOutputs(r)
+    }
+    case 'cancelOrder': {
+      const [place, order] = orderRef(w, run, arg(step, 'order'), id)
+      const c = await chainFor(w, env, run, id), { venue } = await placed(w, env, run, place, c)
+      if (order === undefined) throw new Error(`Step ${id}: ${arg(step, 'order')} rested no order`)
+      await venue.cancel(walletOf(c, signer(env, run, arg(step, 'from'), id)), order)
+      return {}
     }
     case 'view': return {}
   }
@@ -151,13 +218,13 @@ export async function done(w: Walkthrough, step: Step, env: Env, run: Run): Prom
   }
   const c = await chainFor(w, env, run, step.id)
   switch (step.do) {
-    case 'launchAsset': case 'deploySwap': return !!val && hasCode(c, (val as { address: Address }).address)
+    case 'launchAsset': case 'deploySwap': case 'deployVenue': return !!val && hasCode(c, (val as { address: Address }).address)
     case 'approve': {
       // a spent approval (the offer or take used it) still counts once its tx landed
       if (rec && await landed(c, (rec.outputs as Outputs['approve']).tx)) return true
       const { asset, raw } = amount(run, arg(step, 'amount'), step.id)
       const owner = addr(run, arg(step, 'from'), step.id)
-      return ((await readContract(c, asset.address, erc20Abi, 'allowance', [owner, swapOf(w, run, step.id)])) as bigint) >= raw
+      return ((await readContract(c, asset.address, erc20Abi, 'allowance', [owner, spenderOf(w, run, step)])) as bigint) >= raw
     }
     case 'makeOffer': return !!val && (await readOffer(request(c), swapOf(w, run, step.id), BigInt((val as Outputs['makeOffer']).offerId))).status !== 'none'
     case 'take': {
@@ -166,6 +233,12 @@ export async function done(w: Walkthrough, step: Step, env: Env, run: Run): Prom
       const offer = ref(run, arg(step, 'offer'), step.id) as Outputs['makeOffer']
       return (await readOffer(request(c), swapOf(w, run, step.id), BigInt(offer.offerId))).status === 'filled'
     }
+    case 'placeOrder': {
+      if (!rec) return false
+      const out = rec.outputs as Outputs['placeOrder']
+      return out.orderId === undefined ? !!out.tx && landed(c, out.tx) : !!(await orderNow(w, env, run, step, out.orderId, c))
+    }
+    case 'cancelOrder': return (await orderNow(w, env, run, ...orderRef(w, run, arg(step, 'order'), step.id), c))?.status === 'cancelled'
   }
   return false
 }
@@ -192,6 +265,20 @@ export async function checks(w: Walkthrough, step: Step, env: Env, run: Run): Pr
       const offer = ref(run, check.offer, step.id) as Outputs['makeOffer']
       const status = cap((await readOffer(request(c), swapOf(w, run, step.id), BigInt(offer.offerId))).status)
       return { check, pass: status === check.status, actual: status }
+    }
+    if ('order' in check) {
+      const o = await orderNow(w, env, run, ...orderRef(w, run, check.order, step.id), c)
+      if (!o) return { check, pass: false, actual: 'no such order' }
+      const want = check.filled === undefined ? undefined : amount(run, check.filled, step.id)
+      const filled = want ? `, filled ${shown(o.filled, want.asset)}` : ''
+      return { check, pass: o.status === check.status && (!want || o.filled === want.raw), actual: `${o.status}${filled}` }
+    }
+    if ('trades' in check) {
+      const place = w.steps.find(s => s.do === 'placeOrder' && arg(s, 'venue') === check.trades)
+      if (!place) return { check, pass: false, actual: 'no orders on this venue' }
+      const { venue, market } = await placed(w, env, run, place, c)
+      const n = (await venue.trades(market, check.count + 1)).length
+      return { check, pass: n === check.count, actual: `${n} ${n === 1 ? 'trade' : 'trades'}` }
     }
     const out = run.steps[step.id]?.outputs as Outputs['take'] | undefined
     if (!out) return { check, pass: false, actual: 'not run yet' }

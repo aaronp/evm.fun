@@ -41,9 +41,14 @@ export type TradeVenue = Venue & { address: Address }
 export async function openVenue(chain: ChainHandle, kind: VenueKind, store: Store = bookStore): Promise<TradeVenue | undefined> {
   const rec = await newest(chain, kind)
   if (!rec) return
-  const base = { request: (m: string, p: unknown[]) => chain.request(m, p), scope: chain.info.id, address: getAddress(rec.address), store }
+  return venueAt(chain, kind, rec.address, store, rec.block < 0n ? 0n : rec.block)
+}
+
+/** The venue of `kind` at `address` on `chain` (a walkthrough's recorded deploy); `fromBlock`: its deploy block, when known. */
+export async function venueAt(chain: ChainHandle, kind: VenueKind, address: Address, store: Store = bookStore, fromBlock = 0n): Promise<TradeVenue> {
+  const base = { request: (m: string, p: unknown[]) => chain.request(m, p), scope: chain.info.id, address: getAddress(address), store }
   const v = kind === 'onchain'
-    ? onchainVenue({ ...base, fromBlock: rec.block < 0n ? 0n : rec.block })
+    ? onchainVenue({ ...base, fromBlock })
     : offchainVenue({ ...base, chainId: Number(BigInt((await chain.request('eth_chainId', [])) as string)) })
   return { ...v, address: base.address }
 }

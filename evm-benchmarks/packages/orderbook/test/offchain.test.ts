@@ -211,3 +211,15 @@ test('expiry is chain time: a week past the latest block; an order expiring at t
   expect(await c.blockNumber()).toBe(before)
   expect(t.fills).toEqual([])
 }), T)
+
+test('a reverted cancel attempt is journaled but never listed as a failed order (it has no market)', () => withChain(async c => {
+  const { v, m, store } = venue(c)
+  const r = await v.place(c.walletOf(maker), { market: m, side: 'sell', type: 'limit', price: P('1.27'), amount: G(10) })
+  const signed = (await store.get<any>('orders', `a:${r.order!.id}`)).order
+  // cancelled elsewhere between the venue's check and its send: the venue's own cancel reverts OrderNotOpen
+  const w = racing(c.walletOf(maker), () => c.call(maker, c.settlement, Settlement.abi, 'cancel', [signed]))
+  await expect(v.cancel(w, r.order!.id)).rejects.toThrow(/Cancel reverted: OrderNotOpen/)
+  expect((await store.scan<any>('attempts', 'owner', {})).map(a => [a.status, 'cancel' in a.input])).toEqual([['reverted', true]])
+  expect((await v.orders({ owner: maker.address })).map(o => o.status)).toEqual(['cancelled'])
+  expect((await v.orders({ owner: maker.address, market: m })).map(o => o.status)).toEqual(['cancelled'])
+}), T)

@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test'
 import { readdirSync } from 'node:fs'
 import { erc20Abi, type Address } from 'viem'
+import { bookSchema, memoryStore } from '@evmb/orderbook'
 import { kv } from '../src/store/kv'
 import { createAccounts } from '../src/store/accounts'
 import { createChainRegistry } from '../src/chain/registry'
@@ -8,7 +9,7 @@ import { readContract } from '../src/tx/send'
 import { bundled } from '../walkthroughs'
 import { validate } from '../src/walkthrough/validate'
 import { amount } from '../src/walkthrough/resolve'
-import { checks, done, initialInputs, newRun, perform, record, type Env } from '../src/walkthrough/run'
+import { checks, done, initialInputs, newRun, perform, record, venueOf, type Env } from '../src/walkthrough/run'
 import { clearRun, loadRun, saveRun } from '../src/walkthrough/runs'
 import type { Outputs, Run, Walkthrough } from '../src/walkthrough/types'
 
@@ -19,7 +20,8 @@ function env(): Env {
     kv,
     host: (id: string) => ({ persistence: { load: async () => stores.get(id) ?? null, save: async (s: any) => void stores.set(id, structuredClone(s)) } }),
   })
-  return { accounts: createAccounts(), registry }
+  // one order-book store per env, as the app has one IndexedDB: a reload (loadRun) keeps it
+  return { accounts: createAccounts(), registry, book: memoryStore(bookSchema) }
 }
 // Chains are listed from the shared kv, so each test removes (disposes and forgets) every chain it made.
 const disposeAll = async (e: Env) => { for (const c of await e.registry.list()) await e.registry.remove(c.id) }
@@ -163,4 +165,68 @@ describe('runner', () => {
     const e = env()
     await expect(perform(w, w.steps.find(s => s.id === 'chain')!, e, newRun(w))).rejects.toThrow('Step chain: $alice has no value yet')
   })
+})
+
+describe('order-book walkthroughs', () => {
+  const at = (w: Walkthrough, id: string) => w.steps.findIndex(s => s.id === id)
+  const aliceOrders = async (e: Env, run: Run) => {
+    const v = await venueOf(await chainOf(e, run), run.values.book as Outputs['deployVenue'], e.book!)
+    return v.orders({ owner: (run.values.alice as Outputs['account']).address })
+  }
+
+  for (const kind of ['onchain', 'offchain'] as const) {
+    test(`${kind}: outputs, then Review Focus 5 — reloaded after Alice's first order, the run finishes without placing it again`, async () => {
+      const w = byId(`gbp-usd-book-${kind}`)
+      const e = env()
+      try {
+        let run = await runSteps(w, e, newRun(w), at(w, 'ask1') + 1)
+        expect(run.values.book).toMatchObject({ venue: kind })
+        expect((run.values.ask1 as Outputs['placeOrder']).orderId).toBeDefined()
+        expect(run.values.ask1).toMatchObject({ filled: '0' })
+        await saveRun(run)
+        const h0 = await height(e, run)
+        run = (await loadRun(w.id))!
+        expect(await done(w, w.steps[at(w, 'ask1')]!, e, run)).toBe(true)
+        run = await runSteps(w, e, run)
+        // on-chain: ask2, bobOk, buy; off-chain: ask2 is only signed, so bobOk and the settle
+        expect(await height(e, run) - h0).toBe(kind === 'onchain' ? 3 : 2)
+        const mine = await aliceOrders(e, run)
+        expect(mine.map(o => [o.status, o.filled])).toEqual([['filled', 100000n], ['partial', 50000n]])
+        expect(run.steps.buy!.outputs).toMatchObject({ filled: '150000', tx: expect.stringMatching(/^0x/) })
+        await clearRun(w.id)
+      } finally { await disposeAll(e) }
+    }, 60_000)
+
+    test(`${kind}: cancelOrder cancels Alice's partly filled ask, and its check says so`, async () => {
+      const w = structuredClone(byId(`gbp-usd-book-${kind}`)) as Walkthrough
+      w.steps.push({
+        id: 'cancel', do: 'cancelOrder', title: 'Alice cancels', text: 'Alice takes back the rest.', args: { from: '$alice', order: '$ask2' },
+        expect: [{ order: '$ask2', status: 'cancelled', filled: '500 $GBP' }],
+      })
+      expect('ok' in validate(w)).toBe(true)
+      const e = env()
+      try {
+        let run = await runSteps(w, e, newRun(w))
+        const cancel = w.steps.at(-1)!
+        expect(initialInputs(w, cancel, run)).toEqual({ 'cancel.order': (run.values.ask2 as Outputs['placeOrder']).orderId! })
+        expect((await aliceOrders(e, run)).map(o => o.status)).toEqual(['filled', 'cancelled'])
+        const h = await height(e, run)
+        run = await runSteps(w, e, run) // done: nothing repeats
+        expect(await height(e, run)).toBe(h)
+      } finally { await disposeAll(e) }
+    }, 60_000)
+  }
+
+  test('initialInputs for a placeOrder and the approve before it', async () => {
+    const w = byId('gbp-usd-book-onchain')
+    const e = env()
+    try {
+      const run = await runSteps(w, e, newRun(w), at(w, 'book') + 1)
+      const order = { 'order.side': 'buy', 'order.type': 'limit', 'order.price': '1.28', 'order.amount': '1500' }
+      expect(initialInputs(w, w.steps[at(w, 'buy')]!, run)).toEqual(order)
+      expect(initialInputs(w, w.steps[at(w, 'bobOk')]!, run)).toEqual({ ...order, 'approve.amount': '2000' })
+      expect(await done(w, w.steps[at(w, 'book')]!, e, run)).toBe(true)
+      expect(await done(w, w.steps[at(w, 'ask1')]!, e, run)).toBe(false)
+    } finally { await disposeAll(e) }
+  }, 60_000)
 })

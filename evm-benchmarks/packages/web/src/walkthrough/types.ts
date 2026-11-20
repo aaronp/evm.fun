@@ -6,14 +6,22 @@ export type KeyDef =
   | { asset: { symbol: string; name: string; decimals: number } }
   | { swap: Record<string, never> }
   | { offer: Record<string, never> }
+  | { venue: { venue: 'onchain' | 'offchain' } }
+  | { order: Record<string, never> }
 
-export type StepType = 'account' | 'chain' | 'launchAsset' | 'deploySwap' | 'approve' | 'makeOffer' | 'take' | 'view'
+export type StepType =
+  | 'account' | 'chain' | 'launchAsset' | 'deploySwap' | 'approve' | 'makeOffer' | 'take' | 'view'
+  | 'deployVenue' | 'placeOrder' | 'cancelOrder'
+
+export type OrderStatus = 'open' | 'partial' | 'filled' | 'cancelled' | 'failed' | 'unfunded'
 
 export type Check =
   | { balance: string; has: string }
   | { escrowed: string }
   | { offer: string; status: 'Open' | 'Filled' | 'Cancelled' }
   | { outcome: 'taken' | 'reverted'; error?: string }
+  | { order: string; status: OrderStatus; filled?: string }
+  | { trades: string; count: number }
 
 export type Step = {
   id: string
@@ -37,6 +45,10 @@ export type Outputs = {
   makeOffer: { offerId: string; tx: Hex }
   take: { tx: Hex; reverted: boolean; error?: string }
   view: Record<string, never>
+  deployVenue: { address: Address; venue: 'onchain' | 'offchain' }
+  /** `orderId`: absent when nothing rests (a taker filled in full off-chain); `filled`: base raw units, decimal */
+  placeOrder: { orderId?: string; tx?: Hex; filled: string }
+  cancelOrder: { tx?: Hex }
 }
 
 export type StepRecord = { inputs: Record<string, string>; outputs: Outputs[StepType]; at: string }

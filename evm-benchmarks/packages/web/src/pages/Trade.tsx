@@ -15,6 +15,8 @@ import { deployVenue, useVenue, venueName, type VenueKind } from '../orderbook/l
 import { idText, spreadOf } from '../orderbook/ui'
 import { walletOf } from '../orderbook/wallet'
 import { readContract, signAndSend } from '../tx/send'
+import { orThrow, useWizardAction, useWizardMark, useWizardReport } from '../walkthrough/wizard'
+import { placedOutputs } from '../walkthrough/run'
 import { card } from '../components/TakePanel'
 import { OrderBookPanel } from '../components/OrderBookPanel'
 import { DepthChart } from '../components/DepthChart'
@@ -56,6 +58,7 @@ export function Trade() {
   const [deploying, setDeploying] = useState(false)
   const reconciled = useRef(new Set<string>())
   const chainId = chain?.info.id
+  const report = useWizardReport(), mark = useWizardMark()
 
   useEffect(() => {
     setAssets([]); setErr(undefined); setReadErr({})
@@ -114,16 +117,19 @@ export function Trade() {
 
   const working = deploying || busy // no chain, venue or pair switch while a tx is in flight
   useEffect(() => { lockChain(working); return () => lockChain(false) }, [working, lockChain])
+  useWizardAction('trade.deploy', chain && !chain.info.ephemeral && venue === undefined && acting && !deploying ? () => orThrow(deploy()) : undefined)
 
   if (!chain) return <p className="text-sm text-muted">Select a chain first.</p>
 
+  /** returns the error message when it failed */
   async function deploy() {
     if (!chain || !acting || deploying) return
     setDeploying(true); setErr(undefined)
     try {
-      await deployVenue(chain, kind, acting, bumpBalance)
+      const address = await deployVenue(chain, kind, acting, bumpBalance)
       setNonce(n => n + 1)
-    } catch (e) { setErr(msg(e)) } finally { setDeploying(false) }
+      report('trade.deploy', { address, venue: kind })
+    } catch (e) { setErr(msg(e)); return msg(e) } finally { setDeploying(false) }
   }
 
   const reportLink = (id: string) => ({ to: `/trade/report?id=${encodeURIComponent(id)}&venue=${kind}&base=${base?.address}&quote=${quote?.address}`, label: 'View report →' })
@@ -138,6 +144,7 @@ export function Trade() {
   const approve = (a: Asset, amount: bigint) => act(async (v, who) => {
     const r = await signAndSend(chain!, who, approveCall(a, v.address, amount), bumpBalance)
     if (r.status !== 'success') throw new Error(`Approve ${r.status}${r.error ? `: ${r.error}` : ''}`)
+    report('order.approve', { tx: r.hash })
   })
   /** Place an order; `placed` once it landed or was signed, `error` when it failed (thrown: nothing sent) or reverted. */
   async function place(o: Omit<OrderInput, 'market'>): Promise<{ placed: boolean; error?: string }> {
@@ -150,6 +157,7 @@ export function Trade() {
         reverted = `Order reverted: ${r.reverted.error}`
         return setFlash({ text: `${reverted}; nothing moved.`, tone: 'danger', link: r.order && reportLink(r.order.id) })
       }
+      report('order.submit', placedOutputs(r))
       const filled = r.fills.reduce((n, f) => n + f.amount, 0n)
       const fills = `${amountText(filled, base!)} filled in ${r.fills.length} ${r.fills.length === 1 ? 'fill' : 'fills'}`
       setFlash(r.order
@@ -163,6 +171,7 @@ export function Trade() {
   async function cancel(id: string) {
     const error = await act(async (v, who) => {
       await v.cancel(walletOf(chain!, who, bumpBalance), id)
+      report('order.cancel', {})
       setFlash({ text: `Order ${idText(id)} cancelled.`, tone: 'success' })
     })
     if (error) setFlash({ text: error, tone: 'danger' })
@@ -222,7 +231,7 @@ export function Trade() {
         <section className={`${card} flex flex-wrap items-center gap-4 px-[22px] py-4`}>
           <p className="flex-1 text-sm text-text-2">{chain.info.name} has no {name} contract yet.</p>
           <span title={acting ? undefined : 'Create an account first'} className="inline-flex">
-            <Button onClick={deploy} disabled={!acting || deploying}>{deploying ? 'Deploying…' : `Deploy ${name}.sol?`}</Button>
+            <Button {...mark('trade.deploy')} onClick={deploy} disabled={!acting || deploying}>{deploying ? 'Deploying…' : `Deploy ${name}.sol?`}</Button>
           </span>
         </section>
       )}
