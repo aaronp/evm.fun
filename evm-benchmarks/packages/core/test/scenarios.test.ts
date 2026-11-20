@@ -37,7 +37,7 @@ test('deriveAccounts is deterministic', () => {
   expect(deriveAccounts('s', 3).map((a) => a.address)).toEqual(deriveAccounts('s', 3).map((a) => a.address));
 });
 
-for (const id of ['erc20-disjoint', 'erc20-hot', 'atomic-swap'] as const) {
+for (const id of ['erc20-disjoint', 'erc20-hot', 'atomic-swap', 'offer-fill'] as const) {
   test(`${id}: verify fails when last tx missing`, async () => {
     const ap = create();
     const sc = scenarios[id]();
