@@ -258,7 +258,7 @@ export function Swap() {
         <div className="flex flex-wrap items-start gap-4">
           {base && quote && <>
             <MyOffers who={acting?.label ?? 'No account'} rows={mine} base={base} busy={busy}
-              takerOf={id => (t => t && name(t.actor))(items?.find(i => i.kind === 'taken' && i.id === id))} onCancel={r => cancel(r.id)} />
+              name={name} onCancel={r => cancel(r.id)} />
             <Activity items={pairItems} text={i => activityText(i, { name, offer: offerOf, base, quote })} />
           </>}
         </div>

@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test'
 import type { Address } from 'viem'
 import type { Asset } from '@evmb/assets'
 import { book, type ActivityItem, type Offer } from '@evmb/swap'
-import { activityText, allowText, takeFlash, crosses, exactText, formQuote, makerLabel, pickPair, rowOf, statsText } from '../src/swap/ui'
+import { takenBy, activityText, allowText, takeFlash, crosses, exactText, formQuote, makerLabel, pickPair, rowOf, statsText } from '../src/swap/ui'
 
 const a = (n: number) => `0x${n.toString(16).padStart(40, '0')}` as Address
 const tok = (n: number, symbol: string, decimals: number): Asset => ({
@@ -111,4 +111,12 @@ test('activityText: one line per kind, as in the mockup', () => {
   expect(activityText(it('offered', { id: 6n }), labels)).toBe('#6 by tester · buy 2,500.00 GBP @ 1.2696')
   expect(activityText(it('approved', { token: USD.address!, amount: 3_176_250_000n }), labels)).toBe('tester approved Swap for 3,176.25 USD')
   expect(activityText(it('approved', { token: GBP.address!, amount: 2n ** 256n - 1n }), labels)).toBe('tester approved Swap for unlimited GBP')
+})
+
+test('takenBy names the taker stored on the filled offer, nothing otherwise', () => {
+  const o: Offer = { id: 1n, maker: a(7), giveToken: GBP.address as Address, giveAmt: 100n, getToken: USD.address as Address, getAmt: 127_000n, status: 'filled', taker: a(8), filledBlock: 5n }
+  const name = (x: string) => (x === a(8) ? 'tester' : x)
+  expect(takenBy(o, name)).toBe('tester')
+  expect(takenBy(rowOf(o, GBP, USD)!, name)).toBe('tester')
+  expect(takenBy({ ...o, status: 'open', taker: undefined, filledBlock: undefined }, name)).toBeUndefined()
 })

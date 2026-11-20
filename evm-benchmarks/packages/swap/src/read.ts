@@ -1,4 +1,4 @@
-import { decodeFunctionResult, encodeFunctionData, type Address, type Hex } from 'viem'
+import { decodeFunctionResult, encodeFunctionData, type Address, type Hex, zeroAddress } from 'viem'
 import type { Request } from '@evmb/assets'
 import { swapAbi } from './abi'
 import type { Offer, OfferStatus } from './types'
@@ -22,6 +22,7 @@ export async function readOffers(request: Request, swap: Address): Promise<Offer
 
 /** One offer, read live from the chain. */
 export async function readOffer(request: Request, swap: Address, id: bigint): Promise<Offer> {
-  const [maker, giveToken, giveAmt, getToken, getAmt, status] = await call(request, swap, 'offers', [id])
-  return { id, maker, giveToken, giveAmt, getToken, getAmt, status: statusName(status) }
+  const [maker, giveToken, giveAmt, getToken, getAmt, status, taker, filledBlock] = await call(request, swap, 'offers', [id])
+  return { id, maker, giveToken, giveAmt, getToken, getAmt, status: statusName(status),
+    ...(taker !== zeroAddress && { taker, filledBlock: BigInt(filledBlock) }) }
 }

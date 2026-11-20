@@ -145,7 +145,7 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
     const wasTaken = prior.topics[0] === taken
     error = { name: 'OfferNotOpen', args: { id, status: wasTaken ? 2 : 3 } }
     winner = {
-      ...(wasTaken && { taker: getAddress(`0x${prior.topics[2]!.slice(26)}`) }),
+      ...(wasTaken && { taker: offer.taker ?? getAddress(`0x${prior.topics[2]!.slice(26)}`) }),
       block: BigInt(prior.blockNumber), tx: prior.transactionHash, sameBlock: BigInt(prior.blockNumber) === at.block,
     }
   } else {

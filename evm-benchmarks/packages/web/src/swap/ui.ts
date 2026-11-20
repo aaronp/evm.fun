@@ -1,5 +1,5 @@
 import { MAX_UINT256, type Asset } from '@evmb/assets'
-import { book, priceText, quoteFor, type ActivityItem, type BookRow, type Offer, type Reason, type Side } from '@evmb/swap'
+import { book, priceText, quoteFor, type ActivityItem, type BookRow, type Offer, type Reason, takerOf, type Side } from '@evmb/swap'
 import { formatAmount, parseAmount, shortAddress } from '../assets/ui'
 
 type Book = ReturnType<typeof book>
@@ -22,6 +22,9 @@ export function rowOf(o: Offer, base: Asset, quote: Asset): BookRow | undefined 
   const r = b.asks[0] ?? b.bids[0]
   return r && { ...r, status: o.status }
 }
+
+/** Who took a filled offer, from the offer itself (stored by the contract), named by `name`. */
+export const takenBy = (o: Offer, name: (a: string) => string) => (t => t && name(t))(takerOf(o))
 
 type Leg = { asset: Asset; amount: bigint }
 const POSITIVE = 'Amount and price must be positive numbers.'

@@ -223,6 +223,16 @@ export const swapAbi = [
         "internalType": "enum Swap.Status",
         "name": "status",
         "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "taker",
+        "type": "address"
+      },
+      {
+        "internalType": "uint64",
+        "name": "filledBlock",
+        "type": "uint64"
       }
     ],
     "stateMutability": "view",

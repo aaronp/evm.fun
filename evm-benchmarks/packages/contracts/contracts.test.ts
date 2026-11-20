@@ -129,6 +129,7 @@ async function withSwap(
   }
 }
 
+const zero = '0x0000000000000000000000000000000000000000'
 test('Swap: makeOffer escrows, returns ids 1 then 2, emits OfferMade, offers(1) is Open', () =>
   withSwap(async ({pub, swap, gbp, usd, maker, call, read}) => {
     const erc = AssetToken.abi
@@ -144,7 +145,7 @@ test('Swap: makeOffer escrows, returns ids 1 then 2, emits OfferMade, offers(1) 
     })
     expect(await read(gbp, erc, 'balanceOf', [maker.address])).toBe(before - 100_000n)
     expect(await read(gbp, erc, 'balanceOf', [swap])).toBe(100_000n)
-    expect(await read(swap, Swap.abi, 'offers', [1n])).toEqual([maker.address, gbp, 100_000n, usd, 127_000_000n, Status.Open])
+    expect(await read(swap, Swap.abi, 'offers', [1n])).toEqual([maker.address, gbp, 100_000n, usd, 127_000_000n, Status.Open, zero, 0n])
     await call(maker, gbp, erc, 'approve', [swap, 10n])
     const r2 = await call(maker, swap, Swap.abi, 'makeOffer', [gbp, 10n, usd, 1n])
     expect(parseEventLogs({abi: Swap.abi, logs: r2.logs, eventName: 'OfferMade'})[0]!.args.id).toBe(2n)
@@ -170,7 +171,9 @@ test('Swap: take moves both legs atomically, status Filled, emits OfferTaken; se
     expect(await read(usd, erc, 'balanceOf', [taker.address])).toBe(tUsd - 127_000_000n)
     expect(await read(gbp, erc, 'balanceOf', [taker.address])).toBe(tGbp + 100_000n)
     expect(await read(gbp, erc, 'balanceOf', [swap])).toBe(0n)
-    expect((await read(swap, Swap.abi, 'offers', [1n]))[5]).toBe(Status.Filled)
+    const o = await read(swap, Swap.abi, 'offers', [1n])
+    expect(o[5]).toBe(Status.Filled)
+    expect([o[6], o[7]]).toEqual([taker.address, r.blockNumber])
     expect(await revertOf(taker, 'take', [1n])).toMatchObject({errorName: 'OfferNotOpen', args: [1n, Status.Filled]})
     expect(await revertOf(taker, 'take', [99n])).toMatchObject({errorName: 'OfferNotOpen', args: [99n, Status.None]})
   }), 60_000)
@@ -187,14 +190,14 @@ test('Swap: cancel is maker-only, returns exactly the escrow, then take reverts 
     expect(parseEventLogs({abi: Swap.abi, logs: r.logs, eventName: 'OfferCancelled'})[0]!.args).toEqual({id: 1n})
     expect(await read(gbp, erc, 'balanceOf', [maker.address])).toBe(before + 100_000n)
     expect(await read(gbp, erc, 'balanceOf', [swap])).toBe(0n)
-    expect((await read(swap, Swap.abi, 'offers', [1n]))[5]).toBe(Status.Cancelled)
+    const o = await read(swap, Swap.abi, 'offers', [1n])
+    expect([o[5], o[6], o[7]]).toEqual([Status.Cancelled, zero, 0n])
     expect(await revertOf(taker, 'take', [1n])).toMatchObject({errorName: 'OfferNotOpen', args: [1n, Status.Cancelled]})
   }), 60_000)
 
 test('Swap: makeOffer with zero amount, same token or zero address reverts BadOffer', () =>
   withSwap(async ({swap, gbp, usd, maker, call, revertOf}) => {
     await call(maker, gbp, AssetToken.abi, 'approve', [swap, 100n])
-    const zero = '0x0000000000000000000000000000000000000000'
     for (const args of [
       [gbp, 0n, usd, 1n],
       [gbp, 1n, usd, 0n],

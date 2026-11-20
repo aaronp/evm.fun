@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { Asset } from '@evmb/assets'
 import { priceText, type ActivityItem, type BookRow } from '@evmb/swap'
-import { amountText } from '../swap/ui'
+import { amountText, takenBy } from '../swap/ui'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { card, statusTone } from './TakePanel'
@@ -10,14 +10,14 @@ const head = 'border-b border-line px-[18px] py-3.5'
 const pill = { taken: 'success', reverted: 'danger', cancelled: 'neutral', offered: 'accent', approved: 'warn' } as const
 
 /** "{account}'s offers" in this pair, newest first, with Cancel on the open ones. */
-export function MyOffers({ who, rows, base, takerOf, busy, onCancel }: {
-  who: string; rows?: BookRow[]; base: Asset; takerOf(id: bigint): string | undefined; busy: boolean; onCancel(r: BookRow): void
+export function MyOffers({ who, rows, base, name, busy, onCancel }: {
+  who: string; rows?: BookRow[]; base: Asset; name(a: string): string; busy: boolean; onCancel(r: BookRow): void
 }) {
   return (
     <section aria-labelledby="my-h" className={`${card} flex-[1_1_420px] overflow-hidden`}>
       <div className={head}><h2 id="my-h" className="text-sm font-semibold">{who}’s offers</h2></div>
       {rows?.map(r => {
-        const taker = r.status === 'filled' ? takerOf(r.id) : undefined
+        const taker = takenBy(r, name)
         return (
           <div key={String(r.id)} className="grid grid-cols-[56px_minmax(0,1fr)_96px_80px] items-center gap-2.5 border-t border-line px-[18px] py-2.5 text-[13px]">
             <span className="font-mono text-subtle">#{String(r.id)}</span>

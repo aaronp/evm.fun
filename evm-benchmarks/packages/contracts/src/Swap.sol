@@ -18,6 +18,8 @@ contract Swap is ReentrancyGuard {
         address getToken;
         uint256 getAmt;
         Status status;
+        address taker; // set by take(): who filled it
+        uint64 filledBlock; // set by take(): the block it was filled in
     }
 
     uint256 public nextId = 1;
@@ -40,7 +42,7 @@ contract Swap is ReentrancyGuard {
             revert BadOffer();
         }
         id = nextId++;
-        offers[id] = Offer(msg.sender, giveToken, giveAmt, getToken, getAmt, Status.Open);
+        offers[id] = Offer(msg.sender, giveToken, giveAmt, getToken, getAmt, Status.Open, address(0), 0);
         emit OfferMade(id, msg.sender, giveToken, giveAmt, getToken, getAmt);
         IERC20(giveToken).safeTransferFrom(msg.sender, address(this), giveAmt);
     }
@@ -49,6 +51,8 @@ contract Swap is ReentrancyGuard {
         Offer storage o = offers[id];
         if (o.status != Status.Open) revert OfferNotOpen(id, o.status);
         o.status = Status.Filled;
+        o.taker = msg.sender;
+        o.filledBlock = uint64(block.number);
         emit OfferTaken(id, msg.sender);
         IERC20(o.getToken).safeTransferFrom(msg.sender, o.maker, o.getAmt);
         IERC20(o.giveToken).safeTransfer(msg.sender, o.giveAmt);
