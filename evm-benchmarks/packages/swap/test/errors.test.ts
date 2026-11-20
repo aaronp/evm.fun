@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { AssetToken, Swap } from '@evmb/contracts'
-import { cancelCall, decodeSwapError, makeOfferCall, takeCall } from '../src'
+import { encodeErrorResult } from 'viem'
+import { cancelCall, decodeSwapError, makeOfferCall, statusName, takeCall } from '../src'
 import { maker, taker, withSwap } from './chain'
 
 test('decodeSwapError decodes real revert data for each error', () =>
@@ -31,4 +32,17 @@ test('decodeSwapError decodes real revert data for each error', () =>
 test('decodeSwapError returns undefined for unknown data', () => {
   expect(decodeSwapError('0x')).toBeUndefined()
   expect(decodeSwapError('0xdeadbeef')).toBeUndefined()
+})
+
+test('decodeSwapError decodes Error(string) and Panic(uint256)', () => {
+  const abi = [
+    { type: 'error', name: 'Error', inputs: [{ name: 'message', type: 'string' }] },
+    { type: 'error', name: 'Panic', inputs: [{ name: 'code', type: 'uint256' }] },
+  ] as const
+  expect(decodeSwapError(encodeErrorResult({ abi, errorName: 'Error', args: ['nope'] }))).toEqual({ name: 'Error', args: { message: 'nope' } })
+  expect(decodeSwapError(encodeErrorResult({ abi, errorName: 'Panic', args: [0x11n] }))).toEqual({ name: 'Panic', args: { code: 0x11n } })
+})
+
+test('statusName maps the contract Status enum', () => {
+  expect([0, 1, 2, 3n].map(statusName)).toEqual(['none', 'open', 'filled', 'cancelled'])
 })
