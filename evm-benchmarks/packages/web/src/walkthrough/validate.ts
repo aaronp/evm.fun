@@ -42,8 +42,9 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
       }
     }
     const kindArg = (field: string, kind: string) => {
+      if (typeof args[field] !== 'string') return e(field, `${field} must be a single $key`)
       use(field, args[field])
-      const n = typeof args[field] === 'string' ? /^\$(\w+)$/.exec(args[field])?.[1] : undefined
+      const n = /^\$(\w+)$/.exec(args[field])?.[1]
       if (!n) e(field, `${field} must be a single $key`)
       else if (n in keys && kindOf(keys[n]) !== kind) e(field, `$${n} is not ${kind === 'asset' ? 'an asset' : `a ${kind}`}`)
     }
@@ -92,11 +93,26 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
         if (j === undefined || steps[j].do !== 'take') e('step', 'step must be the id of a take step')
       } else e('page', 'page must be swap or report')
     }
+    if (s.expect !== undefined && !Array.isArray(s.expect)) e('expect', 'expect must be a list')
     for (const c of Array.isArray(s.expect) ? s.expect : []) {
-      for (const f of ['balance', 'has', 'escrowed', 'offer']) if (typeof c?.[f] === 'string') {
-        if (f === 'has' || f === 'escrowed') amountArg('expect', c[f]); else use('expect', c[f])
+      if (!isObj(c)) { e('expect', 'Check is not an object'); continue }
+      const keyOf = (t: unknown, kind: string) => {
+        const n = typeof t === 'string' ? /^\$(\w+)$/.exec(t)?.[1] : undefined
+        if (!n) return e('expect', `Expected a single $key, got ${String(t)}`)
+        use('expect', t)
+        if (n in keys && kindOf(keys[n]) !== kind) e('expect', `$${n} is not a${kind === 'account' ? 'n account' : ' ' + kind}`)
       }
+      if ('balance' in c) { keyOf(c.balance, 'account'); amountArg('expect', c.has) }
+      else if ('escrowed' in c) amountArg('expect', c.escrowed)
+      else if ('offer' in c) {
+        keyOf(c.offer, 'offer')
+        if (!['Open', 'Filled', 'Cancelled'].includes(c.status)) e('expect', `Unknown offer status ${String(c.status)}`)
+      } else if ('outcome' in c) {
+        if (!['taken', 'reverted'].includes(c.outcome)) e('expect', `Unknown outcome ${String(c.outcome)}`)
+        if (c.error !== undefined && typeof c.error !== 'string') e('expect', 'error must be a string')
+      } else e('expect', 'Unknown check')
     }
+    if (['approve', 'take', 'view'].includes(s.do) && s.key !== undefined) e('key', `${s.do} steps create nothing, so take no key`)
     if (typeof s.key === 'string') {
       if (filled.has(s.key)) e('key', `Key ${s.key} is filled twice`)
       filled.add(s.key)
@@ -116,7 +132,7 @@ function priceError(keys: Record<string, any>, sell: unknown, forText: unknown):
   }
   const S = parse(sell), F = parse(forText)
   if (!S || !F || S.raw === 0n) return undefined // reported by amountArg
-  // (F/10^fd) / (S/10^sd), at fd places: F*10^sd*10^fd must divide by S*10^fd
-  if ((F.raw * 10n ** BigInt(S.d + F.d)) % (S.raw * 10n ** BigInt(F.d)) !== 0n)
+  // (F/10^fd) / (S/10^sd) has at most fd places iff F*10^sd divides by S
+  if ((F.raw * 10n ** BigInt(S.d)) % S.raw !== 0n)
     return `Price ${forText} per ${sell} is not exact at ${F.d} decimals`
 }

@@ -30,9 +30,24 @@ test('duplicate step id', () => {
   expect(has(j, 'id', /Duplicate/)).toBe(true)
 })
 test('$name used before its step', () => {
-  const j = clone(); j.steps[3].args.issuer = '$bob'; j.steps.splice(1, 1) // bob step removed -> but key unfilled too
-  j.steps.splice(0, 0, j.steps.splice(2, 1)[0]) // chain before alice/bob
-  expect(has(j, 'args.prefund', /before its step/)).toBe(true)
+  const j = clone(); j.steps.unshift(j.steps.splice(2, 1)[0]) // chain before alice/bob
+  expect(errs(j).some((e: any) => e.step === 'chain' && e.field === 'args.prefund' && /before its step/.test(e.message))).toBe(true)
+})
+test('check shapes', () => {
+  const j = clone(); j.steps.find((s: any) => s.id === 'take').expect[0].status = 'Fillled'
+  expect(has(j, 'expect', /Unknown offer status/)).toBe(true)
+  const k = clone(); k.steps.find((s: any) => s.id === 'take').expect[1].balance = '$GBP'
+  expect(has(k, 'expect', /not an account/)).toBe(true)
+  const m = clone(); m.steps[0].expect = 'x'
+  expect(has(m, 'expect', /must be a list/)).toBe(true)
+})
+test('approve/take/view take no key', () => {
+  const j = clone(); j.steps.find((s: any) => s.id === 'aliceOk').key = 'swap'
+  expect(has(j, 'key', /take no key/)).toBe(true)
+})
+test('missing from arg reports once', () => {
+  const j = clone(); delete j.steps.find((s: any) => s.id === 'swap').args.from
+  expect(errs(j).filter((e: any) => e.step === 'swap').length).toBe(1)
 })
 test('undeclared key', () => {
   const j = clone(); j.steps[2].args.prefund = ['$alice', '$carol']
