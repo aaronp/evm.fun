@@ -7,6 +7,7 @@ import { kv } from '../store/kv'
 import { bundled } from '../../walkthroughs'
 import { binding, lastRegistered, type Binding } from './bindings'
 import { checks, done, initialInputs, newRun, record, type Env } from './run'
+import { setAutoDelay } from './auto'
 import { activeId, loadRun, saveRun, setActiveId } from './runs'
 import type { Outputs, Run, Step, StepType, Walkthrough } from './types'
 
@@ -259,7 +260,7 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
     navigate(binding(target.steps[0]!, target).path(run))
   }, [navigate, reset])
 
-  const exit = useCallback(() => { setActiveId(undefined); setActive(undefined); reset() }, [reset])
+  const exit = useCallback(() => { setActiveId(undefined); setActive(undefined); setAutoDelay(null); reset() }, [reset])
   const setLayout = useCallback((l: Layout) => { write(LAYOUT, l); setLayoutState(l) }, [])
   const setFocus = useCallback((f: boolean) => { write(FOCUS, f ? '1' : '0'); setFocusState(f) }, [])
 

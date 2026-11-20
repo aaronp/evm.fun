@@ -66,3 +66,12 @@ Amounts are `"<decimal> $KEY"`, parsed at the asset's actual decimals. Offer ids
 1. Add `walkthroughs/<id>.json` and list it in `walkthroughs/index.ts`.
 2. `bun test packages/web/test/walkthrough-format.test.ts` validates it; `walkthroughs.test.ts` runs every bundled file headless, so give it checks worth asserting.
 3. Open Get started, run it with Next only, in both layouts.
+
+## Auto-advance
+
+Add `?auto=5s` to the address (`#/get-started?auto=5s`, or `/?auto=5s#/…`) and the ribbon presses Next for you: a ring
+drains around the Next button and presses it when empty. Accepts `5s`, `3` (seconds), `1500ms`, `0.5m`; `?auto=off`
+or Exit turns it off. It is kept for the browser tab's session, restarts on every step and after every press, waits
+while a press is in flight and while a dialog's own Next is showing, restarts whenever you type in a field (so an edit
+is never cut off), and stops on an error or at the end. The countdown beside Next pauses and resumes it. Reduced motion: no ring, the
+countdown remains.

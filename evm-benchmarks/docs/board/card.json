@@ -7,7 +7,7 @@
     "tone": "neutral"
   },
   "heading": {
-    "primary": "57/80",
+    "primary": "58/81",
     "label": "tasks done"
   },
   "legend": [
@@ -30,7 +30,7 @@
   "report": {
     "To Do": 23,
     "Doing": 0,
-    "Done": 57
+    "Done": 58
   },
   "source": {
     "label": "docs/board/board.md",

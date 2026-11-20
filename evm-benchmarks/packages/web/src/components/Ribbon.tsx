@@ -1,4 +1,8 @@
+import { useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { Button } from '../ui/button'
+import { FuseNext } from './FuseNext'
+import { adoptAuto } from '../walkthrough/auto'
 import { Notice } from '../ui/notice'
 import { checkTone, useWizard, type CheckResult } from '../walkthrough/wizard'
 import type { Check, Outputs, Step } from '../walkthrough/types'
@@ -35,6 +39,8 @@ function download(json: string, name: string) {
 /** The walkthrough in progress: stepper, the current step, Back / Next and the ribbon's settings. */
 export function Ribbon() {
   const c = useWizard()
+  const { search } = useLocation()
+  useEffect(() => adoptAuto(search, window.location.search), [search])
   if (c && !c.w && c.error) return <Notice tone="danger" onDismiss={c.exit}>{c.error}</Notice> // e.g. couldn't resume
   if (!c?.w || !c.run || !c.step) return null
   const { w, run, step, index } = c
@@ -47,9 +53,9 @@ export function Ribbon() {
   const results: CheckResult[] = c.results[step.id] ?? []
 
   return (
-    <section data-wz-ribbon="" aria-label="Walkthrough" className={`space-y-4 rounded-xl border border-line bg-panel p-4 ${vertical ? 'sm:sticky sm:top-6 sm:w-80 sm:shrink-0' : ''}`}>
+    <section data-wz-ribbon="" aria-label="Walkthrough" className={`space-y-4 rounded-xl border-2 border-accent bg-accent-soft p-4 shadow-lg ${vertical ? 'sm:sticky sm:top-6 sm:w-80 sm:shrink-0' : ''}`}>
       <header className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm"><span className="font-semibold text-text">{w.title}</span> <span className="text-muted">· Step {index + 1} of {w.steps.length}</span></p>
+        <p className="text-sm"><span className="mr-2 inline-block rounded-full bg-accent px-2 py-0.5 text-[11px] font-semibold uppercase tracking-widest text-on-accent">Walkthrough</span><span className="font-semibold text-text">{w.title}</span> <span className="text-muted">· Step {index + 1} of {w.steps.length}</span></p>
         <div className="flex flex-wrap gap-1.5">
           <Button size="sm" variant={c.focus ? 'primary' : 'ghost'} aria-pressed={c.focus} onClick={() => c.setFocus(!c.focus)}>Focus</Button>
           <Button size="sm" variant="ghost" onClick={() => c.setLayout(vertical ? 'horizontal' : 'vertical')} title={vertical ? 'Show the steps above the page' : 'Show the steps beside the page'}>
@@ -100,7 +106,7 @@ export function Ribbon() {
         <Button variant="ghost" disabled={index === 0 || c.busy} onClick={c.back}>Back</Button>
         <Button variant="ghost" onClick={() => c.restart()}>Restart</Button>
         <Button variant="ghost" onClick={c.exit}>Exit</Button>
-        <Button className="ml-auto" disabled={c.busy || (index === w.steps.length - 1 && c.isDone(step))} onClick={() => void c.next()}>Next</Button>
+        <FuseNext className="ml-auto" step={step.id} busy={c.busy} error={c.error} disabled={c.busy || (index === w.steps.length - 1 && c.isDone(step))} onNext={() => void c.next()} />
       </div>
 
       <details className="text-sm">

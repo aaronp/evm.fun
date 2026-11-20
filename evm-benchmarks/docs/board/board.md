@@ -231,6 +231,16 @@ ADR-0016, R22: measure the balance delta on deposit, or refuse such tokens, so e
 
 ## Done
 
+### Walkthroughs: auto-advance (?auto=5s)
+- id: t-81
+- tags: walkthrough, web
+- history:
+  - Done @ 2026-11-20T16:54:00Z
+
+```md
+ADR-0017. `?auto=5s` makes the ribbon's Next press itself after a delay, shown as a ring draining around the button, with a pause/resume countdown. Waits while busy or behind a dialog; typing restarts it; stops on error or at the end.
+```
+
 ### Walkthroughs: wizard ribbon and Get started
 - id: t-76
 - tags: walkthrough, web
