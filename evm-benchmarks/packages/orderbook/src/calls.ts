@@ -1,4 +1,5 @@
 import { encodeFunctionData, parseAbi, type Address, type Hex } from 'viem'
+import type { SignedOrder } from './eip712'
 import type { Side } from './types'
 
 /** The parts of OrderBook.sol's ABI the package uses (tested against the compiled artifact), plus ERC-20's. */
@@ -38,3 +39,27 @@ export const placeCall = (book: Address, a: PlaceArgs): Call => ({
 })
 export const cancelCall = (book: Address, id: bigint): Call =>
   ({ to: book, data: encodeFunctionData({ abi: orderBookAbi, functionName: 'cancel', args: [id] }) })
+
+/** The parts of Settlement.sol's ABI the package uses (tested against the compiled artifact). */
+export const settlementAbi = parseAbi([
+  'struct Order { address maker; address base; address quote; uint8 side; uint256 price; uint256 amount; uint256 nonce; uint256 expiry; }',
+  'function settle(Order[] makers, bytes[] sigs, uint256[] fills)',
+  'function cancel(Order o)',
+  'function filled(bytes32 hash) view returns (uint256)',
+  'function cancelled(bytes32 hash) view returns (bool)',
+  'event Trade(bytes32 indexed orderHash, address indexed maker, address indexed taker, uint256 price, uint256 amount, uint256 quoteAmount)',
+  'event OrderCancelled(bytes32 indexed orderHash)',
+  'error BadSignature(uint256 i)',
+  'error Expired(uint256 i)',
+  'error Overfill(uint256 i, uint256 remaining)',
+  'error OrderNotOpen(bytes32 hash)',
+  'error NotMaker()',
+  'error BadOrder()',
+  'error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed)',
+  'error ERC20InsufficientBalance(address sender, uint256 balance, uint256 needed)',
+])
+
+export const settleCall = (settlement: Address, makers: SignedOrder[], sigs: Hex[], fills: bigint[]): Call =>
+  ({ to: settlement, data: encodeFunctionData({ abi: settlementAbi, functionName: 'settle', args: [makers, sigs, fills] }) })
+export const settlementCancelCall = (settlement: Address, o: SignedOrder): Call =>
+  ({ to: settlement, data: encodeFunctionData({ abi: settlementAbi, functionName: 'cancel', args: [o] }) })

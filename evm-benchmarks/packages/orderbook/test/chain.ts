@@ -18,9 +18,10 @@ export async function withChain(fn: (c: {
   call: (from: Account, to: Address, abi: any, functionName: string, args: unknown[]) => Promise<'success' | 'reverted'>
   read: (to: Address, abi: any, functionName: string, args: unknown[]) => Promise<any>
   blockNumber: () => Promise<bigint>
-}) => Promise<void>) {
+  deploy: (c: { abi: any; bytecode: Hex }, args: unknown[]) => Promise<{ address: Address; block: bigint }>
+}) => Promise<void>, chainId = 31337) {
   const node = await createNode({
-    chainId: 31337, miningConfig: { type: 'auto' }, stateHistory: { blocks: 64 },
+    chainId, miningConfig: { type: 'auto' }, stateHistory: { blocks: 64 },
     initialBalances: Object.fromEntries([maker, taker, other].map(a => [a.address, 10n ** 21n])),
   })
   try {
@@ -56,9 +57,10 @@ export async function withChain(fn: (c: {
       for (const t of [gbp, usd]) for (const s of [ob.address, settlement]) await call(a, t, AssetToken.abi, 'approve', [s, 2n ** 255n])
     await fn({
       request: (method, params) => node.request({ method, params } as any) as Promise<unknown>,
-      chainId: 31337, book: ob.address, settlement, gbp, usd, fromBlock: ob.block, walletOf, call,
+      chainId, book: ob.address, settlement, gbp, usd, fromBlock: ob.block, walletOf, call,
       read: (to, abi, functionName, args) => pub.readContract({ address: to, abi, functionName, args } as any),
       blockNumber: () => pub.getBlockNumber({ cacheTime: 0 }),
+      deploy,
     })
   } finally {
     await node.dispose()

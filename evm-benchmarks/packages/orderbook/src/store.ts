@@ -19,7 +19,8 @@ export const priceKey = (side: 'buy' | 'sell', price: bigint): string => {
 export const bookSchema: Schema = {
   orders: {
     indexes: {
-      book: v => [v.chainId, v.venue, v.base, v.quote, v.side, v.priceKey, v.seq],
+      // a closed row (off-chain: filled, cancelled or expired on-chain) leaves the book's scan range
+      book: v => [v.chainId, v.venue, v.base, v.quote, v.closed ? 'closed' : v.side, v.priceKey, v.seq],
       owner: v => [v.chainId, v.venue, v.owner, v.seq],
     },
   },
