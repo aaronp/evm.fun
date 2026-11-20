@@ -1,6 +1,6 @@
 ---
 version: 1
-theme: paper
+theme: ledger
 ---
 # evm.fun
 
@@ -69,7 +69,6 @@ Why this order: steps 2 and 3 are the same feature, first on one chain and then 
 
 ### Approach 03: seq-stateroot
 - id: t-09
-- owner:
 - tags: approach
 - history:
   - To Do @ 2026-11-19T09:38:00Z
@@ -80,7 +79,6 @@ Per-block and deferred state root. Closes ADR "State root per block, deferred, o
 
 ### Approach 04: seq-durable
 - id: t-10
-- owner:
 - tags: approach
 - history:
   - To Do @ 2026-11-19T09:38:00Z
@@ -91,35 +89,30 @@ Append-only replayable log: file (Bun), IndexedDB (browser).
 
 ### Approach 05: seq-revm
 - id: t-11
-- owner:
 - tags: approach
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
 ### Approach 06: rpc (anvil / Besu)
 - id: t-12
-- owner:
 - tags: approach
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
 ### web: static deploy (GitHub Pages)
 - id: t-16
-- owner:
 - tags: web, infra
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
 ### Later: parallel execution approaches
 - id: t-17
-- owner:
 - tags: approach, later
 - history:
   - To Do @ 2026-11-19T09:38:00Z
 
 ### Later: native-erc20 approach (evm: false)
 - id: t-18
-- owner:
 - tags: approach, later
 - history:
   - To Do @ 2026-11-19T09:38:00Z
