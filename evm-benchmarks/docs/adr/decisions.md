@@ -736,3 +736,87 @@ Calls made after the builder check (spec `docs/superpowers/specs/2026-11-20-swap
 - Known O(n) spots, each a logged risk with a backlog card: Activity's block scan (R19, t-69), "your offers" filtering all offers (R20, t-72), replay blind spots and the 256-block window (R18, t-68). Fee-on-transfer and rebasing tokens leave escrow short (R22, t-74; ERC-20-only scope).
 - A report's status lookup is one block's logs since `cancel` also stores `closedBlock` (R21 closed, t-73).
 - Reports and Activity are derived from the chain, so they work after reload, fork and import.
+
+---
+id: ADR-0017
+title: "Walkthroughs: one file, two runners; pages exchange values with the running walkthrough"
+status: accepted
+date: 2026-11-20
+tags: architecture, web, walkthrough
+decision: declare
+---
+
+## Goal
+Give newcomers a clear, jargon-free path through the playground, and let anyone load, replay and step through the scenarios our tests run, on the real pages, editing values as they go.
+
+## Hypothesis
+- We believe: a walkthrough as a JSON file (keys with initial values, plus steps and checks) run by both `bun test` and an in-app wizard ribbon that fills and presses the real pages
+- Will result in: walkthroughs that can't drift from the tests, and a guided UI that teaches the actual app
+- Measured by: every bundled walkthrough passes headless and completes in the browser by pressing Next only; an edited run records the values actually used
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| robust | Robust to UI change | 5 | Higher = page markup changes don't break walkthroughs. |
+| shared | Shared with tests | 5 | Higher = the headless and UI runs share code and outputs. |
+| reach | Reaches all page state | 4 | Higher = dialogs and component state can be filled and read back. |
+| effort | Low effort | 3 | Higher = less to build and less per page. |
+
+## Solution: declare — 1: pages declare fields, actions and outputs
+`useWizardField` (in, and read back), `useWizardAction` (what Next presses), `useWizardReport` (outputs after an action, whoever pressed), `data-wizard` markers for pulse and focus mode.
+
+| criterion | score |
+| --- | --- |
+| robust | 5 |
+| shared | 5 |
+| reach | 5 |
+| effort | 3 |
+
+Pros:
+- Typed and explicit; works for dialogs and internal state
+- Pages report the same `Outputs` the headless runner returns, so both runs record identically
+- The same markers drive pulse and focus mode
+
+Cons:
+- A few lines per page per step type
+
+## Solution: url — 2: URL pre-fill
+| criterion | score |
+| --- | --- |
+| robust | 4 |
+| shared | 2 |
+| reach | 2 |
+| effort | 4 |
+
+Pros:
+- Least machinery; deep links to pre-filled screens
+
+Cons:
+- Dialog open state must go in the URL; values are strings; no way back for outputs
+
+## Solution: robot — 3: drive the DOM with selectors
+| criterion | score |
+| --- | --- |
+| robust | 1 |
+| shared | 1 |
+| reach | 3 |
+| effort | 4 |
+
+Pros:
+- No page changes
+
+Cons:
+- Breaks with markup changes; React controlled-input hacks; shares nothing with the headless runner
+
+## Decision
+1. Also decided with Aaron: one file, two runners (the test is the walkthrough); the ribbon drives the real pages with a focus mode for newcomers, not separate simplified pages; a walkthrough's named things are **keys** with initial values the user may change, and their **actual values** (addresses, ids, tx hashes) are captured when each step completes.
+
+Claude's calls (spec `docs/superpowers/specs/2026-11-20-walkthroughs-design.md`): the name "walkthrough" ("scenario" is taken by benchmarks); the runner lives in `packages/web/src/walkthrough/` because steps act on the web app's stores; one fresh chain per run; `approve` is its own step; `from` switches the acting account; checks broken by a user edit show amber; Back doesn't undo; only the step types the two bundled walkthroughs use.
+
+## Consequences
+- Each page that takes part grows a few wizard lines, and handlers that keep outcomes internal (e.g. the take receipt) report them.
+- Deferred, each a backlog card: `transfer`, `cancel`, snapshot / fork / restore steps (t-77); reusing an existing chain and funding traders on it (t-78).

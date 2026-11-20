@@ -137,6 +137,26 @@ ADR-0016 reads every offer ever made (offers(1..nextId-1)). When a chain's histo
 ADR-0016: non-status failures are replayed with eth_call at the parent block, so an approve or transfer earlier in the same block is missed. Replay with the block's preceding txs applied (or trace the tx) to report the true reason.
 ```
 
+### Walkthroughs: more step types (transfer, cancel, snapshot, fork)
+- id: t-77
+- tags: walkthrough, backlog
+- history:
+  - To Do @ 2026-11-20T15:00:00Z
+
+```md
+ADR-0017: the first slice has only the steps the two bundled walkthroughs use. Add transfer, cancel, and snapshot / fork / restore so long scenarios can branch from a saved state.
+```
+
+### Walkthroughs: run on an existing chain
+- id: t-78
+- tags: walkthrough, backlog
+- history:
+  - To Do @ 2026-11-20T15:00:00Z
+
+```md
+ADR-0017: each run creates a fresh chain because chains only prefund at creation. Allow choosing an existing chain, funding traders' gas from a funded account.
+```
+
 ### Swap: Activity without a block scan
 - id: t-69
 - tags: swap, backlog
@@ -188,6 +208,16 @@ ADR-0016, R22: measure the balance delta on deposit, or refuse such tokens, so e
 ```
 
 ## Doing
+
+### Walkthroughs: wizard ribbon and Get started
+- id: t-76
+- tags: walkthrough, web
+- history:
+  - Doing @ 2026-11-20T15:00:00Z
+
+```md
+ADR-0017. A walkthrough is a JSON file (keys with initial values, steps, checks) run headless by bun test and in the app by a wizard ribbon that fills and presses the real pages, with focus mode. Bundled: gbp-usd and take-without-approval. Spec: docs/superpowers/specs/2026-11-20-walkthroughs-design.md.
+```
 
 ## Done
 
