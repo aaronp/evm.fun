@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { legacyRoute } from '../src/routes'
+import { legacyRoute, pageOf } from '../src/routes'
 
 describe('legacyRoute', () => {
   test('index', () => { expect(legacyRoute('/explorer')).toBe('/chains'); expect(legacyRoute('/explorer/')).toBe('/chains') })
@@ -14,6 +14,15 @@ describe('legacyRoute', () => {
   })
 })
 
+describe('pageOf', () => {
+  test('keeps the top-level page only', () => {
+    expect(pageOf('/assets')).toBe('/assets')
+    expect(pageOf('/chains/tx/0xab')).toBe('/chains')
+    expect(pageOf('/swap/report')).toBe('/swap')
+    expect(pageOf('/')).toBe('/')
+  })
+})
+
 describe('/swap', () => {
   test('Swap sits under Markets after Assets and its route renders the page', async () => {
     const { createElement: h } = await import('react')
@@ -24,8 +33,22 @@ describe('/swap', () => {
     const { AppBarProvider } = await import('../src/state/appBar')
     expect(groups.find(g => g.label === 'Markets')!.items.map(([n]) => n)).toEqual(['Assets', 'Swap'])
     const html = renderToString(h(MemoryRouter, { initialEntries: ['/swap'] }, h(AppState, null, h(AppBarProvider, null, real.Swap!))))
-    expect(html).toContain('aria-label="Chain"')
     expect(html).toContain('Select a chain first.')
+  })
+})
+
+describe('chain switcher', () => {
+  test('the sidebar context box and the phone strip both carry the chain and account pickers', async () => {
+    const { createElement: h } = await import('react')
+    const { renderToString } = await import('react-dom/server')
+    const { MemoryRouter } = await import('react-router-dom')
+    const { AppState } = await import('../src/state')
+    const { ContextBox, ContextStrip } = await import('../src/components/ContextBox')
+    for (const C of [ContextBox, ContextStrip]) {
+      const html = renderToString(h(MemoryRouter, null, h(AppState, null, h(C))))
+      expect(html).toContain('aria-label="Chain"')
+      expect(html).toContain('Select a chain')
+    }
   })
 })
 

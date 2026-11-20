@@ -29,7 +29,7 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 type Wallet = { base?: bigint; quote?: bigint; allowBase?: bigint; allowQuote?: bigint }
 
 export function Swap() {
-  const { chains, chain, selectChain, account, selectAccount, balanceTick, bumpBalance } = useApp()
+  const { chain, account, selectAccount, balanceTick, bumpBalance, setBusy: lockChain } = useApp()
   const [params, setParams] = useSearchParams()
   const people = accountStore.list()
   const acting = people.find(p => p.address.toLowerCase() === account?.toLowerCase())
@@ -112,13 +112,9 @@ export function Swap() {
   })
 
   const working = busy || deploying // no chain or pair switch while a tx is in flight
-  const picker = (
-    <Select aria-label="Chain" className="w-full" disabled={working} value={chainId ?? ''} onChange={e => { setParams({}, { replace: true }); void selectChain(e.target.value || undefined) }}>
-      <option value="">Select a chain</option>
-      {chains.map(c => <option key={c.id} value={c.id}>{c.name}{c.ephemeral ? ' (benchmark)' : ''}</option>)}
-    </Select>
-  )
-  if (!chain) return <div className="flex max-w-[260px] flex-col gap-2">{picker}<p className="text-sm text-muted">Select a chain first.</p></div>
+  useEffect(() => { lockChain(working); return () => lockChain(false) }, [working, lockChain])
+
+  if (!chain) return <p className="text-sm text-muted">Select a chain first.</p>
 
   async function deploy() {
     if (!chain || !acting || deploying) return
@@ -195,7 +191,6 @@ export function Swap() {
   return (
     <div className="flex w-full max-w-[1300px] flex-col gap-[18px]">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="w-[260px] max-w-full">{picker}</div>
         {pair.tokens.length >= 2 && (
           <div className="flex items-center gap-2">
             <Select aria-label="Base" disabled={working} value={base?.address ?? ''} onChange={e => setPair(e.target.value, quote?.address ?? '')}>

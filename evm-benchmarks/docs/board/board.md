@@ -191,6 +191,16 @@ ADR-0016, R22: measure the balance delta on deposit, or refuse such tokens, so e
 
 ## Done
 
+### web: one chain switcher in the sidebar
+- id: t-75
+- tags: web
+- history:
+  - Done @ 2026-11-20T14:00:00Z
+
+```md
+The Active context card (and the phone strip) picks chain and account on every page, Studio included. Assets and Swap lose their own pickers; switching drops chain-specific URL detail and is disabled while Swap has a tx in flight.
+```
+
 ### Swap: store the cancel block
 - id: t-73
 - tags: swap, backlog
