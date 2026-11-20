@@ -157,6 +157,26 @@ ADR-0017: the first slice has only the steps the two bundled walkthroughs use. A
 ADR-0017: each run creates a fresh chain because chains only prefund at creation. Allow choosing an existing chain, funding traders' gas from a funded account.
 ```
 
+### Walkthroughs: ribbon robustness (switch errors, concurrent rendering)
+- id: t-79
+- tags: walkthrough, web, backlog
+- history:
+  - To Do @ 2026-11-20T16:32:38Z
+
+```md
+ADR-0017, R23, R24: surface selectChain failures in the ribbon instead of waiting 5 s for the generic message, and move the render-time writes in useWizardField / useWizardAction into effects (or useSyncExternalStore) so they hold under concurrent rendering.
+```
+
+### Walkthroughs: DOM test harness for the ribbon
+- id: t-80
+- tags: walkthrough, web, backlog
+- history:
+  - To Do @ 2026-11-20T16:32:38Z
+
+```md
+ADR-0017, R25: add a DOM harness so ribbon effects, Next's chain/account switch wait and field refill are tested, not only checked in the browser.
+```
+
 ### Swap: Activity without a block scan
 - id: t-69
 - tags: swap, backlog
@@ -209,17 +229,18 @@ ADR-0016, R22: measure the balance delta on deposit, or refuse such tokens, so e
 
 ## Doing
 
+## Done
+
 ### Walkthroughs: wizard ribbon and Get started
 - id: t-76
 - tags: walkthrough, web
 - history:
   - Doing @ 2026-11-20T15:00:00Z
+  - Done @ 2026-11-20T16:32:38Z
 
 ```md
 ADR-0017. A walkthrough is a JSON file (keys with initial values, steps, checks) run headless by bun test and in the app by a wizard ribbon that fills and presses the real pages, with focus mode. Bundled: gbp-usd and take-without-approval. Spec: docs/superpowers/specs/2026-11-20-walkthroughs-design.md.
 ```
-
-## Done
 
 ### web: one chain switcher in the sidebar
 - id: t-75

@@ -819,4 +819,8 @@ Claude's calls (spec `docs/superpowers/specs/2026-11-20-walkthroughs-design.md`)
 
 ## Consequences
 - Each page that takes part grows a few wizard lines, and handlers that keep outcomes internal (e.g. the take receipt) report them.
+- Pages report errors to the ribbon by throwing from their registered action; the ribbon shows the message.
+- Next waits for a chain or account switch to land before pressing the page's action (R23).
+- Focus mode dims the sidebar as well as the page chrome.
+- Render-time writes in `useWizardField` / `useWizardAction` and the missing DOM harness are logged risks (R24, R25, backlog t-79, t-80).
 - Deferred, each a backlog card: `transfer`, `cancel`, snapshot / fork / restore steps (t-77); reusing an existing chain and funding traders on it (t-78).

@@ -428,6 +428,57 @@ Swap escrows `giveAmt` with `transferFrom` and pays out the same nominal amount.
 | Scope: playground tokens are the plain OpenZeppelin ERC-20s the app launches; offers hold ERC-20s only (ADR-0016) | Preventive | Partial |
 | Measure the balance delta on deposit, or refuse such tokens (backlog t-74) | Corrective | Partial |
 
+## R23 · Ribbon waits on a page that never offers its action
+- impact: 2
+- likelihood: 3
+- target: 2x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0017. Next waits up to 5 s for the page to register its action or for the chain/account switch to land, then shows a generic error. A failing `selectChain` is not surfaced, so the user waits the full 5 s and sees "Couldn't switch" instead of the cause.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| The 5 s timeout ends the wait with a visible error; the user can retry or Exit | Detective | Partial |
+| Surface selectChain errors in the ribbon (backlog t-79) | Corrective | Partial |
+
+## R24 · Render-time writes in the wizard hooks may misbehave under concurrent rendering
+- impact: 2
+- likelihood: 2
+- target: 2x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0017. `useWizardField` and `useWizardAction` register with the ribbon while rendering. React may render without committing, so a registration can come from a render that never lands. The app does not use concurrent features today, so it works.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| No concurrent features (transitions, Suspense) around wizard pages today | Preventive | Partial |
+| Move registration into effects or useSyncExternalStore (backlog t-79) | Corrective | Partial |
+
+## R25 · No DOM test harness for the ribbon
+- impact: 3
+- likelihood: 3
+- target: 3x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0017. Ribbon effects, Next's switch wait and field refill have no automated test: the runner and the render output are tested, but behaviour that needs a live DOM is checked only in the browser (checklist in the task 6 report).
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Runner, validation and render tests cover the logic; a browser checklist covers the rest | Detective | Partial |
+| Add a DOM harness (backlog t-80) | Corrective | Partial |
+
 ## Example design risk
 - impact: 5
 - likelihood: 3

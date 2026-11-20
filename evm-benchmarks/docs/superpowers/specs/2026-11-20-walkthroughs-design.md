@@ -115,7 +115,7 @@ asset registries, all built on the injectable `Kv`), so headless and UI runs tou
   `deploySwap {address}`, `approve {tx}`, `makeOffer {offerId, tx}`, `take {tx, reverted, error?}`.
   `record(run, step, inputs, outputs)` writes them into the step's key and the step's entry; both runners call it.
 - `done(step, env, run) → boolean` reads state through the actual values: the key's account / chain / asset /
-  Swap / offer exists, the step's tx landed (or reverted, for `expectRevert`), and its checks hold. A step that is
+  Swap / offer exists, the step's tx landed (or reverted, for `expectRevert`). Its `expect` checks are not part of `done`; `checks()` reports them separately, because resume would otherwise redo steps whose checks a later step invalidates (the take empties the escrow an earlier step checked). A step that is
   already done is skipped by both runners, so resuming never repeats a tx.
 - `env` is `{ accounts, registry, contracts, assets, kv }`; the app passes its singletons, tests pass ones over a
   memory `Kv` (accounts via `createAccounts()`, which falls back to memory without `localStorage`). Helpers that use
