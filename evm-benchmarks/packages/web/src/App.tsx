@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import type { ReactElement, ReactNode } from 'react'
 import { HashRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { StorageNotice } from './ui/notice'
 import { AppState } from './state'
@@ -18,6 +18,8 @@ import { ThemeSwitcher } from './components/ThemeSwitcher'
 import { ENGINE } from './chain/revm'
 import { AccountsIcon, BenchmarkIcon, BrandIcon, ChainsIcon, StudioIcon, TransactIcon, AssetsIcon, SwapIcon } from './ui/icons'
 import { AddressList } from './components/AddressList'
+import { Ribbon } from './components/Ribbon'
+import { WizardProvider, useWizard } from './walkthrough/wizard'
 
 export const groups = [
   { label: 'Setup', items: [['Accounts', AccountsIcon], ['Chains', ChainsIcon]] },
@@ -30,11 +32,24 @@ export const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chai
 const LegacyRedirect = () => <Navigate to={legacyRoute(useLocation().pathname) ?? '/chains'} replace />
 const Stub = ({ name }: { name: string }) => <h1 className="text-xl font-semibold">{name}</h1>
 
+/** The page area; while a walkthrough runs, its ribbon sits above the page, or beside it (from `sm`) in vertical layout. */
+function Main({ children }: { children: ReactNode }) {
+  const wz = useWizard()
+  const vertical = !!wz?.w && wz.layout === 'vertical'
+  return (
+    <main data-wz-focus={wz?.w && wz.focus ? '' : undefined} className={`min-w-0 flex-1 space-y-4 p-3 sm:p-6 ${vertical ? 'sm:flex sm:items-start sm:gap-6 sm:space-y-0' : ''}`}>
+      <Ribbon />
+      <div className="min-w-0 flex-1 space-y-4">{children}</div>
+    </main>
+  )
+}
+
 export function App() {
   return (
     <AppState>
     <AppBarProvider>
     <HashRouter>
+    <WizardProvider>
       <div className="flex min-h-screen flex-col bg-bg text-text sm:flex-row">
         <aside className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-panel p-3 sm:sticky sm:top-0 sm:h-screen sm:w-60 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-5 sm:overflow-y-auto sm:border-r sm:border-b-0 sm:p-4">
           <div className="flex items-center gap-2.5 sm:px-2">
@@ -67,7 +82,7 @@ export function App() {
           <div className="hidden sm:mt-auto sm:block"><ContextBox /></div>
           <div className="w-full sm:hidden"><ContextStrip /></div>
         </aside>
-        <main className="min-w-0 flex-1 space-y-4 p-3 sm:p-6">
+        <Main>
           <AppBar />
           <StorageNotice />
           <AddressList />
@@ -79,8 +94,9 @@ export function App() {
             <Route path="/explorer/*" element={<LegacyRedirect />} />
             <Route path="*" element={<Navigate to="/accounts" replace />} />
           </Routes>
-        </main>
+        </Main>
       </div>
+    </WizardProvider>
     </HashRouter>
     </AppBarProvider>
     </AppState>

@@ -58,3 +58,22 @@ body {
 
 /* long hashes/addresses wrap instead of widening the page at phone width */
 .font-mono { overflow-wrap: anywhere; }
+
+/* Walkthrough focus: dim everything in the page area that is not, and does not hold, a marked area of the current
+   step. Only the outermost unmarked element dims, so opacity never compounds; the ribbon stays bright. */
+:root { --wz-dim: 0.4; }
+main[data-wz-focus] :has([data-wz-on]) > :not([data-wz-on]):not(:has([data-wz-on])):not([data-wz-ribbon]),
+main[data-wz-focus] > :not(:has([data-wz-on])):not([data-wz-on]):not([data-wz-ribbon]) {
+  opacity: var(--wz-dim);
+  transition: opacity 150ms;
+}
+
+/* Walkthrough pulse: a ring on the control Next would press now. */
+@keyframes wz-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--c-accent); }
+  50% { box-shadow: 0 0 0 5px var(--c-accent-soft); }
+}
+[data-wz-pulse] { animation: wz-pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  [data-wz-pulse] { animation: none; box-shadow: 0 0 0 2px var(--c-accent); }
+}

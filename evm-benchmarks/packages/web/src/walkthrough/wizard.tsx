@@ -1,0 +1,261 @@
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { useApp } from '../state'
+import { accounts } from '../store/accounts'
+import { registry } from '../chain/revm'
+import { kv } from '../store/kv'
+import { bundled } from '../../walkthroughs'
+import { binding, lastRegistered, type Binding } from './bindings'
+import { checks, done, initialInputs, newRun, record, type Env } from './run'
+import { activeId, loadRun, saveRun, setActiveId } from './runs'
+import type { Outputs, Run, Step, StepType, Walkthrough } from './types'
+
+type Active = { w: Walkthrough; run: Run; index: number }
+export type CheckResult = Awaited<ReturnType<typeof checks>>[number]
+type Press = () => void | Promise<void>
+export type Layout = 'horizontal' | 'vertical'
+
+export type Wizard = {
+  w?: Walkthrough; run?: Run; index: number; step?: Step; b?: Binding
+  isDone(step: Step): boolean
+  results: Record<string, CheckResult[]>
+  error?: string; busy: boolean
+  /** account steps recorded because the label already existed */
+  reused: Set<string>
+  start(w: Walkthrough): Promise<void>
+  restart(w?: Walkthrough): void
+  exit(): void
+  next(): Promise<void>
+  back(): void
+  layout: Layout; setLayout(l: Layout): void
+  focus: boolean; setFocus(f: boolean): void
+  // for the hooks
+  actions: Map<string, Press>
+  initial(id: string): string | undefined
+  values: Record<string, string>
+  filled: Record<string, string>
+  bump(): void
+  report(id: string, outputs: Outputs[StepType]): void
+}
+
+const Ctx = createContext<Wizard | null>(null)
+export const useWizard = () => useContext(Ctx)
+
+const LAYOUT = 'evmb.walkthrough.layout', FOCUS = 'evmb.walkthrough.focus'
+const read = (k: string) => { try { return localStorage.getItem(k) } catch { return null } }
+const write = (k: string, v: string) => { try { localStorage.setItem(k, v) } catch { /* not remembered */ } }
+const message = (e: unknown) => e instanceof Error ? e.message : String(e)
+const firstOpen = (w: Walkthrough, run: Run) => (i => i === -1 ? w.steps.length - 1 : i)(w.steps.findIndex(s => !run.steps[s.id]))
+const addressOf = (run: Run, ref: unknown) => (run.values[String(ref).replace(/^\$/, '')] as { address?: string } | undefined)?.address
+const chainOf = (w: Walkthrough, run: Run) => {
+  const key = Object.keys(w.keys).find(k => 'chain' in w.keys[k]!)
+  return key ? run.values[key] as Outputs['chain'] | undefined : undefined
+}
+
+/** pass ✓; fail red; fail after the user changed a value amber ("Differs from the walkthrough"). */
+export const checkTone = (pass: boolean, edited: boolean) => pass ? 'pass' : edited ? 'differs' : 'fail'
+
+export function WizardProvider({ children, seed, env = { accounts, registry } }: { children?: ReactNode; seed?: { w: Walkthrough; run: Run; index?: number }; env?: Env }) {
+  const app = useApp() as ReturnType<typeof useApp> | undefined
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [active, setActive] = useState<Active | undefined>(seed && { ...seed, index: seed.index ?? firstOpen(seed.w, seed.run) })
+  const [status, setStatus] = useState<{ run?: Run; done: Record<string, boolean>; results: Record<string, CheckResult[]> }>({ done: {}, results: {} })
+  const [error, setError] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const [reused, setReused] = useState(() => new Set<string>())
+  const [layout, setLayoutState] = useState<Layout>(() => read(LAYOUT) === 'vertical' ? 'vertical' : 'horizontal')
+  const [focus, setFocusState] = useState(() => read(FOCUS) !== '0')
+  const [version, setVersion] = useState(0)
+  const actions = useRef(new Map<string, Press>()).current
+  const fields = useRef({ values: {} as Record<string, string>, filled: {} as Record<string, string> }).current
+  const bump = useCallback(() => setVersion(v => v + 1), [])
+
+  const { w, run, index } = active ?? {}
+  const step = w?.steps[index!]
+  const b = step && binding(step, w!)
+  const taken = (app?.chains ?? []).map(c => c.name).join('\0')
+  const initials = useMemo(() => {
+    if (!w || !step || !run) return {}
+    try { return initialInputs(w, step, run, taken ? taken.split('\0') : []) } catch { return {} }
+  }, [w, step, run, taken])
+
+  // persist on every change; recompute which steps are done and their checks
+  useEffect(() => {
+    if (!w || !run) return
+    let live = true
+    saveRun(run).catch(() => {})
+    ;(async () => {
+      const d: Record<string, boolean> = {}, results: Record<string, CheckResult[]> = {}
+      for (const s of w.steps) {
+        d[s.id] = await done(w, s, env, run).catch(() => false)
+        if (run.steps[s.id]) results[s.id] = await checks(w, s, env, run).catch(() => [])
+      }
+      if (live) setStatus({ run, done: d, results })
+    })()
+    return () => { live = false }
+  }, [w, run, env])
+
+  const start = useCallback(async (w: Walkthrough) => {
+    const run = (await loadRun(w.id)) ?? newRun(w)
+    setActiveId(w.id)
+    setActive({ w, run, index: firstOpen(w, run) })
+  }, [])
+
+  // resume the walkthrough in progress after a reload
+  useEffect(() => {
+    if (seed) return
+    const id = activeId()
+    if (!id) return
+    ;(async () => {
+      const w = (await kv.get<Walkthrough>('walkthroughEdits', id)) ?? bundled.find(x => x.id === id)
+      if (w) await start(w)
+    })().catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const latest = useRef({ active, status, initials, busy, location, app })
+  latest.current = { active, status, initials, busy, location, app }
+
+  const isDone = useCallback((s: Step) => {
+    const { active, status } = latest.current
+    if (!active) return false
+    return status.run === active.run ? !!status.done[s.id] : !!active.run.steps[s.id]
+  }, [])
+
+  const go = useCallback((i: number) => {
+    fields.values = {}
+    fields.filled = {}
+    setError(undefined)
+    setActive(a => a && { ...a, index: i })
+  }, [fields])
+  const setRun = (run: Run) => setActive(a => a && { ...a, run })
+
+  const report = useCallback((id: string, outputs: Outputs[StepType]) => {
+    const { active, initials } = latest.current
+    if (!active) return
+    const step = active.w.steps[active.index]!, b = binding(step, active.w)
+    if (b.report !== id) return
+    const inputs = Object.fromEntries(b.fields.filter(f => f in fields.values).map(f => [f, fields.values[f]!]))
+    setActive(a => a && { ...a, run: record(a.w, a.run, step, outputs, Object.keys(inputs).length ? inputs : undefined, { ...initials, ...fields.filled }) })
+  }, [fields])
+
+  const next = useCallback(async () => {
+    const { active, busy, location, app } = latest.current
+    if (!active || busy) return
+    const { w, run, index } = active, step = w.steps[index]!
+    setError(undefined)
+    if (isDone(step)) { if (index < w.steps.length - 1) go(index + 1); return }
+    setBusy(true)
+    try {
+      const b = binding(step, w), path = b.path(run)
+      if (step.do === 'account') {
+        const label = initialInputs(w, step, run)['account.label']
+        const existing = env.accounts.list().find(a => a.label === label)
+        if (existing) {
+          setReused(r => new Set(r).add(step.id))
+          setRun(record(w, run, step, { label: existing.label, address: existing.address }))
+          return
+        }
+      }
+      if (location.pathname + location.search !== path) navigate(path)
+      if (step.do === 'view') { setRun(record(w, run, step, {})); return }
+      const chain = chainOf(w, run)
+      if (chain && app?.chain?.info.id !== chain.id) await app?.selectChain(chain.id)
+      const from = step.args?.from ? addressOf(run, step.args.from) : undefined
+      if (from) app?.selectAccount(from)
+      // ponytail: polls for the page to mount and register; 5 s ceiling, an event per registration if it's ever too slow
+      let id: string | undefined
+      for (let i = 0; i < 100 && !(id = lastRegistered(b.actions, actions)); i++) await new Promise(r => setTimeout(r, 50))
+      if (!id) throw new Error("This page didn't offer the step's action. Open it and try again.")
+      await actions.get(id)!()
+    } catch (e) {
+      setError(message(e))
+    } finally {
+      setBusy(false)
+    }
+  }, [actions, env, go, isDone, navigate])
+
+  const back = useCallback(() => {
+    const { active } = latest.current
+    if (!active || active.index === 0) return
+    const prev = active.w.steps[active.index - 1]!
+    go(active.index - 1)
+    navigate(binding(prev, active.w).path(active.run))
+  }, [go, navigate])
+
+  const restart = useCallback((nw?: Walkthrough) => {
+    const target = nw ?? latest.current.active?.w
+    if (!target) return
+    setActiveId(target.id)
+    setReused(new Set())
+    fields.values = {}
+    fields.filled = {}
+    setError(undefined)
+    setActive({ w: target, run: newRun(target), index: 0 })
+  }, [fields])
+
+  const exit = useCallback(() => { setActiveId(undefined); setActive(undefined); setError(undefined) }, [])
+  const setLayout = useCallback((l: Layout) => { write(LAYOUT, l); setLayoutState(l) }, [])
+  const setFocus = useCallback((f: boolean) => { write(FOCUS, f ? '1' : '0'); setFocusState(f) }, [])
+
+  const value = useMemo<Wizard>(() => ({
+    w, run, index: index ?? 0, step, b, isDone, results: status.run === run ? status.results : {}, error, busy, reused,
+    start, restart, exit, next, back, layout, setLayout, focus, setFocus,
+    actions, values: fields.values, filled: fields.filled, bump, report,
+    initial: (id: string) => (step && run?.steps[step.id]?.inputs[id]) ?? initials[id],
+  }), [w, run, index, status, error, busy, reused, layout, focus, version, initials]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>
+}
+
+/**
+ * Binds a page field to the current step: on arrival at a step that lists `id`, sets the actual (else initial)
+ * value once; afterwards the page's value is read back as the step's input. Call it in the component that owns
+ * the state: the value is set during render so it shows on the first paint.
+ */
+export function useWizardField(id: string, value: string, set: (v: string) => void) {
+  const c = useContext(Ctx)
+  const key = c?.step && c.run && c.b!.fields.includes(id) ? `${c.run.started}\0${c.step.id}` : undefined
+  const [filled, setFilled] = useState<string>()
+  if (!c || !key) return
+  if (filled !== key) {
+    setFilled(key)
+    const v = c.initial(id)
+    if (v !== undefined) { c.filled[id] = v; set(v) }
+  }
+  c.values[id] = value
+}
+
+/** Registers what Next presses for `id`; pass `undefined` while the control isn't offered (e.g. its dialog is closed). */
+export function useWizardAction(id: string, fn: Press | undefined) {
+  const c = useContext(Ctx)
+  const ref = useRef(fn)
+  ref.current = fn
+  const press = useCallback(() => ref.current?.(), [])
+  const on = !!c?.w && !!fn
+  if (on) c!.actions.set(id, press) // during render too, so the first paint (and SSR) knows what pulses
+  const actions = c?.actions, bump = c?.bump
+  useLayoutEffect(() => {
+    if (!on || !actions) return
+    actions.set(id, press)
+    bump!()
+    return () => { if (actions.get(id) === press) actions.delete(id); bump!() }
+  }, [on, id, actions, bump, press])
+}
+
+const noop = () => {}
+/** `report(id, outputs)` when the page's action completes; does nothing unless `id` is the current step's. */
+export const useWizardReport = (): ((id: string, outputs: Outputs[StepType]) => void) => useContext(Ctx)?.report ?? noop
+
+export type Mark = { 'data-wizard': string; 'data-wz-on'?: ''; 'data-wz-pulse'?: '' }
+/** Props for a marked control or area: `data-wz-on` in the current step's areas, `data-wz-pulse` on what Next presses now. */
+export function useWizardMark(): (id: string) => Mark {
+  const c = useContext(Ctx)
+  return (id: string) => {
+    const m: Mark = { 'data-wizard': id }
+    if (!c?.step || !c.b) return m
+    if (c.b.areas.includes(id)) m['data-wz-on'] = ''
+    if (!c.isDone(c.step) && lastRegistered(c.b.actions, c.actions) === id) m['data-wz-pulse'] = ''
+    return m
+  }
+}
