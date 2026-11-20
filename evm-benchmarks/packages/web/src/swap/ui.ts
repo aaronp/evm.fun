@@ -94,9 +94,9 @@ export function activityText(i: ActivityItem, l: { name(a: string): string; offe
 }
 
 /** Base/quote from the chain's ERC-20 assets: URL addresses when they match, else the first two. */
-export function pickPair(assets: Asset[], base?: string | null, quote?: string | null): { tokens: Asset[]; base?: Asset; quote?: Asset; error?: string } {
+export function pickPair(assets: Asset[], base?: string | null, quote?: string | null, page = 'Swap'): { tokens: Asset[]; base?: Asset; quote?: Asset; error?: string } {
   const tokens = assets.filter(a => a.kind === 'erc20')
-  if (tokens.length < 2) return { tokens, error: 'Swap needs two ERC-20 assets on this chain.' }
+  if (tokens.length < 2) return { tokens, error: `${page} needs two ERC-20 assets on this chain.` }
   if (same(base, quote)) return { tokens, error: 'Pick two different tokens.' }
   const b = tokens.find(t => same(t.address, base)) ?? tokens.find(t => !same(t.address, quote))!
   const q = tokens.find(t => same(t.address, quote) && t !== b) ?? tokens.find(t => t !== b)!

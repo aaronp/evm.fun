@@ -14,13 +14,18 @@ async function position(chain: ChainHandle, r: DeployedContract): Promise<[bigin
   return rc ? [BigInt(rc.blockNumber), BigInt(rc.transactionIndex)] : [-1n, -1n]
 }
 
-/** This chain's Swap: the newest-deployed `Swap` record (records are listed by address, so order them by deploy receipt). */
+/** Records oldest-deployed first (records are listed by address, so order them by deploy receipt), each with its deploy block (-1 when unknown). */
+export async function inDeployOrder(chain: ChainHandle, records: DeployedContract[]): Promise<(DeployedContract & { block: bigint })[]> {
+  const pos = await Promise.all(records.map(r => position(chain, r)))
+  return records.map((r, i) => ({ r, p: pos[i]! }))
+    .sort((a, b) => (a.p[0] === b.p[0] ? (a.p[1] < b.p[1] ? -1 : a.p[1] > b.p[1] ? 1 : 0) : a.p[0] < b.p[0] ? -1 : 1))
+    .map(x => ({ ...x.r, block: x.p[0] }))
+}
+
+/** This chain's Swap: the newest-deployed `Swap` record. */
 export async function swapFor(chain: ChainHandle): Promise<Address | undefined> {
   const named = (await contractsRegistry.list(chain.info.id)).filter(r => r.name === 'Swap')
-  if (named.length < 2) return findSwap(named)
-  const pos = await Promise.all(named.map(r => position(chain, r)))
-  const order = named.map((r, i) => ({ r, p: pos[i]! })).sort((a, b) => (a.p[0] === b.p[0] ? (a.p[1] < b.p[1] ? -1 : a.p[1] > b.p[1] ? 1 : 0) : a.p[0] < b.p[0] ? -1 : 1))
-  return findSwap(order.map(x => x.r))
+  return findSwap(named.length < 2 ? named : await inDeployOrder(chain, named))
 }
 
 /** Deploy Swap.sol from `from` and save its contract record. Refused on benchmark chains. */
