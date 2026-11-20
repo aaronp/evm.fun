@@ -102,6 +102,9 @@ describe('WizardInline', () => {
     expect(html).toContain(step('chain').text)
     expect(html).toContain('>Next</button>')
   })
+  test('is exempt from focus dimming (its dialog sits under main, beside marked inputs)', () => {
+    expect(render(h(WizardInline, { step: 'chain' }), { run: fullRun(), index: 2 })).toStartWith('<div data-wz-ribbon=""')
+  })
   test('renders nothing otherwise', () => {
     expect(render(h(WizardInline, { step: 'chain' }), { run: fullRun(), index: 3 })).toBe('')
     expect(render(h(WizardInline, { step: 'chain' }))).toBe('')

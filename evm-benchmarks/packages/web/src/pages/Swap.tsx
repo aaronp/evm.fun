@@ -48,14 +48,15 @@ export function Swap() {
   const setFlash = (f?: { text: string; tone: 'success' | 'danger'; tx?: Hex }) => setFlashOn(f && { ...f, chainId: chain?.info.id })
   const reconciled = useRef(new Set<string>())
   const chainId = chain?.info.id
-  const shown = useRef(chain) // the chain the selection belongs to: a walkthrough's selection set on mount survives
+  const shown = useRef(chain) // the chain the selection belongs to; set by the first real chain (it is restored after mount)
   useWizardField('take.offer', String(selected ?? ''), v => { if (/^\d+$/.test(v)) setSelected(BigInt(v)) })
   const report = useWizardReport(), mark = useWizardMark()
   const failed = useRef<string>(undefined) // send's last failure, for a walkthrough's Next
 
   useEffect(() => {
     setSwap(null); setAssets([]); setErr(undefined); setFlash(undefined)
-    if (shown.current !== chain) { shown.current = chain; setSelected(undefined) }
+    // clear only between two real chains: a walkthrough's selection made before the chain was restored survives
+    if (chain && shown.current !== chain) { if (shown.current) setSelected(undefined); shown.current = chain }
     if (!chain) return
     let live = true
     const id = chain.info.id

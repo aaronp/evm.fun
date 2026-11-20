@@ -8,7 +8,7 @@ import { useApp } from '../state'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Notice } from '../ui/notice'
-import { orThrow, useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
+import { orThrow, useWizard, useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
 import { WizardInline } from './WizardInline'
 
 /** Native modal; the parent opens it with ref.current.showModal(). Esc/Cancel close it, and the browser restores focus to the opener. */
@@ -29,6 +29,10 @@ export function NewChainDialog({ dialogRef }: { dialogRef: RefObject<HTMLDialogE
     return () => o.disconnect()
   }, [dialogRef])
   useWizardField('chain.name', name, setName)
+  const wz = useWizard()
+  useEffect(() => { // Cancel emptied the name: reopened during a chain step, it shows the walkthrough's again
+    if (open && name === '' && wz?.step?.do === 'chain') { const v = wz.initial('chain.name'); if (v) setName(v) }
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   const report = useWizardReport(), mark = useWizardMark()
   useWizardAction('chain.create', open && !busy ? () => orThrow(create()) : undefined)
   const reset = () => { setName(''); setOff(new Set()); setErr(undefined) }

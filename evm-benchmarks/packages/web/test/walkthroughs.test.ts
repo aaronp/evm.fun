@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'bun:test'
+import { readdirSync } from 'node:fs'
 import { erc20Abi, type Address } from 'viem'
 import { kv } from '../src/store/kv'
 import { createAccounts } from '../src/store/accounts'
@@ -38,6 +39,10 @@ async function runSteps(w: Walkthrough, e: Env, run: Run, upto = w.steps.length)
 }
 
 describe('bundled walkthroughs run headless', () => {
+  test('every walkthroughs/*.json is bundled (so tested)', () => {
+    const files = readdirSync(new URL('../walkthroughs', import.meta.url)).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5)).sort()
+    expect(files).toEqual(bundled.map(w => w.id).sort())
+  })
   for (const w of bundled) {
     test(w.id, async () => {
       expect('ok' in validate(w)).toBe(true)

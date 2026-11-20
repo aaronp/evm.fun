@@ -60,10 +60,10 @@ body {
 .font-mono { overflow-wrap: anywhere; }
 
 /* Walkthrough focus: dim everything in the page area that is not, and does not hold, a marked area of the current
-   step. Only the outermost unmarked element dims, so opacity never compounds; the ribbon stays bright. */
+   step. Only the outermost unmarked element dims, so opacity never compounds; the ribbon and errors stay bright. */
 :root { --wz-dim: 0.4; }
-main[data-wz-focus] :has([data-wz-on]) > :not([data-wz-on]):not(:has([data-wz-on])):not([data-wz-ribbon]),
-main[data-wz-focus] > :not(:has([data-wz-on])):not([data-wz-on]):not([data-wz-ribbon]) {
+main[data-wz-focus] :has([data-wz-on]) > :not([data-wz-on]):not(:has([data-wz-on])):not([data-wz-ribbon]):not([role=alert]),
+main[data-wz-focus] > :not(:has([data-wz-on])):not([data-wz-on]):not([data-wz-ribbon]):not([role=alert]) {
   opacity: var(--wz-dim);
   transition: opacity 150ms;
 }

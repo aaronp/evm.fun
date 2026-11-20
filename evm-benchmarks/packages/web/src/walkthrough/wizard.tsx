@@ -188,7 +188,11 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
     if (!active || busy) return
     const { w, run, index } = active, step = w.steps[index]!
     setError(undefined)
-    if (isDone(step)) { if (index < w.steps.length - 1) go(index + 1); return }
+    if (isDone(step)) {
+      // open the next step's page, so its control pulses there before the following Next presses it
+      if (index < w.steps.length - 1) { go(index + 1); navigate(binding(w.steps[index + 1]!, w).path(run)) }
+      return
+    }
     setBusy(true)
     try {
       const b = binding(step, w), path = b.path(run)
