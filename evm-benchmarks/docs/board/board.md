@@ -260,6 +260,16 @@ ADR-0018, R31, R32, R33: ERC-1271 and a per-maker nonce floor in Settlement; rec
 ADR-0018, R30: run the store conformance suite in a real browser; keep rows with undefined/NaN index keys consistent with memoryStore; handle versionchange and blocked opens.
 ```
 
+### Walkthroughs: personas and strategy bots (market makers, traders)
+- id: t-86
+- tags: walkthrough, backlog
+- history:
+  - To Do @ 2026-11-20T22:37:53Z
+
+```md
+ADR-0017, ADR-0018. Extend walkthroughs with personas: a setup that deploys assets, then market-maker and trader bots that place bids/asks on a venue according to a strategy (e.g. a spread around a reference price, random takers), so a book fills with realistic activity.
+```
+
 ## Doing
 
 ## Done
