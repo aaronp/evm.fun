@@ -6,7 +6,7 @@ const root = import.meta.dir
 // Resolve OZ wherever bun hoisted it.
 const ozRoot = dirname(dirname(dirname(Bun.resolveSync('@openzeppelin/contracts/package.json', root))))
 
-const names = ['MintableToken', 'AtomicSwap', 'AssetToken', 'Swap']
+const names = ['MintableToken', 'AtomicSwap', 'AssetToken', 'Swap', 'OrderBook']
 const sources = Object.fromEntries(
   names.map((n) => [`${n}.sol`, {content: readFileSync(join(root, 'src', `${n}.sol`), 'utf8')}]),
 )
