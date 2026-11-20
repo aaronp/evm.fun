@@ -727,11 +727,12 @@ Calls made after the builder check (spec `docs/superpowers/specs/2026-11-20-swap
 - **Crossing offers** get the mockup's advisory note only; Swap does not match.
 - **ERC-20s only**; native ETH can't be escrowed with `transferFrom` (backlog t-70).
 - **No named markets**: a market is any (base, quote) pair of the chain's assets (backlog t-71).
-- **Rich data at its point of origin.** `take` stores the `taker` and `filledBlock` in the offer, so "who took it, and when" is O(1) via `offers(id)` with no event join. A report's winner of a same-block race and the Activity page read them from the offer; the winner's log query is narrowed to `filledBlock`.
+- **Rich data at its point of origin.** `take` stores the `taker` and `closedBlock` in the offer, and `cancel` stores `closedBlock` too, so "who took it, and when it closed" is O(1) via `offers(id)` with no event join. A report's winner (taker and block) and "your offers" ("taken by …") read them from the offer, and the report's status-log query is narrowed to `closedBlock`; an open offer needs no log query. Activity reads `OfferTaken`/`OfferCancelled` logs: it is an event feed by design.
 - **History window.** Playground chains keep webevm `stateHistory: {blocks: 256}` (benchmark chains keep none), so a failure report replays at the parent block while it is within 256 blocks; older than that falls back to `latest` and the report says so.
 - **A take stays on the page.** The mockup wins over the spec's "navigates to": after a take the page shows a success or danger flash with a "View report →" link.
 
 ## Consequences
 - Book reads grow with every offer ever made (risk R17); upgrade path is an indexer keyed by block (backlog t-67) without changing the contract.
-- Known O(n) spots, each a logged risk with a backlog card: Activity's block scan (R19, t-69), "your offers" filtering all offers (R20, t-72), a cancelled offer's report scanning logs from block 0 because no cancel block is stored (R21, t-73), replay blind spots and the 256-block window (R18, t-68). Fee-on-transfer and rebasing tokens leave escrow short (R22, t-74; ERC-20-only scope).
+- Known O(n) spots, each a logged risk with a backlog card: Activity's block scan (R19, t-69), "your offers" filtering all offers (R20, t-72), replay blind spots and the 256-block window (R18, t-68). Fee-on-transfer and rebasing tokens leave escrow short (R22, t-74; ERC-20-only scope).
+- A report's status lookup is one block's logs since `cancel` also stores `closedBlock` (R21 closed, t-73).
 - Reports and Activity are derived from the chain, so they work after reload, fork and import.

@@ -347,7 +347,7 @@ The Swap page reads `nextId` and then `offers(1..nextId-1)`, every offer ever ma
 - driver: Claude
 - approver: Aaron
 
-A reverted take (other than already taken/cancelled, which come from the offer's stored status, taker and block) is replayed with `eth_call` at the parent block. An approve or transfer earlier in the same block is not seen, so the reason can be wrong. Playground chains also keep only the last 256 blocks of state history; for an older failure the replay falls back to `latest`, which the report says in a note.
+Already taken or cancelled is decided from the Swap's `OfferTaken`/`OfferCancelled` logs ordered by block and tx index, so a same-block race names the winner; the offer's stored `taker` and `closedBlock` name the winner and narrow that log query to one block. Any other reverted take is replayed with `eth_call` at the parent block. An approve or transfer earlier in the same block is not seen, so the reason can be wrong. Playground chains also keep only the last 256 blocks of state history; for an older failure the replay falls back to `latest`, which the report says in a note.
 
 ### Controls
 | Control | Type | Effectiveness |
@@ -365,7 +365,7 @@ A reverted take (other than already taken/cancelled, which come from the offer's
 - driver: Claude
 - approver: Aaron
 
-Activity finds reverted takes by scanning blocks for txs to the Swap with status 0, and fetches logs from block 0, with unbounded parallel reads. The cost grows with chain length.
+Activity finds reverted takes by scanning blocks for txs to the Swap with status 0, and fetches logs from block 0, with unbounded parallel reads; it then runs one `takeReport` per reverted take to get its reason. The cost grows with chain length and with the number of failed takes.
 
 ### Controls
 | Control | Type | Effectiveness |
@@ -390,28 +390,32 @@ The page builds a maker's offers by filtering the full offer list, so it costs t
 | Playground scale: same bound as R17 | Preventive | Partial |
 | Per-maker on-chain offer index: `makeOffer` records ids per maker (backlog t-72) | Corrective | Partial |
 
-## R21 · Swap report for a cancelled offer scans logs from block 0
+## R21 · Swap report status lookup scans logs from block 0
 - impact: 1
-- likelihood: 3
-- target: 1x2
-- appetite: 4
+- likelihood: 1
+- target: 1x1
+- appetite: 1
 - category: Technology
 - driver: Claude
 - approver: Aaron
+- status: closed
+- closed: 2026-11-20
 
-`take` stores the taker and fill block, but `cancel` stores no block, so the report for a take that hit a cancelled offer finds the cancellation by scanning logs from block 0.
+`take` stored the taker and fill block, but `cancel` stored no block, so the report for a take that hit a cancelled offer (and any reverted take on an open offer) found the status change by scanning logs from block 0.
+
+Closed 2026-11-20 (t-73): `cancel` now stores `closedBlock` as `take` does, so a filled or cancelled offer's report reads one block's logs. An open offer cannot have been taken or cancelled (offers never reopen), so its report makes no log query at all.
 
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
-| Playground scale: one filtered log query | Preventive | Partial |
-| Store the cancel block in the offer (backlog t-73) | Corrective | Partial |
+| `take` and `cancel` store `closedBlock`; the report queries that one block | Preventive | Strong |
+| No log query for an offer that is still open | Preventive | Strong |
 
 ## R22 · Fee-on-transfer and rebasing tokens leave Swap escrow short
 - impact: 3
 - likelihood: 2
 - target: 3x1
-- appetite: 4
+- appetite: 3
 - category: Quality
 - driver: Claude
 - approver: Aaron

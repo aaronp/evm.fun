@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="223" height="20" role="img" aria-label="Risks: 5 low, 13 medium, 4 high">
-<title>Risks: 5 low, 13 medium, 4 high</title>
+<svg xmlns="http://www.w3.org/2000/svg" width="223" height="20" role="img" aria-label="Risks: 4 low, 13 medium, 4 high">
+<title>Risks: 4 low, 13 medium, 4 high</title>
 <clipPath id="r"><rect width="223" height="20" rx="4"/></clipPath>
 <g clip-path="url(#r)" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" text-anchor="middle">
 <rect x="0" width="47" height="20" fill="#555"/><text x="23.5" y="14" fill="#fff">Risks</text>
-<rect x="47" width="47" height="20" fill="#4D7C3A"/><text x="70.5" y="14" fill="#fff">Low 5</text>
+<rect x="47" width="47" height="20" fill="#4D7C3A"/><text x="70.5" y="14" fill="#fff">Low 4</text>
 <rect x="94" width="75" height="20" fill="#B7791F"/><text x="131.5" y="14" fill="#fff">Medium 13</text>
 <rect x="169" width="54" height="20" fill="#C2410C"/><text x="196" y="14" fill="#fff">High 4</text>
 </g>
