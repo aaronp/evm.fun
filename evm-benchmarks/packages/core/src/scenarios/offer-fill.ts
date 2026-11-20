@@ -72,7 +72,7 @@ export const offerFill = (): Scenario => {
     async verify(approach, p) {
       const status = async (id: number) => {
         const data = encodeFunctionData({abi: Swap.abi, functionName: 'offers', args: [BigInt(id)]});
-        const r = decodeFunctionResult({abi: Swap.abi, functionName: 'offers', data: await approach.call({to: swap, data})});
+        const r = decodeFunctionResult({abi: Swap.abi, functionName: 'offers', data: await approach.call({to: swap, data})}) as readonly unknown[];
         return r[5];
       };
       const unfilled: number[] = [];
