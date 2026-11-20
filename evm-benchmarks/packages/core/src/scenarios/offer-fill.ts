@@ -9,19 +9,19 @@ import type {Scenario} from './index.ts';
 const abi = MintableToken.abi;
 const FILLED = 2; // Swap.Status.Filled
 
-/** n offers (1 A for 1 B) made untimed by `senders` makers; the timed txs are n takes, one per disjoint taker */
+/** n offers (1 A for 1 B) made untimed by `senders` makers; the timed txs are n takes, by `senders` takers on disjoint ids */
 export const offerFill = (): Scenario => {
   const next = nonces();
   let swap: Address, tokenA: Address, tokenB: Address;
   const deployer = (seed: string) => deriveAccounts(seed + ':dep', 1)[0]!;
   const makers = (seed: string, s: number) => deriveAccounts(seed, s);
-  const takers = (seed: string, n: number) => deriveAccounts(seed + ':t', n);
+  const takers = (seed: string, s: number) => deriveAccounts(seed + ':t', s);
 
   return {
     id: 'offer-fill',
     prefund: (p) =>
       Object.fromEntries(
-        [deployer(p.seed), ...makers(p.seed, p.senders), ...takers(p.seed, p.n)].map((a) => [a.address, FUND]),
+        [deployer(p.seed), ...makers(p.seed, p.senders), ...takers(p.seed, p.senders)].map((a) => [a.address, FUND]),
       ),
     async setup(approach, p) {
       const d = deployer(p.seed);
@@ -46,8 +46,8 @@ export const offerFill = (): Scenario => {
         await fund(m.address, tokenA, txCount(p, j));
         setup.push(await signTx(m, next(m.address), {to: tokenA, data: approve, gas: 60_000n}));
       }
-      for (const t of takers(p.seed, p.n)) {
-        await fund(t.address, tokenB, 1);
+      for (const [j, t] of takers(p.seed, p.senders).entries()) {
+        await fund(t.address, tokenB, txCount(p, j));
         setup.push(await signTx(t, next(t.address), {to: tokenB, data: approve, gas: 60_000n}));
       }
       await settleSetup(approach, setup);
@@ -59,11 +59,12 @@ export const offerFill = (): Scenario => {
       await settleSetup(approach, offers);
     },
     async generate(p, onSigned) {
-      const t = takers(p.seed, p.n);
-      // all offers are identical, so any taker may take any id; ids are 1..n
+      const t = takers(p.seed, p.senders);
+      // taker j takes offers j+1, j+1+senders, ... (disjoint); offers are identical
       return counted(
         onSigned,
-        t.map((a, i) => {
+        Array.from({length: p.n}, (_, i) => {
+          const a = t[i % p.senders]!;
           const data = encodeFunctionData({abi: Swap.abi, functionName: 'take', args: [BigInt(i + 1)]});
           return () => signTx(a, next(a.address), {to: swap, data, gas: 200_000n});
         }),
@@ -76,16 +77,18 @@ export const offerFill = (): Scenario => {
         return r[5];
       };
       const unfilled: number[] = [];
-      const ids = Array.from({length: p.n}, (_, i) => i + 1);
-      (await Promise.all(ids.map(status))).forEach((s, i) => s !== FILLED && unfilled.push(i + 1));
+      const sts = await Promise.all(Array.from({length: p.n}, (_, i) => status(i + 1)));
+      for (const [i, st] of sts.entries()) if (st !== FILLED) unfilled.push(i + 1);
       if (unfilled.length) return {ok: false, detail: `offers not filled: ${unfilled.slice(0, 10).join(',')}`};
 
       const bad: string[] = [];
-      const tk = takers(p.seed, p.n);
-      const tb = await Promise.all(tk.flatMap((t) => [balanceOf(approach, tokenA, t.address), balanceOf(approach, tokenB, t.address)]));
-      tk.forEach((_, i) => (tb[2 * i] !== 1n || tb[2 * i + 1] !== 0n) && bad.push(`taker ${i}`));
-      const mk = await Promise.all(makers(p.seed, p.senders).map((m) => balanceOf(approach, tokenB, m.address)));
-      mk.forEach((b, j) => b !== BigInt(txCount(p, j)) && bad.push(`maker ${j}`));
+      for (const [j, t] of takers(p.seed, p.senders).entries()) {
+        const [a, b] = await Promise.all([balanceOf(approach, tokenA, t.address), balanceOf(approach, tokenB, t.address)]);
+        if (a !== BigInt(txCount(p, j)) || b !== 0n) bad.push(`taker ${j}`);
+      }
+      for (const [j, m] of makers(p.seed, p.senders).entries()) {
+        if ((await balanceOf(approach, tokenB, m.address)) !== BigInt(txCount(p, j))) bad.push(`maker ${j}`);
+      }
       return {ok: bad.length === 0, detail: bad.length ? `wrong balances: ${bad.join(',')}` : `all ${p.n} offers filled, tokens moved exactly`};
     },
   };
