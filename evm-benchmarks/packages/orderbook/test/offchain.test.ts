@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { encodeFunctionData, type Address } from 'viem'
 import { AssetToken, Settlement } from '@evmb/contracts'
-import { bookSchema, memoryStore, offchainVenue, settleCall, settlementCancelCall, type Store, type Wallet } from '../src'
+import { bookSchema, domainOf, hashOrder, memoryStore, offchainVenue, signOrder, settleCall, settlementCancelCall, type Store, type Wallet } from '../src'
 import { maker, other, taker, withChain } from './chain'
 
 const P = (s: string) => BigInt(Math.round(Number(s) * 1e6)) // USD (6 dp) per whole GBP
@@ -122,8 +122,13 @@ test('cancel: on-chain, the row is marked, the book empties, the report says can
   const rep = await v.report(r.order!.id)
   expect(rep.cancelled?.block).toBe(before + 1n)
   expect(rep.cancelled?.tx).toMatch(/^0x/)
-  await expect(v.cancel(c.walletOf(taker), r.order!.id)).rejects.toThrow(/NotMaker/)
+  // checked before sending: no tx for a non-maker, an order already closed, or an unknown id
+  const after = await c.blockNumber()
+  const live = await v.place(c.walletOf(maker), { market: m, side: 'sell', type: 'limit', price: P('1.30'), amount: G(1) })
+  await expect(v.cancel(c.walletOf(taker), live.order!.id)).rejects.toThrow('Only the maker can cancel this order')
+  await expect(v.cancel(c.walletOf(maker), r.order!.id)).rejects.toThrow('This order is already cancelled')
   await expect(v.cancel(c.walletOf(maker), '0x' + '00'.repeat(32))).rejects.toThrow(/No order/)
+  expect(await c.blockNumber()).toBe(after)
 }), T)
 
 test('taker allowance short: refused before sending; if it drops after the read, a failed attempt with an approve fix', () => withChain(async c => {
@@ -179,10 +184,30 @@ test('two scopes on the same chain id and Settlement address (two playground cha
   expect(r.order?.status).toBe('failed')
   expect((await x.orders({ owner: taker.address })).map(o => o.id)).toEqual([`tx:${r.tx}`])
   expect(await y.orders({ owner: taker.address })).toEqual([])
-  // the same hash placed in y is its own row: cancelling in x leaves y's book alone
+  // an order placed in y rests in y's book only
   const before = await c.blockNumber()
   await y.place(c.walletOf(other), { market: m, side: 'sell', type: 'limit', price: P('1.30'), amount: G(5) })
   expect(await c.blockNumber()).toBe(before)
   expect((await y.book(m)).asks.map(l => l.price)).toEqual([P('1.30')])
   expect((await x.book(m)).asks.map(l => l.price)).toEqual([P('1.27')])
+}), T)
+
+test('expiry is chain time: a week past the latest block; an order expiring at the latest block time is closed and never matched', () => withChain(async c => {
+  const { v, m, store } = venue(c)
+  const now = async () => BigInt((await c.request('eth_getBlockByNumber', ['latest', false]) as any).timestamp)
+  const r = await v.place(c.walletOf(maker), { market: m, side: 'sell', type: 'limit', price: P('1.27'), amount: G(100) })
+  const [row] = await store.scan<any>('orders', 'owner', { from: ['a', c.settlement, maker.address], to: ['a', c.settlement, maker.address] })
+  expect(row.order.expiry).toBe(await now() + 7n * 24n * 3600n)
+  // re-sign it to expire at the latest block's time (settle would land in the next block and revert Expired)
+  const domain = domainOf(c.chainId, c.settlement)
+  const order = { ...row.order, expiry: await now() }
+  const id = hashOrder(order, domain)
+  await store.del('orders', `a:${r.order!.id}`)
+  await store.put('orders', `a:${id}`, { ...row, id, order, sig: await signOrder(c.walletOf(maker), order, domain) })
+  expect((await v.book(m)).asks).toEqual([])
+  expect((await v.orders({ owner: maker.address })).map(o => o.status)).toEqual(['cancelled'])
+  const before = await c.blockNumber()
+  const t = await v.place(c.walletOf(taker), { market: m, side: 'buy', type: 'limit', price: P('1.27'), amount: G(10) })
+  expect(await c.blockNumber()).toBe(before)
+  expect(t.fills).toEqual([])
 }), T)

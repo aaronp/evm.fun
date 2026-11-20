@@ -58,8 +58,9 @@ export function offchainVenue(o: { request: Request; chainId: number; scope: str
       await Promise.all(all.map(async r => {
         if (r.closed) return out.set(r.id, { ...r.closed, covered: 0n })
         const [filled, cancelled] = await Promise.all([read('filled', r.id), read('cancelled', r.id)])
-        // ponytail: an expired order is closed as cancelled (Order has no 'expired' status); add one if the UI needs it
-        if (cancelled || filled >= r.amount || r.order.expiry < now) {
+        // expiry <= the latest block's time: a settle lands in a later block and would revert Expired. ponytail: an
+        // expired order is closed as cancelled (Order has no 'expired' status); add one if the UI needs it
+        if (cancelled || filled >= r.amount || r.order.expiry <= now) {
           const closed = { filled, cancelled: cancelled || filled < r.amount }
           await o.store.put('orders', key(r.id), { ...r, closed })
           return out.set(r.id, { ...closed, covered: 0n })
@@ -160,13 +161,13 @@ export function offchainVenue(o: { request: Request; chainId: number; scope: str
       }
       if (!rest) return { fills, tx }
 
-      // the remainder rests as a signed order: nonce = the venue's store seq, expiry a week out
+      // the remainder rests as a signed order: nonce = the venue's store seq, expiry a week past the chain's time
       const counter = `orders:${o.scope}:${venue}`
       const seq = ((await o.store.get<number>('meta', counter)) ?? 0) + 1
       await o.store.put('meta', counter, seq)
       const order: SignedOrder = {
         maker: owner, base: m.base, quote: m.quote, side: sideNum(s), price: limit!, amount: rest, nonce: BigInt(seq),
-        expiry: BigInt(Math.floor(Date.now() / 1000)) + WEEK,
+        expiry: (await client.getBlock()).timestamp + WEEK,
       }
       const row: Row = {
         id: hashOrder(order, domain), scope: o.scope, venue, owner, ...m, side: s, priceKey: priceKey(s, limit!), seq,
@@ -179,6 +180,9 @@ export function offchainVenue(o: { request: Request; chainId: number; scope: str
     async cancel(wallet, id) {
       const r = await o.store.get<Row>('orders', key(id))
       if (!mine(r)) throw new Error(`No order ${id}`)
+      if (getAddress(wallet.address) !== r.owner) throw new Error('Only the maker can cancel this order')
+      const now = toOrder(r, (await states([r.owner])).state.get(id)!).status
+      if (now === 'filled' || now === 'cancelled') throw new Error(`This order is already ${now}`)
       const { rc } = await sendAndJournal(attempts, wallet, { cancel: id }, settlementCancelCall(venue, r.order))
       if (rc.status !== 'success') {
         const e = await replayError(o.request, rc.transactionHash, settlementAbi)
