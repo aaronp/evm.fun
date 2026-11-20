@@ -318,3 +318,35 @@ The Allowances card finds (owner, spender) pairs with `eth_getLogs` for the toke
 |---|---|---|
 | Playground scale: chains are small, and the filter is one address and one topic | Preventive | Partial |
 | Upgrade path: page the log scan, or index incrementally and cache by block (ADR approach B) when a chain gets long | Corrective | Partial |
+
+## Example design risk
+- impact: 5
+- likelihood: 3
+- stars: 3
+- category: some-category-tag
+- slugs: some-slug
+- inherent: 3x3
+- target: 4x4
+- confidence: 3
+- appetite: 25
+- driver: who's owning this
+- approver: who approves this risk
+- contributors: who's involved; another person
+- informed: who's informed
+
+design risk decision
+
+### Clarification
+25 is the max 'appetite' for this risk.
+We gave it 3/5 stars in confidence.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Some Control - how we mitigate this risk | Preventive | Partial |
+| Detective controle | Detective | Effective |
+
+### Evidence
+| Title | Description | Resources |
+|---|---|---|
+| Risk Evidence | anything we've observed | some resource |
