@@ -11,24 +11,26 @@ import { Studio } from './pages/Studio'
 import { Transact } from './pages/Transact'
 import { Benchmark } from './pages/Benchmark'
 import { Assets } from './pages/Assets'
+import { GetStarted } from './pages/GetStarted'
 import { Swap } from './pages/Swap'
 import { SwapReport } from './pages/SwapReport'
 import { ContextBox, ContextStrip } from './components/ContextBox'
 import { ThemeSwitcher } from './components/ThemeSwitcher'
 import { ENGINE } from './chain/revm'
-import { AccountsIcon, BenchmarkIcon, BrandIcon, ChainsIcon, StudioIcon, TransactIcon, AssetsIcon, SwapIcon } from './ui/icons'
+import { AccountsIcon, BenchmarkIcon, BrandIcon, ChainsIcon, StudioIcon, TransactIcon, AssetsIcon, SwapIcon, FlagIcon } from './ui/icons'
 import { AddressList } from './components/AddressList'
 import { Ribbon } from './components/Ribbon'
 import { WizardProvider, useWizard } from './walkthrough/wizard'
 
 export const groups = [
-  { label: 'Setup', items: [['Accounts', AccountsIcon], ['Chains', ChainsIcon]] },
+  { label: 'Setup', items: [['Get started', FlagIcon], ['Accounts', AccountsIcon], ['Chains', ChainsIcon]] },
   { label: 'Build & run', items: [['Studio', StudioIcon], ['Transact', TransactIcon], ['Benchmark', BenchmarkIcon]] },
   { label: 'Markets', items: [['Assets', AssetsIcon], ['Swap', SwapIcon]] },
 ] as const
 const pages = groups.flatMap(g => g.items.map(([n]) => n))
 
-export const real: Record<string, ReactElement> = { Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Benchmark: <Benchmark />, Assets: <Assets />, Swap: <Swap /> }
+const slug = (p: string) => p.toLowerCase().replaceAll(' ', '-')
+export const real: Record<string, ReactElement> = { 'Get started': <GetStarted />, Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Benchmark: <Benchmark />, Assets: <Assets />, Swap: <Swap /> }
 const LegacyRedirect = () => <Navigate to={legacyRoute(useLocation().pathname) ?? '/chains'} replace />
 const Stub = ({ name }: { name: string }) => <h1 className="text-xl font-semibold">{name}</h1>
 
@@ -66,7 +68,7 @@ export function App() {
                 {g.items.map(([p, Icon]) => (
                   <NavLink
                     key={p}
-                    to={`/${p.toLowerCase()}`}
+                    to={`/${slug(p)}`}
                     className={({ isActive }) =>
                       `flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-accent ${isActive ? 'bg-selected text-text' : 'text-text-2 hover:bg-surface-hover'}`
                     }
@@ -88,7 +90,7 @@ export function App() {
           <AddressList />
           <Routes>
             {pages.map(p => (
-              <Route key={p} path={p === 'Chains' ? '/chains/*' : `/${p.toLowerCase()}`} element={real[p] ?? <Stub name={p} />} />
+              <Route key={p} path={p === 'Chains' ? '/chains/*' : `/${slug(p)}`} element={real[p] ?? <Stub name={p} />} />
             ))}
             <Route path="/swap/report" element={<SwapReport />} />
             <Route path="/explorer/*" element={<LegacyRedirect />} />

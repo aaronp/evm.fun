@@ -34,3 +34,4 @@ export const UploadIcon = icon(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2
 export const AssetsIcon = icon(<><circle cx="12" cy="12" r="9" /><path d="M12 7v10M9 9.5h4.5a1.75 1.75 0 0 1 0 3.5h-3a1.75 1.75 0 0 0 0 3.5H15" /></>)
 export const InfoIcon = icon(<><circle cx="12" cy="12" r="9" /><path d="M12 8h.01M11 12h1v5h1" /></>)
 export const SwapIcon = icon(<><path d="M4 9h15l-4-4" /><path d="M20 15H5l4 4" /></>)
+export const FlagIcon = icon(<><path d="M4 22V4" /><path d="M4 4h13l-2 4 2 4H4" /></>)
