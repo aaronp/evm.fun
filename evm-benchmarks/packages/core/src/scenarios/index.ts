@@ -4,6 +4,7 @@ import {ethTransfer} from './eth-transfer.ts';
 import {erc20Disjoint, erc20Hot, erc20Mint} from './erc20.ts';
 import {atomicSwap} from './atomic-swap.ts';
 import {offerFill} from './offer-fill.ts';
+import {bookMatchOffchain, bookMatchOnchain} from './book-match.ts';
 
 export interface ScenarioParams {
   n: number;
@@ -12,7 +13,7 @@ export interface ScenarioParams {
 }
 
 export interface Scenario {
-  id: 'eth-transfer' | 'erc20-disjoint' | 'erc20-hot' | 'erc20-mint' | 'atomic-swap' | 'offer-fill';
+  id: 'eth-transfer' | 'erc20-disjoint' | 'erc20-hot' | 'erc20-mint' | 'atomic-swap' | 'offer-fill' | 'book-match-onchain' | 'book-match-offchain';
   prefund(p: ScenarioParams): Record<Address, bigint>;
   /** untimed: deploys/mints/approves; throws if any receipt is not success */
   setup(approach: Approach, p: ScenarioParams): Promise<void>;
@@ -29,4 +30,6 @@ export const scenarios: Record<Scenario['id'], () => Scenario> = {
   'erc20-mint': erc20Mint,
   'atomic-swap': atomicSwap,
   'offer-fill': offerFill,
+  'book-match-onchain': bookMatchOnchain,
+  'book-match-offchain': bookMatchOffchain,
 };

@@ -5,6 +5,7 @@
   "main": "src/index.ts",
   "dependencies": {
     "@evmb/contracts": "workspace:*",
+    "@evmb/orderbook": "workspace:*",
     "viem": "^2.58.1"
   },
   "devDependencies": {
