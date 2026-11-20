@@ -12,6 +12,9 @@ test('isSwapAbi', () => {
   expect(isSwapAbi(Swap.abi as any)).toBe(true)
   expect(isSwapAbi(erc20Abi)).toBe(false)
   expect(isSwapAbi(AtomicSwap.abi as any)).toBe(false)
+  // an older/foreign Swap whose offers(id) has another layout is not ours
+  const older = Swap.abi.map(e => (e.type === 'function' && e.name === 'offers' ? { ...e, outputs: e.outputs.slice(0, 6) } : e))
+  expect(isSwapAbi(older as any)).toBe(false)
 })
 test('findSwap picks the last Swap record and ignores a Swap-named non-Swap ABI', () => {
   const r = (name: string, address: Address, abi: any) => ({ name, address, abi })

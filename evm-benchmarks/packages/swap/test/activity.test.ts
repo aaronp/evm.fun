@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { AssetToken, Swap } from '@evmb/contracts'
+import { toFunctionSelector } from 'viem'
 import { activity } from '../src'
 import { maker, other, taker, withSwap } from './chain'
 
@@ -31,4 +32,14 @@ test('activity lists offered, approved, taken, cancelled and reverted, newest fi
 
     // approvals of tokens outside the pair are left out
     expect((await activity(request, swap, [gbp])).map(i => i.tx)).not.toContain(approveUsd)
+  }), 60_000)
+
+test('a reverted tx to Swap with the take selector but undecodable input is skipped, not fatal', () =>
+  withSwap(async ({ request, swap, gbp, usd, send, sendData }) => {
+    await send(maker, gbp, erc, 'approve', [swap, 100n])
+    await send(maker, swap, Swap.abi, 'makeOffer', [gbp, 100n, usd, 1_270_000n])
+    const bad = await sendData(taker, swap, toFunctionSelector('take(uint256)')) // no argument: the Swap reverts
+    expect(((await request('eth_getTransactionReceipt', [bad])) as { status: string }).status).toBe('0x0')
+    const items = await activity(request, swap, [gbp, usd])
+    expect(items.map(i => i.kind)).toEqual(['offered', 'approved'])
   }), 60_000)

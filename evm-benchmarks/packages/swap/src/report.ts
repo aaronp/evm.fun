@@ -7,8 +7,9 @@ import type { Offer } from './types'
 
 /**
  * Report copy is data: names, symbols and amounts stay as placeholders for the page to fill (see `fillText`):
- * `{name:<address>}`, `{symbol:<token>}`, `{amount:<token>:<raw>}`, `{price:<giveToken>:<giveAmt>:<getToken>:<getAmt>}`
- * (the price is getAmt per giveAmt, i.e. "{getSym} per {giveSym}").
+ * `{name:<address>}`, `{symbol:<token>}`, `{amount:<token>:<raw>}` (with its symbol), `{number:<token>:<raw>}` (without),
+ * `{price:<giveToken>:<giveAmt>:<getToken>:<getAmt>}` and its unit `{unit:<giveToken>:<getToken>}`. The page orients the
+ * price by its pair (quote per base), so the report doesn't need to know which token is the base.
  */
 export type ReportStep = { title: string; body: string; evidence: string; ok: boolean; mark: 'ok' | 'fail' | 'skip' | 'undo'; detail?: string }
 export type Reason = 'allowance' | 'balance' | 'filled' | 'cancelled' | 'other'
@@ -24,16 +25,22 @@ export type TakeReport = {
 }
 export type Fmt = {
   name(a: Address): string; symbol(token: Address): string; amount(raw: bigint, token: Address): string
+  /** the amount without its symbol */
+  number(raw: bigint, token: Address): string
   price(giveToken: Address, giveAmt: bigint, getToken: Address, getAmt: bigint): string
+  /** the price's unit, e.g. "USD per GBP" */
+  unit(giveToken: Address, getToken: Address): string
 }
 
 /** Replaces the report's placeholders with the page's names and formatted amounts. */
 export const fillText = (text: string, f: Fmt) =>
-  text.replace(/\{(name|symbol|amount|price):([^}]+)\}/g, (_, k: string, a: string) => {
+  text.replace(/\{(name|symbol|amount|number|price|unit):([^}]+)\}/g, (_, k: string, a: string) => {
     const p = a.split(':')
     if (k === 'name') return f.name(p[0] as Address)
     if (k === 'symbol') return f.symbol(p[0] as Address)
     if (k === 'amount') return f.amount(BigInt(p[1]!), p[0] as Address)
+    if (k === 'number') return f.number(BigInt(p[1]!), p[0] as Address)
+    if (k === 'unit') return f.unit(p[0] as Address, p[1] as Address)
     return f.price(p[0] as Address, BigInt(p[1]!), p[2] as Address, BigInt(p[3]!))
   })
 
@@ -106,7 +113,7 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
           const token = getAddress(l.address)
           bump(getAddress(e.args.from), token, -e.args.value)
           bump(getAddress(e.args.to), token, e.args.value)
-          return `Transfer ${N(getAddress(e.args.from))} → ${N(getAddress(e.args.to))} ${A(token, e.args.value)}`
+          return `Transfer (${S(token)}) ${N(getAddress(e.args.from))} → ${N(getAddress(e.args.to))} {number:${token}:${e.args.value}}`
         }
       } catch {}
       try {
@@ -122,7 +129,7 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
       kpis: [
         { label: 'You paid', value: get, sub: `to ${N(maker)}` },
         { label: 'You received', value: give, sub: 'from escrow' },
-        { label: 'Price', value: `{price:${giveToken}:${giveAmt}:${getToken}:${getAmt}}`, sub: `${getSym} per ${S(giveToken)}` },
+        { label: 'Price', value: `{price:${giveToken}:${giveAmt}:${getToken}:${getAmt}}`, sub: `{unit:${giveToken}:${getToken}}` },
         { label: 'Gas', value: gas, sub: 'one transaction' },
       ],
       steps: [made, sent('Swap checks the offer is still open.'),
@@ -136,11 +143,13 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
   // Reverted. Status changes come from logs (they see same-block ordering); otherwise replay the call.
   let error: TakeReport['error'], winner: TakeReport['winner'], reconstructedNow: true | undefined
   let since: string | undefined // the latest replay hit OfferNotOpen: the status changed after this tx
+  let passesNow = false // the latest replay no longer reverts: whatever failed has been fixed since
   const [taken, cancelled] = (['OfferTaken', 'OfferCancelled'] as const).map(eventName => encodeEventTopics({ abi: swapAbi, eventName })[0]!)
-  const status = (await request('eth_getLogs', [{
-    // filled: the offer stores its block, so one block is enough; cancelled keeps no block, so scan up to this tx
-    address: swap, topics: [[taken, cancelled], toHex(id, { size: 32 })],
-    ...(offer.filledBlock !== undefined ? { fromBlock: toHex(offer.filledBlock), toBlock: toHex(offer.filledBlock) } : { fromBlock: '0x0', toBlock: toHex(at.block) }),
+  // A closed offer stores the block it was taken or cancelled in, so finding that change is one block's logs; an open
+  // offer has had none (offers never reopen), so there is nothing to look up.
+  const closedAt = offer.closedBlock !== undefined ? toHex(offer.closedBlock) : undefined
+  const status = closedAt === undefined ? [] : (await request('eth_getLogs', [{
+    address: swap, topics: [[taken, cancelled], toHex(id, { size: 32 })], fromBlock: closedAt, toBlock: closedAt,
   }])) as RpcLog[]
   const prior = status.find(l => precedes(logAt(l), at))
   if (prior) {
@@ -166,7 +175,7 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
       else error = { ...(d ?? { name: 'Unknown', args: {} }), raw: out.data }
     } else if (out.failed !== undefined || out.unsupported) {
       error = { name: 'ReplayFailed', args: { message: out.failed ?? 'historical state not available' } }
-    }
+    } else passesNow = !!reconstructedNow
   }
   const reason: Reason =
     error?.name === 'ERC20InsufficientAllowance' ? 'allowance'
@@ -193,6 +202,7 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
   const notOpenTail = [step('skip', 'Pay & deliver legs', 'not attempted', 'Checked before any tokens move.'),
     rolled(`${N(taker)}’s balances are unchanged; only gas was spent.`)]
   const open = offer.status === 'open', laterNote = `Offer #${id} has since been ${offer.status}.`
+  const mine = winner?.taker === taker // this taker had already filled it
   const another = { text: 'Offers fill whole and only once. Pick another offer from the book, or make your own at this price.', label: 'Choose another offer' }
 
   const copy: Pick<TakeReport, 'pill' | 'summary' | 'kpis' | 'steps' | 'fix'> =
@@ -216,9 +226,13 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
     }
     : reason === 'filled' ? {
       pill: 'Reverted · already taken',
-      summary: `Another taker filled offer #${id}${when}. Swap checked first, so nothing moved.`,
-      kpis: [paid, { label: `Offer #${id}`, value: 'Filled', sub: 'by another taker' }, { label: 'Checked', value: 'before transfer', sub: 'no tokens touched' }, gasK],
-      steps: [made, ...(winner ? [step('ok', `Someone else took #${id} first`, wb!, `Another take(${id}) was ordered ahead of this one.`)] : []), failedTake, ...notOpenTail],
+      summary: mine
+        ? `You already took #${id} in block ${winner!.block}. Swap checked first, so nothing moved.`
+        : `Another taker filled offer #${id}${when}. Swap checked first, so nothing moved.`,
+      kpis: [paid, { label: `Offer #${id}`, value: 'Filled', sub: mine ? 'by you' : 'by another taker' }, { label: 'Checked', value: 'before transfer', sub: 'no tokens touched' }, gasK],
+      steps: [made, ...(winner ? [mine
+        ? step('ok', `You already took #${id}`, wb!, `Your earlier take(${id}) was ordered ahead of this one.`)
+        : step('ok', `Someone else took #${id} first`, wb!, `Another take(${id}) was ordered ahead of this one.`)] : []), failedTake, ...notOpenTail],
       fix: another,
     }
     : reason === 'cancelled' ? {
@@ -232,12 +246,15 @@ export async function takeReport(request: Request, txHash: Hash): Promise<TakeRe
       pill: 'Reverted',
       summary: since
         ? `The reason couldn’t be reconstructed: offer #${id} has since been ${since}, so replaying the take now fails differently. Nothing moved.`
+        : passesNow ? 'The reason couldn’t be reconstructed: replaying the take now succeeds. Nothing moved.'
         : 'The transaction reverted, so nothing moved.',
-      kpis: [paid, { label: 'Error', value: error?.name ?? 'none', sub: error ? 'see On-chain record' : since ? `offer since ${since}` : 'no revert data' }, gasK],
+      kpis: [paid, passesNow ? { label: 'Error', value: 'not recovered', sub: 'replaying now succeeds' }
+        : { label: 'Error', value: error?.name ?? 'none', sub: error ? 'see On-chain record' : since ? `offer since ${since}` : 'no revert data' }, gasK],
       steps: [made, step('fail', `take(${id}) by ${N(taker)} reverted`, `block ${at.block}`, 'Swap reverted the transaction.', detail),
         rolled('Nothing moved; only gas was spent.')],
     }
-  const revertLine = !error ? 'revert (no data)'
+  const revertLine = passesNow ? 'revert (reason not recovered: replaying now succeeds)'
+    : !error ? 'revert (no data)'
     : error.name === 'OfferNotOpen' ? `revert OfferNotOpen(${id}, ${cap(statusName(error.args.status as number))})`
     : error.name === 'Unknown' ? `revert ${error.raw}`
     : error.name === 'ReplayFailed' ? `revert (reason not recovered: ${error.args.message})` : `revert ${error.name}`

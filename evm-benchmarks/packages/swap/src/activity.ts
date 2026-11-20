@@ -45,7 +45,9 @@ export async function activity(request: Request, swap: Address, pairTokens: Addr
   await Promise.all(takes.map(async t => {
     const rc = (await request('eth_getTransactionReceipt', [t.hash])) as { status: Hex } | null
     if (rc?.status !== '0x0') return
-    const r = await takeReport(request, t.hash)
+    // a take() selector with input that doesn't decode is not a Swap take: skip it rather than fail the list
+    const r = await takeReport(request, t.hash).catch(() => undefined)
+    if (!r) return
     items.push({ kind: 'reverted', id: r.offer.id, actor: r.taker, tx: t.hash, block: r.block, txIndex: r.txIndex, reason: r.reason, logIndex: 0 })
   }))
 

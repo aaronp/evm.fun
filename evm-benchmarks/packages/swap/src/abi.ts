@@ -231,7 +231,7 @@ export const swapAbi = [
       },
       {
         "internalType": "uint64",
-        "name": "filledBlock",
+        "name": "closedBlock",
         "type": "uint64"
       }
     ],
@@ -254,9 +254,10 @@ export const swapAbi = [
 ] as const
 
 const SWAP_FNS = ['makeOffer', 'take', 'cancel', 'nextId', 'offers']
+/** Has Swap's functions, and `offers(id)` returns this Swap's 8-field layout (an older/foreign Swap is not picked). */
 export const isSwapAbi = (abi: Abi): boolean => {
-  const n = new Set(abi.flatMap(e => (e.type === 'function' ? [e.name] : [])))
-  return SWAP_FNS.every(f => n.has(f))
+  const fns = abi.filter(e => e.type === 'function')
+  return SWAP_FNS.every(f => fns.some(e => e.name === f)) && fns.find(e => e.name === 'offers')?.outputs.length === 8
 }
 
 /** The chain's Swap: the last record named `Swap` whose ABI is a Swap ABI. */

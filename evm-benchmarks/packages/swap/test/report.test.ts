@@ -45,12 +45,18 @@ test('successful take: steps, balance changes, gas', () =>
       { holder: c.swap, token: c.gbp, delta: -GIVE },
     ]))
     expect(r.logs).toContain(`OfferTaken(id: 1, taker: {name:${taker.address}})`)
+    // mockup: "Transfer (USD) tester → me 635.00"
+    expect(r.logs).toContain(`Transfer ({symbol:${c.usd}}) {name:${taker.address}} → {name:${maker.address}} {number:${c.usd}:${GET}}`)
+    // the price is oriented by the page (quote per base), so both value and unit are placeholders
+    expect(r.kpis[2]).toEqual({ label: 'Price', value: `{price:${c.gbp}:${GIVE}:${c.usd}:${GET}}`, sub: `{unit:${c.gbp}:${c.usd}}` })
     const names: Record<string, string> = { [taker.address]: 'tester', [maker.address]: 'me', [c.swap]: 'Swap' }
     const fmt = {
       name: (a: Address) => names[a] ?? a,
       symbol: (t: Address) => (t === c.usd ? 'USD' : 'GBP'),
       amount: (v: bigint, t: Address) => `${t === c.usd ? Number(v) / 1e6 : Number(v) / 100} ${t === c.usd ? 'USD' : 'GBP'}`,
       price: () => '1.2700',
+      number: (v: bigint) => String(v),
+      unit: () => 'USD per GBP',
     }
     expect(fillText(r.summary, fmt)).toBe('tester paid 635 USD and received 500 GBP from escrow, atomically in one transaction.')
     expect(r.title).toBe('Offer #1 taken')
@@ -63,7 +69,9 @@ test('short allowance: decoded error, fix copy, nothing moved (reconstructed at 
     await offer(c)
     await c.send(taker, c.usd, erc, 'approve', [c.swap, GET - 1n])
     const h = await c.tx(taker, c.swap, Swap.abi, 'take', [1n])
-    const r = await takeReport(c.request, h)
+    let logQueries = 0
+    const r = await takeReport((m, p) => (m === 'eth_getLogs' && logQueries++, c.request(m, p)), h)
+    expect(logQueries).toBe(0) // the offer is still open, so no take or cancel can precede this one: no log scan
     expect(r).toMatchObject({ outcome: 'reverted', reason: 'allowance', reconstructedNow: true, balanceChanges: [] })
     expect(r.error).toMatchObject({ name: 'ERC20InsufficientAllowance', args: { spender: c.swap, allowance: GET - 1n, needed: GET } })
     expect(r.error!.raw).toMatch(/^0xfb8f41b2/)
@@ -102,7 +110,12 @@ test('take after cancel: reason cancelled, winner is the cancel tx', () =>
     await offer(c)
     const cancel = await c.tx(maker, c.swap, Swap.abi, 'cancel', [1n])
     await c.send(taker, c.usd, erc, 'approve', [c.swap, GET])
-    const r = await takeReport(c.request, await c.tx(taker, c.swap, Swap.abi, 'take', [1n]))
+    const queries: { fromBlock: string; toBlock: string }[] = []
+    const request = (m: string, p: unknown[]) => (m === 'eth_getLogs' && queries.push(p[0] as any), c.request(m, p))
+    const r = await takeReport(request, await c.tx(taker, c.swap, Swap.abi, 'take', [1n]))
+    // the offer stores the cancel's block, so the status query reads that one block, not 0..tx
+    const cb = `0x${(await blockOf(c.request, cancel)).toString(16)}`
+    expect(queries).toEqual([expect.objectContaining({ fromBlock: cb, toBlock: cb })])
     expect(r).toMatchObject({ outcome: 'reverted', reason: 'cancelled', error: { name: 'OfferNotOpen', args: { id: 1n, status: 3 } } })
     expect(r.winner).toEqual({ block: await blockOf(c.request, cancel), tx: cancel, sameBlock: false })
     expect(r.reconstructedNow).toBeUndefined()
@@ -169,7 +182,7 @@ test('same block (approach 02, manual mining): the second take reports filled by
     expect(r.steps[1]!.evidence).toBe(`earlier in block ${b1}`)
     // the winner is the offer's own stored taker and block, not a log reconstruction
     expect(r.winner!.taker).toBe(r.offer.taker)
-    expect(r.winner!.block).toBe(r.offer.filledBlock!)
+    expect(r.winner!.block).toBe(r.offer.closedBlock!)
   } finally {
     await a.dispose()
   }
@@ -192,9 +205,10 @@ test('a tx that is not take(id) is refused', () =>
 
 test('fillText substitutes names, symbols, amounts and prices', () => {
   const A = '0x00000000000000000000000000000000000000aA' as Address
-  const fmt = { name: () => 'me', symbol: () => 'USD', amount: (v: bigint) => `${v}u`, price: (...a: unknown[]) => a.join('/') }
-  expect(fillText(`{name:${A}} has {amount:${A}:12} {symbol:${A}} at {price:${A}:1:${A}:2}`, fmt))
-    .toBe(`me has 12u USD at ${A}/1/${A}/2`)
+  const fmt = { name: () => 'me', symbol: () => 'USD', amount: (v: bigint) => `${v}u`, price: (...a: unknown[]) => a.join('/'),
+    number: (v: bigint) => `${v}n`, unit: (x: Address, y: Address) => `${x}|${y}` }
+  expect(fillText(`{name:${A}} has {amount:${A}:12} {symbol:${A}} at {price:${A}:1:${A}:2} {unit:${A}:${A}}, {number:${A}:3}`, fmt))
+    .toBe(`me has 12u USD at ${A}/1/${A}/2 ${A}|${A}, 3n`)
 })
 
 test('latest fallback: an offer filled after the revert is not reported as the reason', () =>
@@ -235,4 +249,33 @@ test('a replay that fails for another reason is surfaced', () =>
     const r = await takeReport(request, h)
     expect(r).toMatchObject({ reason: 'other', error: { name: 'ReplayFailed', args: { message: 'boom' } } })
     expect(r.reconstructedNow).toBeUndefined()
+  }), 60_000)
+
+test('taking your own filled offer twice: "You already took #n in block N"', () =>
+  withSwap(async c => {
+    await offer(c)
+    await c.send(taker, c.usd, erc, 'approve', [c.swap, GET * 2n])
+    const first = await c.tx(taker, c.swap, Swap.abi, 'take', [1n])
+    const r = await takeReport(c.request, await c.tx(taker, c.swap, Swap.abi, 'take', [1n]))
+    const b = await blockOf(c.request, first)
+    expect(r).toMatchObject({ reason: 'filled', winner: { taker: taker.address, block: b, sameBlock: false } })
+    expect(r.summary).toBe(`You already took #1 in block ${b}. Swap checked first, so nothing moved.`)
+    expect(r.steps[1]!.title).toBe('You already took #1')
+    expect(r.kpis[1]).toMatchObject({ value: 'Filled', sub: 'by you' })
+    const text = [r.summary, ...r.kpis.map(k => k.sub), ...r.steps.map(s => `${s.title} ${s.body}`)].join('\n')
+    expect(text).not.toMatch(/another taker|someone else/i)
+  }), 60_000)
+
+test('latest fallback that no longer reverts: says replaying now succeeds, no "none"/"no data"', () =>
+  withSwap(async c => {
+    await offer(c)
+    const h = await c.tx(taker, c.swap, Swap.abi, 'take', [1n]) // no allowance
+    await c.send(taker, c.usd, erc, 'approve', [c.swap, GET]) // replaying at latest now succeeds
+    const r = await takeReport(c.request, h)
+    expect(r).toMatchObject({ reason: 'other', reconstructedNow: true })
+    expect(r.error).toBeUndefined()
+    expect(r.summary).toBe('The reason couldn’t be reconstructed: replaying the take now succeeds. Nothing moved.')
+    expect(r.kpis[1]).toEqual({ label: 'Error', value: 'not recovered', sub: 'replaying now succeeds' })
+    expect(r.logs[0]).toBe('revert (reason not recovered: replaying now succeeds)')
+    expect([r.summary, ...r.logs, ...r.kpis.map(k => `${k.value} ${k.sub}`)].join('\n')).not.toMatch(/none|no data|no revert data/)
   }), 60_000)

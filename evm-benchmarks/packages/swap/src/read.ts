@@ -22,7 +22,7 @@ export async function readOffers(request: Request, swap: Address): Promise<Offer
 
 /** One offer, read live from the chain. */
 export async function readOffer(request: Request, swap: Address, id: bigint): Promise<Offer> {
-  const [maker, giveToken, giveAmt, getToken, getAmt, status, taker, filledBlock] = await call(request, swap, 'offers', [id])
+  const [maker, giveToken, giveAmt, getToken, getAmt, status, taker, closedBlock] = await call(request, swap, 'offers', [id])
   return { id, maker, giveToken, giveAmt, getToken, getAmt, status: statusName(status),
-    ...(taker !== zeroAddress && { taker, filledBlock: BigInt(filledBlock) }) }
+    ...(taker !== zeroAddress && { taker }), ...(closedBlock !== 0n && { closedBlock: BigInt(closedBlock) }) }
 }

@@ -13,6 +13,8 @@ type Account = typeof maker
 export async function withSwap(fn: (c: {
   request: Request; swap: Address; gbp: Address; usd: Address
   send: (from: Account, to: Address, abi: any, functionName: string, args: unknown[]) => Promise<'success' | 'reverted'>
+  /** sends raw calldata; returns the mined tx's hash */
+  sendData: (from: Account, to: Address, data: `0x${string}`) => Promise<Hash>
   /** like send, but returns the mined tx's hash */
   tx: (from: Account, to: Address, abi: any, functionName: string, args: unknown[]) => Promise<Hash>
   revertData: (from: Account, to: Address, data: `0x${string}`) => Promise<`0x${string}`>
@@ -38,6 +40,11 @@ export async function withSwap(fn: (c: {
       await pub.waitForTransactionReceipt({ hash })
       return hash
     }
+    const sendData = async (from: Account, to: Address, data: `0x${string}`) => {
+      const hash = await wallet(from).sendTransaction({ to, data, chain: null, gas: 500_000n } as any)
+      await pub.waitForTransactionReceipt({ hash })
+      return hash
+    }
     const send = async (from: Account, to: Address, abi: any, functionName: string, args: unknown[]) =>
       (await pub.getTransactionReceipt({ hash: await tx(from, to, abi, functionName, args) })).status
     await send(maker, usd, AssetToken.abi, 'transfer', [taker.address, 5_000_000_000n])
@@ -51,7 +58,7 @@ export async function withSwap(fn: (c: {
       }
       throw new Error('did not revert')
     }
-    await fn({ request: (method, params) => node.request({ method, params } as any) as Promise<unknown>, swap, gbp, usd, send, tx, revertData })
+    await fn({ request: (method, params) => node.request({ method, params } as any) as Promise<unknown>, swap, gbp, usd, send, sendData, tx, revertData })
   } finally {
     await node.dispose()
   }

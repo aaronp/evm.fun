@@ -191,7 +191,7 @@ test('Swap: cancel is maker-only, returns exactly the escrow, then take reverts 
     expect(await read(gbp, erc, 'balanceOf', [maker.address])).toBe(before + 100_000n)
     expect(await read(gbp, erc, 'balanceOf', [swap])).toBe(0n)
     const o = await read(swap, Swap.abi, 'offers', [1n])
-    expect([o[5], o[6], o[7]]).toEqual([Status.Cancelled, zero, 0n])
+    expect([o[5], o[6], o[7]]).toEqual([Status.Cancelled, zero, r.blockNumber]) // closedBlock is set on cancel too
     expect(await revertOf(taker, 'take', [1n])).toMatchObject({errorName: 'OfferNotOpen', args: [1n, Status.Cancelled]})
   }), 60_000)
 
