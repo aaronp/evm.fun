@@ -109,7 +109,7 @@
       "id": "aliceOk1",
       "do": "approve",
       "title": "Alice allows the order book to move her pounds",
-      "text": "Before a program can move your tokens, you must say it may, and how many. Alice allows the order book to take up to 1,000 of her pounds for her first offer.",
+      "text": "Before a program can move your tokens, you must say it may, and how many. Alice allows the order book to take what her first offer needs.",
       "args": {
         "from": "$alice",
         "amount": "1000 $GBP",
@@ -163,7 +163,7 @@
       "id": "bobOk",
       "do": "approve",
       "title": "Bob allows the order book to move his dollars",
-      "text": "Bob will pay at most 1.2800 dollars for each of 1,500 pounds, so he allows up to 2,000 of his dollars to be taken.",
+      "text": "Bob will pay at most 1.2800 dollars for each of 1,500 pounds, so he allows the order book to take what the order needs.",
       "args": {
         "from": "$bob",
         "amount": "2000 $USD",

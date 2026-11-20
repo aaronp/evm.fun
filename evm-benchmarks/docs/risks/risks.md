@@ -479,6 +479,142 @@ ADR-0017. Ribbon effects, Next's switch wait and field refill have no automated 
 | Runner, validation and render tests cover the logic; a browser checklist covers the rest | Detective | Partial |
 | Add a DOM harness (backlog t-80) | Corrective | Partial |
 
+## R26 · Order-book trades() reads the whole log from the deploy block
+- impact: 3
+- likelihood: 4
+- target: 3x2
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0018. Both venues' `trades()` run a topic-filtered log query from the venue's deploy block (a fork's `fromBlock` falls back to 0). Not a block scan, but the read grows with chain history until an indexer exists. The ruling allowing it is in the ADR-0018 plan ledger.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Topic-filtered query, not a block walk; limit applied to the result | Detective | Partial |
+| Index trades as they happen (backlog t-83) | Corrective | Partial |
+
+## R27 · Off-chain book, place and Trade-page polling re-read every open order and maker
+- impact: 3
+- likelihood: 4
+- target: 3x2
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0018. `book()` and `place` read every open order on a side and each maker's balance and allowance live (O(orders + makers) calls); the Trade page also re-reads My orders and balances every tick. Fine for a playground book, slow for a large one.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Reads are live on purpose so the book never shows liquidity the chain won't honour | Preventive | Strong |
+| Batch the reads, cache per block, and poll less (backlog t-83) | Corrective | Partial |
+
+## R28 · On-chain book lists grow with dead ids
+- impact: 3
+- likelihood: 3
+- target: 3x2
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0018. Cancelled ids stay in their level's queue (a cancel-spam attack at one price level makes every take skip them), emptied levels keep their ids, the hint walk is unbounded when the hint is bad, and `ordersOf` is unbounded. Gas grows with that history.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Dead ids are skipped per take; a good hint makes insert O(1); `maxLevels` caps the levels crossed | Preventive | Partial |
+| Compact queues on take and bound the walk and `ordersOf` (backlog t-82) | Corrective | Partial |
+
+## R29 · Push payments let a blacklisting or hook token block a price level
+- impact: 3
+- likelihood: 2
+- target: 3x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0018. `OrderBook` pays each maker from the taker's wallet in the taking transaction. A token that blacklists the maker or runs a hook that reverts makes every take across that order revert, blocking the level until the maker cancels.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Scope: playground tokens are plain OpenZeppelin ERC-20s | Preventive | Partial |
+| Skip a failing maker or move to pull payments (backlog t-82) | Corrective | Partial |
+
+## R30 · idbStore is tested only against fake-indexeddb
+- impact: 3
+- likelihood: 3
+- target: 3x2
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0018. The shared conformance suite runs `idbStore` on `fake-indexeddb`; no test runs it in a real browser. Known gaps: rows with undefined/NaN index keys are dropped (memory indexes them), the version is fixed at 1, and there is no `onblocked`/`versionchange` handling.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| One conformance suite for both stores; browser checklist in the task 11 report | Detective | Partial |
+| Run the suite in a real browser and handle upgrades (backlog t-85) | Corrective | Partial |
+
+## R31 · Off-chain orders: EOA signatures only, no per-maker nonce invalidation
+- impact: 3
+- likelihood: 2
+- target: 3x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0018. `Settlement.sol` verifies ECDSA signatures only (no ERC-1271 contract wallets) and a maker can cancel one order at a time but cannot invalidate all of them at once (no nonce floor).
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Playground scope: accounts are EOAs; noted in the contract NatSpec | Preventive | Partial |
+| ERC-1271 and a per-maker nonce floor (backlog t-84) | Corrective | Partial |
+
+## R32 · Attempts journal can miss a hash or keep a pending row
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0018. A broadcast transaction whose `wait` throws is journalled as an error without a hash, though it may land unseen; a closed tab leaves `pending` rows. Neither shows correctly as a failed or filled order.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| The journal row is written before sending, so the attempt is never lost | Detective | Partial |
+| Record the hash at broadcast and reconcile pending rows on open (backlog t-84) | Corrective | Partial |
+
+## R33 · Off-chain resting orders lose coverage when a settle spends the allowance
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0018. An off-chain order stays signed after the maker's allowance is spent by another settle; it silently becomes `unfunded` and leaves the book. The form's need includes the maker's other open orders (`Venue.committed`), but nothing re-approves later.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| The book and matching use the same live coverage, so no unhonourable liquidity shows | Preventive | Strong |
+| Warn the maker in My orders and offer Approve more (backlog t-84) | Corrective | Partial |
+
 ## Example design risk
 - impact: 5
 - likelihood: 3

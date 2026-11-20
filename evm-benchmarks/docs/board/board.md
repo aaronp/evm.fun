@@ -220,21 +220,62 @@ ADR-0016, R20: makeOffer records offer ids per maker so "your offers" reads the 
 ADR-0016, R22: measure the balance delta on deposit, or refuse such tokens, so escrow can't be left short.
 ```
 
+### Order book: contract list growth and push payments
+- id: t-82
+- tags: orderbook, backlog
+- history:
+  - To Do @ 2026-11-20T20:08:20Z
+
+```md
+ADR-0018, R28, R29: compact dead ids out of level queues, bound the hint walk and ordersOf, and skip a failing maker (or pull payments) so one token can't block a level.
+```
+
+### Order book: reads that grow with history
+- id: t-83
+- tags: orderbook, backlog
+- history:
+  - To Do @ 2026-11-20T20:08:20Z
+
+```md
+ADR-0018, R26, R27: index trades instead of reading the log from the deploy block; batch and cache the off-chain book's balance/allowance reads; poll the Trade page less.
+```
+
+### Order book: signatures, nonces and journal gaps
+- id: t-84
+- tags: orderbook, backlog
+- history:
+  - To Do @ 2026-11-20T20:08:20Z
+
+```md
+ADR-0018, R31, R32, R33: ERC-1271 and a per-maker nonce floor in Settlement; record the tx hash at broadcast and reconcile pending attempts; warn when an off-chain order loses coverage.
+```
+
+### Order book: idbStore in a real browser
+- id: t-85
+- tags: orderbook, backlog
+- history:
+  - To Do @ 2026-11-20T20:08:20Z
+
+```md
+ADR-0018, R30: run the store conformance suite in a real browser; keep rows with undefined/NaN index keys consistent with memoryStore; handle versionchange and blocked opens.
+```
+
 ## Doing
+
+## Done
 
 ### Order book: on-chain and off-chain venues, single chain
 - id: t-64
 - history:
   - To Do @ 2026-11-20T08:47:58.873Z
   - Doing @ 2026-11-20T17:21:04Z
+  - Done @ 2026-11-20T20:08:20Z
 
 ```md
 ADR-0018 (moved ahead of t-62/t-63; includes t-65's signed orders and off-chain matching). Spec: docs/superpowers/specs/2026-11-20-orderbook-design.md. Two venues behind one Venue API with a header switch.
 
 Limit orders rest in a contract, a taker’s transaction matches them, and settlement is atomic within that transaction. This is the Trade screen we designed, minus the settlement choices. It reuses step 2’s report and step 4’s pool price as a reference. Benchmark scenarios: book-match, plus book versus pool on the same trade.
 ```
-
-## Done
 
 ### Walkthroughs: auto-advance (?auto=5s)
 - id: t-81

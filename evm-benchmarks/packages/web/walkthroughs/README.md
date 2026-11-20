@@ -86,3 +86,5 @@ or Exit turns it off. It is kept for the browser tab's session, restarts on ever
 while a press is in flight and while a dialog's own Next is showing, restarts whenever you type in a field (so an edit
 is never cut off), and stops on an error or at the end. The countdown beside Next pauses and resumes it. Reduced motion: no ring, the
 countdown remains.
+
+In the app, an approve step approves what the form asks for (what the order needs, including the maker's other open orders), not the JSON `amount`; headless runs use the JSON amount, so leftover allowances can differ.

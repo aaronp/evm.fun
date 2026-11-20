@@ -906,3 +906,9 @@ Claude's calls (spec `docs/superpowers/specs/2026-11-20-orderbook-design.md`, "S
 - The off-chain book's fill/cancel truth is on-chain; the store holds signed orders and attempts only.
 - Off-chain liquidity reads each maker's balance and allowance live (O(makers) per book read; risk to log).
 - The comparison deliberately excludes off-chain matching time; reports must say so.
+- Store keys use `scope` (the app's chain id), not the EVM chain id: every playground chain is 31337 and a fresh chain deploys at the same addresses, so chain-id keys collided. A fork starts with an empty book and journal.
+- `Venue.committed(owner, asset)` was added: the off-chain form's allowance need must include the maker's other open orders, or Approve more unfunds older ones (on-chain it is 0, the escrow holds it).
+- A limit order whose matching is cut short by `maxLevels` would rest crossing the book, so the contract reverts instead (tested for the buy side); the package pre-checks and tells the user before sending.
+- The taker pays each maker per fill (ceil per fill) and escrows only its resting part: escrow-then-refund at one ceil can't cover the sum of per-fill ceils. Allowances need `quoteFor(up)` plus one raw unit per fill.
+- Attempts carry the decoded revert `reason`; failed orders show it as a badge. Expired orders show as cancelled.
+- O(n) reads and contract list growth are logged risks with backlog cards (R26-R33, t-82 to t-85).

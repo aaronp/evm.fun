@@ -206,3 +206,13 @@ backlog cards.
    worst price` and the unspent quote is refunded in the same tx. The form shows "You pay ≈ …, at most …" and the
    allowance check uses "at most". A book too thin to fill is caught before sending (form error, no tx); if it
    thinned in between, the contract reverts `BookTooThin(filled)` and that's a failed attempt with a report.
+
+## Amendments after the build
+
+- `Settlement.settle(Order[], bytes[], uint[])` has no `takerSide` parameter: the taker's side is the opposite of the makers' (the plan's interface won over the sketch).
+- The hint walk is unbounded, not "bounded" (a bad hint costs gas proportional to the levels walked; logged as R28).
+- Taker buys pay each maker per fill (ceil per fill) and escrow only the resting part: escrow-then-refund at one ceil can't cover the sum of per-fill ceils (the "buy escrows `amount × worst price`, unspent refunded" sentence in item 4 no longer applies).
+- Store keys use `scope` (the registry chain id), not the EVM chain id: all playground chains are 31337 and fresh chains deploy at the same addresses. The EVM chain id is only used for the EIP-712 domain.
+- A buy's allowance need = `quoteFor(amount, price, up)` + 1 raw unit per fill (per-fill ceils), so the form's "at most" and the pre-check use that.
+- `Venue.committed(owner, asset)` was added (off-chain: sum of the maker's open remaining give; on-chain: 0) so the form's need counts the maker's other open orders. `orders()` requires an `owner`, and `OrderInput` has an optional `slippageBps`.
+- Non-goals unchanged: no settlement choices, no fees.
