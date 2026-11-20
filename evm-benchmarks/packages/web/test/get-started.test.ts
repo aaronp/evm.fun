@@ -6,7 +6,7 @@ import { bundled } from '../walkthroughs'
 import { groups } from '../src/App'
 import { AppState } from '../src/state'
 import { AppBarProvider } from '../src/state/appBar'
-import { Editor, GetStarted, Walkthroughs, check, loadAll, resetEdit, saveEdit } from '../src/pages/GetStarted'
+import { Editor, begin, GetStarted, Walkthroughs, check, loadAll, resetEdit, saveEdit } from '../src/pages/GetStarted'
 
 const html = (el: any) => renderToString(el).replaceAll('<!-- -->', '')
 const w = bundled[0]!
@@ -48,4 +48,14 @@ test('a saved edit is listed as edited; Reset removes it', async () => {
 test('Setup group starts with Get started; page renders', () => {
   expect(groups[0].items.map(([n]) => n)).toEqual(['Get started', 'Accounts', 'Chains'])
   expect(html(h(MemoryRouter, null, h(AppState, null, h(AppBarProvider, null, h(GetStarted)))))).toContain('Guided walkthroughs')
+})
+
+test('Start and Restart hand the wizard the edited copy', async () => {
+  const edited = { ...w, title: 'My version' }, got: string[] = []
+  const wz = { start: async (x: any) => void got.push('start ' + x.title), restart: (x?: any) => void got.push('restart ' + x.title) }
+  await saveEdit(edited)
+  const e = (await loadAll()).find(x => x.w.id === w.id)!
+  begin(wz, e.w).start(); await begin(wz, e.w).restart()
+  expect(got).toEqual(['start My version', 'restart My version'])
+  await resetEdit(w.id)
 })

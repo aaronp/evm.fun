@@ -4,7 +4,7 @@ import { kv } from '../store/kv'
 import { useAppBar } from '../state/appBar'
 import { validate } from '../walkthrough/validate'
 import { clearRun, loadRun } from '../walkthrough/runs'
-import { useWizard } from '../walkthrough/wizard'
+import { useWizard, type Wizard } from '../walkthrough/wizard'
 import type { Walkthrough } from '../walkthrough/types'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
@@ -15,11 +15,18 @@ type Entry = { w: Walkthrough; edited: boolean; /** steps recorded in the saved 
 /** Bundled walkthroughs, each replaced by its edited copy when there is one, with progress from its saved run. */
 export async function loadAll(): Promise<Entry[]> {
   return Promise.all(bundled.map(async b => {
-    const edit = await kv.get<Walkthrough>(EDITS, b.id)
-    const w = edit ?? b, run = await loadRun(w.id)
-    return { w, edited: !!edit, done: run ? w.steps.filter(s => run.steps[s.id]).length : 0 }
+    try {
+      const edit = await kv.get<Walkthrough>(EDITS, b.id)
+      const w = edit ?? b, run = await loadRun(w.id)
+      return { w, edited: !!edit, done: run ? w.steps.filter(s => run.steps[s.id]).length : 0 }
+    } catch { return { w: b, edited: false, done: 0 } } // storage failed: the bundled copy, no progress
   }))
 }
+/** What Start/Resume and Restart do: both run the entry's copy (the edited one when there is one). */
+export const begin = (wz: Pick<Wizard, 'start' | 'restart'> | null, w: Walkthrough) => ({
+  start: () => wz?.start(w),
+  restart: async () => { await clearRun(w.id); wz?.restart(w) },
+})
 export const saveEdit = (w: Walkthrough) => kv.set(EDITS, w.id, w)
 export const resetEdit = (id: string) => kv.del(EDITS, id)
 
@@ -51,8 +58,15 @@ export function Editor({ id, initial, onSave, onCancel }: { id: string; initial:
 export function Walkthroughs({ entries, onChange }: { entries: Entry[]; onChange?: () => void }) {
   const wz = useWizard()
   const [open, setOpen] = useState<{ id: string; mode: 'view' | 'edit' }>()
+  const [err, setErr] = useState<string>()
+  /** runs a storage action; a failure is shown, success refreshes the list */
+  const attempt = async (f: () => Promise<unknown>) => {
+    setErr(undefined)
+    try { await f(); onChange?.() } catch (e) { setErr(`That didn't work: ${e instanceof Error ? e.message : String(e)}`) }
+  }
   return (
     <div className="space-y-4">
+      {err && <p role="alert" className="text-sm text-danger">{err}</p>}
       {entries.map(({ w, edited, done }) => {
         const shown = open?.id === w.id ? open.mode : undefined
         const json = JSON.stringify(w, null, 2)
@@ -65,14 +79,14 @@ export function Walkthroughs({ entries, onChange }: { entries: Entry[]; onChange
               <p className="mt-1 text-xs text-muted">{w.steps.length} steps{done > 0 && ` · ${done} of ${w.steps.length} done`}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => wz?.start(w)}>{done > 0 ? 'Resume' : 'Start'}</Button>
-              {done > 0 && <Button size="sm" variant="ghost" onClick={async () => { await clearRun(w.id); wz?.restart(w); onChange?.() }}>Restart</Button>}
+              <Button size="sm" onClick={begin(wz, w).start}>{done > 0 ? 'Resume' : 'Start'}</Button>
+              {done > 0 && <Button size="sm" variant="ghost" onClick={() => attempt(begin(wz, w).restart)}>Restart</Button>}
               <Button size="sm" variant="ghost" onClick={() => toggle('view')}>View JSON</Button>
               <Button size="sm" variant="ghost" onClick={() => toggle('edit')}>Edit JSON</Button>
-              {edited && <Button size="sm" variant="ghost" onClick={async () => { await resetEdit(w.id); setOpen(undefined); onChange?.() }}>Reset to original</Button>}
+              {edited && <Button size="sm" variant="ghost" onClick={() => attempt(async () => { await resetEdit(w.id); setOpen(undefined) })}>Reset to original</Button>}
             </div>
             {shown === 'view' && <pre className="max-h-96 overflow-auto rounded-lg border border-line bg-bg p-2 font-mono text-xs">{json}</pre>}
-            {shown === 'edit' && <Editor id={w.id} initial={json} onCancel={() => setOpen(undefined)} onSave={async nw => { await saveEdit(nw); setOpen(undefined); onChange?.() }} />}
+            {shown === 'edit' && <Editor id={w.id} initial={json} onCancel={() => setOpen(undefined)} onSave={nw => attempt(async () => { await saveEdit(nw); setOpen(undefined) })} />}
           </Card>
         )
       })}
@@ -84,7 +98,7 @@ export function GetStarted() {
   const [entries, setEntries] = useState<Entry[]>()
   const [n, setN] = useState(0)
   useAppBar({ title: 'Get started' })
-  useEffect(() => { loadAll().then(setEntries) }, [n])
+  useEffect(() => { loadAll().then(setEntries, () => setEntries(bundled.map(w => ({ w, edited: false, done: 0 })))) }, [n])
   return (
     <div className="space-y-4">
       <p className="text-sm text-text-2">Guided walkthroughs that drive the real pages, one step at a time.</p>
