@@ -14,15 +14,15 @@ const opposite = (s: Side): Side => (s === 'buy' ? 'sell' : 'buy')
 type Rec = { owner: Address; base: Address; quote: Address; side: number; status: number; closedBlock: bigint; price: bigint; amount: bigint; filled: bigint }
 
 /**
- * The on-chain venue: OrderBook.sol at `address`. `fromBlock` is the block it was deployed in (the caller has its
+ * The on-chain venue: OrderBook.sol at `address`; `scope` keys its attempts journal (see `journal`). `fromBlock` is the block it was deployed in (the caller has its
  * deploy tx); order and trade history is read with topic-filtered `eth_getLogs` from there.
  */
 export function onchainVenue(o: {
-  request: Request; chainId: number; address: Address; store: Store; fromBlock?: bigint; maxLevels?: number
+  request: Request; scope: string; address: Address; store: Store; fromBlock?: bigint; maxLevels?: number
 }): Venue {
   const book = getAddress(o.address), fromBlock = o.fromBlock ?? 0n, maxLevels = o.maxLevels ?? 20
   const client = createPublicClient({ transport: custom({ request: ({ method, params }) => o.request(method, params ?? []) }, { retryCount: 0 }) })
-  const attempts = journal(o.store, { chainId: o.chainId, venue: book })
+  const attempts = journal(o.store, { scope: o.scope, venue: book })
   const read = (functionName: string, args: unknown[]): Promise<any> =>
     client.readContract({ address: book, abi: orderBookAbi, functionName, args } as any)
   const tokens = new Map<Address, Promise<Token>>()

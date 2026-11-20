@@ -10,8 +10,8 @@ const U = (n: number) => BigInt(Math.round(n * 1e6)) // USD raw (6 dp)
 const T = 60_000
 type C = Parameters<Parameters<typeof withChain>[0]>[0]
 
-const venue = (c: C, store: Store = memoryStore(bookSchema), address: Address = c.settlement) =>
-  ({ store, v: offchainVenue({ request: c.request, chainId: c.chainId, address, store }), m: { base: c.gbp, quote: c.usd } })
+const venue = (c: C, store: Store = memoryStore(bookSchema), address: Address = c.settlement, scope = 'a') =>
+  ({ store, v: offchainVenue({ request: c.request, chainId: c.chainId, scope, address, store }), m: { base: c.gbp, quote: c.usd } })
 const bal = (c: C, t: Address, who: Address): Promise<bigint> => c.read(t, AssetToken.abi, 'balanceOf', [who])
 /** `other` ends up holding exactly `n` GBP (the rest goes to `maker`). */
 const holdGbp = async (c: C, n: bigint) => c.call(other, c.gbp, AssetToken.abi, 'transfer', [maker.address, (await bal(c, c.gbp, other.address)) - n])
@@ -160,9 +160,29 @@ test('Review Focus 4: two Settlement deploys and a second chain share a store bu
   expect((await v2.orders({ owner: maker.address }))).toEqual([])
   await withChain(async c2 => {
     expect([c2.settlement, c2.gbp, c2.usd]).toEqual([c.settlement, c.gbp, c.usd]) // same addresses, other chain id
-    const { v: v3 } = venue(c2, store)
+    const { v: v3 } = venue(c2, store, c.settlement, 'b')
     expect(await v3.book(m)).toEqual({ bids: [], asks: [] })
     expect(await v3.orders({ owner: maker.address })).toEqual([])
   }, 31338)
   expect((await v1.book(m)).asks.map(l => l.size)).toEqual([G(100)])
+}), T)
+
+test('two scopes on the same chain id and Settlement address (two playground chains) never see each other\'s orders or attempts', () => withChain(async c => {
+  const store = memoryStore(bookSchema)
+  const { v: x, m } = venue(c, store, c.settlement, 'x'), { v: y } = venue(c, store, c.settlement, 'y')
+  await x.place(c.walletOf(maker), { market: m, side: 'sell', type: 'limit', price: P('1.27'), amount: G(100) })
+  expect((await y.book(m)).asks).toEqual([])
+  expect(await y.orders({ owner: maker.address })).toEqual([])
+  // a failed settle on x (allowance dropped after the read) is journalled in x only
+  const approve = (n: bigint) => c.call(taker, c.usd, AssetToken.abi, 'approve', [c.settlement, n])
+  const r = await x.place(racing(c.walletOf(taker), () => approve(1n)), { market: m, side: 'buy', type: 'limit', price: P('1.27'), amount: G(10) })
+  expect(r.order?.status).toBe('failed')
+  expect((await x.orders({ owner: taker.address })).map(o => o.id)).toEqual([`tx:${r.tx}`])
+  expect(await y.orders({ owner: taker.address })).toEqual([])
+  // the same hash placed in y is its own row: cancelling in x leaves y's book alone
+  const before = await c.blockNumber()
+  await y.place(c.walletOf(other), { market: m, side: 'sell', type: 'limit', price: P('1.30'), amount: G(5) })
+  expect(await c.blockNumber()).toBe(before)
+  expect((await y.book(m)).asks.map(l => l.price)).toEqual([P('1.30')])
+  expect((await x.book(m)).asks.map(l => l.price)).toEqual([P('1.27')])
 }), T)

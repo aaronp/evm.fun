@@ -9,8 +9,8 @@ const factories: [string, () => Store][] = [
 ]
 
 const order = (id: string, venue: string, side: 'buy' | 'sell', price: bigint, seq: number, owner = '0xa') =>
-  ({ id, chainId: 1, venue, base: '0xb', quote: '0xq', side, price, owner, seq, priceKey: priceKey(side, price) })
-const book = (venue: string, side: string) => ({ from: [1, venue, '0xb', '0xq', side], to: [1, venue, '0xb', '0xq', side] })
+  ({ id, scope: 's1', venue, base: '0xb', quote: '0xq', side, price, owner, seq, priceKey: priceKey(side, price) })
+const book = (venue: string, side: string) => ({ from: ['s1', venue, '0xb', '0xq', side], to: ['s1', venue, '0xb', '0xq', side] })
 const ids = (r: any[]) => r.map(o => o.id)
 
 for (const [name, make] of factories) describe(name, () => {
@@ -30,13 +30,13 @@ for (const [name, make] of factories) describe(name, () => {
     const s = make()
     for (const [i, seq] of [[1, 3], [2, 1], [3, 2]] as const) await s.put('orders', `o${i}`, order(`o${i}`, 'v', 'sell', 10n, seq))
     await s.put('orders', 'z', order('z', 'v', 'sell', 10n, 9, '0xb'))
-    const a = { from: [1, 'v', '0xa'], to: [1, 'v', '0xa'] }
+    const a = { from: ['s1', 'v', '0xa'], to: ['s1', 'v', '0xa'] }
     expect(ids(await s.scan('orders', 'owner', a))).toEqual(['o2', 'o3', 'o1'])
     expect(ids(await s.scan('orders', 'owner', { ...a, reverse: true }))).toEqual(['o1', 'o3', 'o2'])
     expect(ids(await s.scan('orders', 'owner', { ...a, limit: 2 }))).toEqual(['o2', 'o3'])
-    expect(ids(await s.scan('orders', 'owner', { from: [1, 'v', '0xa', 2], to: [1, 'v', '0xa', 3] }))).toEqual(['o3', 'o1'])
-    expect(ids(await s.scan('orders', 'owner', { from: [1, 'v', '0xb'] }))).toEqual(['z'])
-    expect(ids(await s.scan('orders', 'owner', { to: [1, 'v', '0xa', 1] }))).toEqual(['o2'])
+    expect(ids(await s.scan('orders', 'owner', { from: ['s1', 'v', '0xa', 2], to: ['s1', 'v', '0xa', 3] }))).toEqual(['o3', 'o1'])
+    expect(ids(await s.scan('orders', 'owner', { from: ['s1', 'v', '0xb'] }))).toEqual(['z'])
+    expect(ids(await s.scan('orders', 'owner', { to: ['s1', 'v', '0xa', 1] }))).toEqual(['o2'])
     expect(ids(await s.scan('orders', 'owner', {}))).toEqual(['o2', 'o3', 'o1', 'z'])
   })
 
@@ -53,12 +53,12 @@ for (const [name, make] of factories) describe(name, () => {
     expect(priceKey('sell', big)).toHaveLength(78)
   })
 
-  test('two venues never cross a [chainId, venue] prefix', async () => {
+  test('two venues never cross a [scope, venue] prefix', async () => {
     const s = make()
     await s.put('orders', 'a', order('a', '0x1', 'sell', 5n, 1))
     await s.put('orders', 'b', order('b', '0x2', 'sell', 4n, 2))
-    await s.put('orders', 'c', { ...order('c', '0x1', 'sell', 3n, 3), chainId: 2 })
-    expect(ids(await s.scan('orders', 'book', { from: [1, '0x1'], to: [1, '0x1'] }))).toEqual(['a'])
+    await s.put('orders', 'c', { ...order('c', '0x1', 'sell', 3n, 3), scope: 's2' })
+    expect(ids(await s.scan('orders', 'book', { from: ['s1', '0x1'], to: ['s1', '0x1'] }))).toEqual(['a'])
   })
 
   test('overwriting a row moves it in its index', async () => {
@@ -67,8 +67,8 @@ for (const [name, make] of factories) describe(name, () => {
     await s.put('orders', 'b', order('b', 'v', 'sell', 6n, 2))
     await s.put('orders', 'a', order('a', 'v', 'sell', 9n, 1))
     expect(ids(await s.scan('orders', 'book', book('v', 'sell')))).toEqual(['b', 'a'])
-    await s.put('attempts', 'h', { chainId: 1, venue: 'v', owner: '0xa', seq: 1 })
-    expect(await s.scan('attempts', 'owner', { from: [1, 'v', '0xa'], to: [1, 'v', '0xa'] })).toHaveLength(1)
+    await s.put('attempts', 'h', { scope: 's1', venue: 'v', owner: '0xa', seq: 1 })
+    expect(await s.scan('attempts', 'owner', { from: ['s1', 'v', '0xa'], to: ['s1', 'v', '0xa'] })).toHaveLength(1)
   })
 
   test('mutating returned rows cannot corrupt the indexes', async () => {
@@ -89,7 +89,7 @@ for (const [name, make] of factories) describe(name, () => {
   test('reverse + limit take the top of the range', async () => {
     const s = make()
     for (let i = 1; i <= 5; i++) await s.put('orders', `o${i}`, order(`o${i}`, 'v', 'sell', 10n, i))
-    const a = { from: [1, 'v', '0xa'], to: [1, 'v', '0xa'] }
+    const a = { from: ['s1', 'v', '0xa'], to: ['s1', 'v', '0xa'] }
     expect(ids(await s.scan('orders', 'owner', { ...a, reverse: true, limit: 2 }))).toEqual(['o5', 'o4'])
     expect(ids(await s.scan('orders', 'owner', { ...a, limit: 0 }))).toEqual([])
   })

@@ -20,11 +20,11 @@ export const bookSchema: Schema = {
   orders: {
     indexes: {
       // a closed row (off-chain: filled, cancelled or expired on-chain) leaves the book's scan range
-      book: v => [v.chainId, v.venue, v.base, v.quote, v.closed ? 'closed' : v.side, v.priceKey, v.seq],
-      owner: v => [v.chainId, v.venue, v.owner, v.seq],
+      book: v => [v.scope, v.venue, v.base, v.quote, v.closed ? 'closed' : v.side, v.priceKey, v.seq],
+      owner: v => [v.scope, v.venue, v.owner, v.seq],
     },
   },
-  attempts: { indexes: { owner: v => [v.chainId, v.venue, v.owner, v.seq] } },
+  attempts: { indexes: { owner: v => [v.scope, v.venue, v.owner, v.seq] } },
   meta: { indexes: {} },
 }
 

@@ -16,9 +16,9 @@ test('placeCall / cancelCall encode OrderBook.place / cancel', () => {
   expect(cancelCall(a, 9n)).toEqual({ to: a, data: encodeFunctionData({ abi: OrderBook.abi, functionName: 'cancel', args: [9n] }) })
 })
 
-const setup = (c: { request: any; chainId: number; book: `0x${string}`; fromBlock: bigint; gbp: `0x${string}`; usd: `0x${string}` }) => {
+const setup = (c: { request: any; book: `0x${string}`; fromBlock: bigint; gbp: `0x${string}`; usd: `0x${string}` }) => {
   const store = memoryStore(bookSchema)
-  return { store, v: onchainVenue({ request: c.request, chainId: c.chainId, address: c.book, store, fromBlock: c.fromBlock }), m: { base: c.gbp, quote: c.usd } }
+  return { store, v: onchainVenue({ request: c.request, scope: 'a', address: c.book, store, fromBlock: c.fromBlock }), m: { base: c.gbp, quote: c.usd } }
 }
 
 test('limit orders rest and read back as the book, best first, with cumulative totals', () => withChain(async c => {

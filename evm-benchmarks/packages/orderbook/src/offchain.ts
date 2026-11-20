@@ -16,7 +16,7 @@ const WEEK = 7n * 24n * 3600n
 
 /** A signed order in the store. `closed` is written once the chain says it can never fill again (final state). */
 type Row = {
-  id: Hex; chainId: number; venue: Address; owner: Address; base: Address; quote: Address; side: Side; priceKey: string
+  id: Hex; scope: string; venue: Address; owner: Address; base: Address; quote: Address; side: Side; priceKey: string
   seq: number; price: bigint; amount: bigint; order: SignedOrder; sig: Hex; time: string
   closed?: { filled: bigint; cancelled: boolean }
 }
@@ -28,10 +28,10 @@ type State = { filled: bigint; cancelled: boolean; covered: bigint }
  * package matches, and the taker sends one `settle` to Settlement.sol at `address`. Fills and cancels are read from
  * the chain per order; each maker's give-asset min(balance, allowance to Settlement) covers their orders oldest first.
  */
-export function offchainVenue(o: { request: Request; chainId: number; address: Address; store: Store; maxLevels?: number }): Venue {
+export function offchainVenue(o: { request: Request; chainId: number; scope: string; address: Address; store: Store; maxLevels?: number }): Venue {
   const venue = getAddress(o.address), maxLevels = o.maxLevels ?? 20, domain = domainOf(o.chainId, venue)
   const client = createPublicClient({ transport: custom({ request: ({ method, params }) => o.request(method, params ?? []) }, { retryCount: 0 }) })
-  const attempts = journal(o.store, { chainId: o.chainId, venue })
+  const attempts = journal(o.store, { scope: o.scope, venue })
   const read = (functionName: 'filled' | 'cancelled', id: Hex): Promise<any> =>
     client.readContract({ address: venue, abi: settlementAbi, functionName, args: [id] })
   const erc20 = (t: Address, functionName: 'balanceOf' | 'allowance', args: Address[]): Promise<bigint> =>
@@ -42,14 +42,16 @@ export function offchainVenue(o: { request: Request; chainId: number; address: A
     decimals: await client.readContract({ address: t, abi: erc20Abi, functionName: 'decimals' }),
   }))()).get(t)!
   const giveOf = (r: { side: Side; base: Address; quote: Address }) => (r.side === 'buy' ? r.quote : r.base)
-  const mine = (r: Row | undefined): r is Row => !!r && r.chainId === o.chainId && r.venue === venue
+  const mine = (r: Row | undefined): r is Row => !!r && r.scope === o.scope && r.venue === venue
+  /** store key: the hash alone could repeat across scopes (same chain id and Settlement address) */
+  const key = (id: string) => `${o.scope}:${id}`
 
   /** The chain's view of every order of `owners` (one owner-index scan each; closed rows need no reads). */
   async function states(owners: Address[]) {
     const now = (await client.getBlock()).timestamp
     const rows: Row[] = [], out = new Map<string, State>()
     for (const owner of new Set(owners)) {
-      const p = [o.chainId, venue, owner]
+      const p = [o.scope, venue, owner]
       const all = await o.store.scan<Row>('orders', 'owner', { from: p, to: p })
       rows.push(...all)
       const live: (Row & State)[] = []
@@ -59,7 +61,7 @@ export function offchainVenue(o: { request: Request; chainId: number; address: A
         // ponytail: an expired order is closed as cancelled (Order has no 'expired' status); add one if the UI needs it
         if (cancelled || filled >= r.amount || r.order.expiry < now) {
           const closed = { filled, cancelled: cancelled || filled < r.amount }
-          await o.store.put('orders', r.id, { ...r, closed })
+          await o.store.put('orders', key(r.id), { ...r, closed })
           return out.set(r.id, { ...closed, covered: 0n })
         }
         live.push({ ...r, filled, cancelled, covered: 0n })
@@ -80,7 +82,7 @@ export function offchainVenue(o: { request: Request; chainId: number; address: A
 
   /** One side of a market's open orders, best first, at their covered size; unfunded ones have remaining 0. */
   async function side(m: Market, s: Side) {
-    const p = [o.chainId, venue, getAddress(m.base), getAddress(m.quote), s]
+    const p = [o.scope, venue, getAddress(m.base), getAddress(m.quote), s]
     // ponytail: reads every open order on the side (plus each maker's other orders) per call; page the scan by price
     // when books get deep — O(open orders) risk, ADR-0018
     const rows = await o.store.scan<Row>('orders', 'book', { from: p, to: p })
@@ -159,7 +161,7 @@ export function offchainVenue(o: { request: Request; chainId: number; address: A
       if (!rest) return { fills, tx }
 
       // the remainder rests as a signed order: nonce = the venue's store seq, expiry a week out
-      const counter = `orders:${o.chainId}:${venue}`
+      const counter = `orders:${o.scope}:${venue}`
       const seq = ((await o.store.get<number>('meta', counter)) ?? 0) + 1
       await o.store.put('meta', counter, seq)
       const order: SignedOrder = {
@@ -167,22 +169,22 @@ export function offchainVenue(o: { request: Request; chainId: number; address: A
         expiry: BigInt(Math.floor(Date.now() / 1000)) + WEEK,
       }
       const row: Row = {
-        id: hashOrder(order, domain), chainId: o.chainId, venue, owner, ...m, side: s, priceKey: priceKey(s, limit!), seq,
+        id: hashOrder(order, domain), scope: o.scope, venue, owner, ...m, side: s, priceKey: priceKey(s, limit!), seq,
         price: limit!, amount: rest, order, sig: await signOrder(wallet, order, domain), time: new Date().toISOString(),
       }
-      await o.store.put('orders', row.id, row)
+      await o.store.put('orders', key(row.id), row)
       return { order: toOrder(row, (await states([owner])).state.get(row.id)!), fills, tx }
     },
 
     async cancel(wallet, id) {
-      const r = await o.store.get<Row>('orders', id)
+      const r = await o.store.get<Row>('orders', key(id))
       if (!mine(r)) throw new Error(`No order ${id}`)
       const { rc } = await sendAndJournal(attempts, wallet, { cancel: id }, settlementCancelCall(venue, r.order))
       if (rc.status !== 'success') {
         const e = await replayError(o.request, rc.transactionHash, settlementAbi)
         throw new Error(`Cancel reverted: ${e.error}(${e.args.join(', ')})`)
       }
-      await o.store.put('orders', id, { ...r, closed: { filled: await read('filled', r.id as Hex), cancelled: true } })
+      await o.store.put('orders', key(id), { ...r, closed: { filled: await read('filled', r.id as Hex), cancelled: true } })
     },
 
     async orders(q) {
@@ -203,7 +205,7 @@ export function offchainVenue(o: { request: Request; chainId: number; address: A
       const [b, q] = [getAddress(m.base), getAddress(m.quote)]
       const out: Trade[] = []
       for (const l of await logs('Trade', {})) {
-        const r = await o.store.get<Row>('orders', l.args.orderHash)
+        const r = await o.store.get<Row>('orders', key(l.args.orderHash))
         if (mine(r) && r.base === b && r.quote === q) out.push(toTrade(l, opposite(r.side)))
       }
       return out.reverse().slice(0, limit)
@@ -230,7 +232,7 @@ export function offchainVenue(o: { request: Request; chainId: number; address: A
         const fix = fixFor(e, { spender: 'Settlement', give: side === 'buy' ? quote : base, need, base, amount })
         return { order: failedOrder(a), fills: [], failure: { tx, error: e.error, args: e.args, ...(fix && { fix }) } }
       }
-      const r = await o.store.get<Row>('orders', id)
+      const r = await o.store.get<Row>('orders', key(id))
       if (!mine(r)) throw new Error(`No order ${id}`)
       const [{ state }, fills, [c]] = await Promise.all([states([r.owner]), logs('Trade', { orderHash: id }), logs('OrderCancelled', { orderHash: id })])
       return {
