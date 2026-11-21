@@ -107,7 +107,7 @@ function runError(r: any): string | null {
   if (!isObj(r) || !str(r.walkthrough)) return 'not a run (an object with a walkthrough id)'
   if (!isStr(r.started) || typeof r.edited !== 'boolean') return 'needs started (string) and edited (boolean)'
   if (!isObj(r.values) || !Object.values(r.values).every(isObj)) return 'values must be an object of objects'
-  if (!isObj(r.steps) || !Object.values(r.steps).every(s => isObj(s) && isObj(s.inputs) && isStr(s.at)))
+  if (!isObj(r.steps) || !Object.values(r.steps).every(s => isObj(s) && isObj(s.inputs) && isObj(s.outputs) && isStr(s.at)))
     return 'steps must be an object of step records (inputs, outputs, at)'
   return null
 }

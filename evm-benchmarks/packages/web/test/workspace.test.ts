@@ -272,7 +272,7 @@ describe('validateWorkspace', () => {
     const run = { walkthrough: 'w', started: 'now', edited: false, values: { k: { address: B } }, steps: { s1: { inputs: {}, outputs: {}, at: 'now' } } }
     const f = await good()
     expect(errs({ ...f, walkthroughs: { edits: [], runs: [run] } })).toEqual([])
-    for (const bad of [{ steps: undefined }, { values: [] }, { started: 1 }, { edited: 'no' }, { steps: { s1: null } }, { steps: { s1: { at: 'x' } } }])
+    for (const bad of [{ steps: undefined }, { values: [] }, { started: 1 }, { edited: 'no' }, { steps: { s1: null } }, { steps: { s1: { at: 'x' } } }, { steps: { s1: { inputs: {}, at: 'now' } } }])
       expect(errs({ ...f, walkthroughs: { edits: [], runs: [{ ...run, ...bad }] } })[0]).toMatch(/walkthroughs\.runs\[0\]/)
   })
 
