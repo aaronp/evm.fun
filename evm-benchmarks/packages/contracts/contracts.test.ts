@@ -975,7 +975,7 @@ test('HashLock: lock pulls funds, stores terms, ids start at 1, emits Locked', (
   }), 60_000)
 
 test('HashLock: claim with the secret pays the recipient, stores secret and closedBlock, emits Claimed', () =>
-  withHashLock(async ({lockA, lockB, gbp, usd, maker, taker, secret, hash, bal, open, call, read, head}) => {
+  withHashLock(async ({lockA, gbp, taker, secret, bal, open, call, read, head}) => {
     await open((await head('A')) + 100n)
     const before = await bal('A', gbp, taker.address)
     const r = await call('A', taker, lockA, 'claim', [1n, secret])
@@ -985,11 +985,10 @@ test('HashLock: claim with the secret pays the recipient, stores secret and clos
     expect(await bal('A', gbp, lockA)).toBe(0n)
     const l = await read('A', lockA, 'locks', [1n])
     expect([l[6], l[7], l[8]]).toEqual([HStatus.Claimed, r.blockNumber, secret])
-    void lockB; void usd; void maker; void hash
   }), 60_000)
 
 test('HashLock: BadSecret, NotRecipient, NotSender, NotLocked (double claim, refund after claim, unknown id)', () =>
-  withHashLock(async ({lockA, maker, taker, secret, open, call, revertOf, head, mine}) => {
+  withHashLock(async ({lockA, maker, taker, secret, open, call, revertOf, head}) => {
     await open((await head('A')) + 100n)
     expect(await revertOf('A', taker, lockA, 'claim', [1n, `0x${'cd'.repeat(32)}`])).toMatchObject({errorName: 'BadSecret'})
     expect(await revertOf('A', maker, lockA, 'claim', [1n, secret])).toMatchObject({errorName: 'NotRecipient'})
@@ -998,7 +997,6 @@ test('HashLock: BadSecret, NotRecipient, NotSender, NotLocked (double claim, ref
     await call('A', taker, lockA, 'claim', [1n, secret])
     expect(await revertOf('A', taker, lockA, 'claim', [1n, secret])).toMatchObject({errorName: 'NotLocked', args: [1n, 2]})
     expect(await revertOf('A', maker, lockA, 'refund', [1n])).toMatchObject({errorName: 'NotLocked', args: [1n, 2]})
-    void mine
   }), 60_000)
 
 test('HashLock: timeout edges — claim at timeout-1 succeeds; refund at timeout-1 reverts NotExpired, at timeout succeeds', () =>
@@ -1006,6 +1004,7 @@ test('HashLock: timeout edges — claim at timeout-1 succeeds; refund at timeout
     const T = (await head('A')) + 20n
     await open(T)
     await call('A', maker, lockA, 'lock', [gbp, 50_000n, taker.address, keccak256(secret), T, '', zero, zero, 0n])
+    expect(await revertOf('A', maker, lockA, 'refund', [2n])).toMatchObject({errorName: 'NotExpired', args: [T]}) // head is well below T-1
     await mine('A', Number(T - 2n - (await head('A')))) // head = T-2, so the next block mined is T-1
     expect(await head('A')).toBe(T - 2n)
     const early = await call('A', maker, lockA, 'refund', [2n]) // mined at T-1
@@ -1057,6 +1056,7 @@ test('HashLock: BadLock — zero amount, zero recipient, timeout not in the futu
     expect(await bad([gbp, 1n, zero, ...ok.slice(3)])).toMatchObject({errorName: 'BadLock'})
     expect(await bad([...ok.slice(0, 4), 0n, ...ok.slice(5)])).toMatchObject({errorName: 'BadLock'})
     expect(await bad([...ok.slice(0, 4), await head('A'), ...ok.slice(5)])).toMatchObject({errorName: 'BadLock'}) // timeout == head: next block is head+1, which is after it
+    // simulation can't pin the boundary block, so check the mined receipt: reverted, in block n
     const n = (await head('A')) + 1n // the block the next tx is mined in
     expect(await call('A', maker, lockA, 'lock', [...ok.slice(0, 4), n, ...ok.slice(5)])).toMatchObject({status: 'reverted', blockNumber: n})
     expect(await bad([...ok.slice(0, 6), zero, usd, 5n])).toMatchObject({errorName: 'BadLock'})
@@ -1072,9 +1072,17 @@ test('HashLock: an answer lock (empty terms) locks, claims and refunds the same 
     expect(r.status).toBe('success')
     expect(await bal('B', usd, taker.address)).toBe(before - 127_000_000n)
     expect(await read('B', lockB, 'locks', [1n]).then((l) => [l[9], l[10], l[11], l[12]])).toEqual(['', zero, zero, 0n])
+    const makerBefore = await bal('B', usd, maker.address)
     const c = await call('B', maker, lockB, 'claim', [1n, secret])
     expect(c.status).toBe('success')
-    expect(await bal('B', usd, maker.address)).toBeGreaterThanOrEqual(127_000_000n)
+    expect(await bal('B', usd, maker.address)).toBe(makerBefore + 127_000_000n)
     expect(await revertOf('B', taker, lockB, 'refund', [1n])).toMatchObject({errorName: 'NotLocked', args: [1n, 2]})
-    void mine
+    // a second answer lock, never claimed: refund after the timeout returns the funds
+    const T2 = (await head('B')) + 3n
+    const b2 = await bal('B', usd, taker.address)
+    await call('B', taker, lockB, 'lock', [usd, 1_000_000n, maker.address, hash, T2, '', zero, zero, 0n])
+    expect(await revertOf('B', taker, lockB, 'refund', [2n])).toMatchObject({errorName: 'NotExpired', args: [T2]})
+    await mine('B', Number(T2 - (await head('B'))))
+    expect((await call('B', taker, lockB, 'refund', [2n])).status).toBe('success')
+    expect(await bal('B', usd, taker.address)).toBe(b2)
   }), 60_000)

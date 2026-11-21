@@ -1086,7 +1086,7 @@ Claude's calls (spec "Settled after the builder check"): Open is all-or-nothing 
 id: ADR-0021
 title: "Hash-locked cross-chain swap: the maker's lock is the offer, the page plays both parties"
 status: accepted
-date: 2026-11-22
+date: 2026-11-21
 tags: architecture, web, htlc
 decision: lock
 ---
@@ -1143,6 +1143,7 @@ Claude's calls (spec "Settled after the builder check" 3-4): `wantLock` added to
 
 ## Consequences
 - An answer pairs with its opening lock only on matching hash, sender/recipient swapped, the wanted token, an amount at least the wanted one, and the wanted lock on the wanted chain; anything else with that hash is ignored.
-- Timeouts are in blocks, so the page needs an "Advance N blocks" control; safe means the maker's remaining blocks exceed the taker's by 10.
+- Timeouts are in blocks, so the page needs an "Advance N blocks" control; safe means the maker's remaining blocks exceed the taker's by at least 10.
 - `locksFor` reads `Locked` logs from the contract's deploy block (the same unbounded read as ADR-0019's activity); logged as a risk and backlog card.
 - The secret is in the workspace file while unclaimed.
+- Fee-on-transfer and rebasing tokens are not supported: the recorded amount is paid out, not the amount received.
