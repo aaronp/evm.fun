@@ -105,7 +105,8 @@ describe('top bar', () => {
     const on = at('/accounts', h(FileMenu, { defaultOpen: true, actions: { new: noop, open: noop, save: noop, importChain: noop, exportChain: noop } }))
     for (const i of items) expect(on).toMatch(new RegExp(`role="menuitem"[^>]*>${i}<`))
     expect(on).not.toContain('aria-disabled="true"')
-    const why = at('/accounts', h(FileMenu, { defaultOpen: true, actions: { new: noop, exportReason: 'Select a chain first' } }))
+    const why = at('/accounts', h(FileMenu, { defaultOpen: true, actions: { new: noop, exportChain: noop, reasons: { exportChain: 'Select a chain first', new: 'A transaction is in flight' } } }))
+    expect(why).toMatch(/aria-disabled="true"[^>]*>New<span[^>]*>A transaction is in flight</)
     expect(why).toMatch(/aria-disabled="true"[^>]*>Export chain<span[^>]*>Select a chain first</)
   })
 

@@ -1,20 +1,19 @@
 import { bookSchema } from '@evmb/orderbook'
-import { createSnapshotStore } from '../chain/snapshots'
 import { ACCOUNTS_KEY } from '../store/accounts'
-import type { Run, Walkthrough } from '../walkthrough/types'
-import { ACTIVE_WALKTHROUGH, EDITS, RUNS, SELECTED_CHAIN, type WorkspaceEnv } from './build'
+import { ACTIVE_WALKTHROUGH, SELECTED_CHAIN, type WorkspaceEnv } from './build'
 
 /** The workspace env for New/Open: storage is written too (localStorage in the app). */
 export type WriteEnv = WorkspaceEnv & { storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> }
 
-/** Deletes all workspace data: every chain (benchmark ones too) with its records and persisted state, snapshots,
- *  walkthrough edits/runs/active id, order-book rows, accounts and the selected chain. Per-browser keys stay. */
-export async function clearWorkspace(env: WriteEnv) {
+/** Deletes all workspace data: the storage keys first (accounts, selected chain, active walkthrough — the likeliest
+ *  failure, before anything is destroyed), then every chain (benchmark ones too) with its persisted state, all of kv
+ *  (records, snapshots, walkthrough edits/runs, incl. orphans) and every order-book row. Per-browser keys stay.
+ *  `bestEffort` (restoring a backup): carry on past each item's error. */
+export async function clearWorkspace(env: WriteEnv, o: { bestEffort?: boolean } = {}) {
   const { registry, kv, book, storage } = env
-  for (const c of await registry.list()) await registry.remove(c.id)
-  await createSnapshotStore(kv).pruneOrphans(new Set()) // every chain is gone, so every snapshot
-  for (const w of await kv.list<Walkthrough>(EDITS)) await kv.del(EDITS, w.id)
-  for (const r of await kv.list<Run>(RUNS)) await kv.del(RUNS, r.walkthrough)
-  for (const t of Object.keys(bookSchema)) for (const { key } of await book.entries(t)) await book.del(t, key)
-  for (const k of [ACCOUNTS_KEY, SELECTED_CHAIN, ACTIVE_WALKTHROUGH]) storage.removeItem(k)
+  const step = async (f: () => unknown) => { try { await f() } catch (e) { if (!o.bestEffort) throw e } }
+  for (const k of [ACCOUNTS_KEY, SELECTED_CHAIN, ACTIVE_WALKTHROUGH]) await step(() => storage.removeItem(k))
+  for (const c of await registry.list().catch(e => { if (o.bestEffort) return []; throw e })) await step(() => registry.remove(c.id))
+  await step(() => kv.clear())
+  for (const t of Object.keys(bookSchema)) await step(async () => { for (const { key } of await book.entries(t)) await book.del(t, key) })
 }

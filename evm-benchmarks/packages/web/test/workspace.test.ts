@@ -9,7 +9,7 @@ import { createContractsRegistry } from '../src/contracts/registry'
 import { createWebAssets } from '../src/assets/registry'
 import { ACTIVE_WALKTHROUGH, RUNS, SELECTED_CHAIN, buildWorkspace, encodeWorkspace, saveWorkspace } from '../src/workspace/build'
 import { clearWorkspace } from '../src/workspace/clear'
-import { loadWorkspace, newWorkspace, openWorkspace, selectionHash } from '../src/workspace/load'
+import { NOT_KEEPING, loadWorkspace, newWorkspace, openWorkspace, selectionHash } from '../src/workspace/load'
 import { syncDecision } from '../src/links'
 import { checks, done, newRun, perform, record } from '../src/walkthrough/run'
 import type { Run } from '../src/walkthrough/types'
@@ -26,7 +26,10 @@ const sign = (nonce: number) => privateKeyToAccount(KEY).signTransaction({
 })
 const rec = { address: `0x${'12'.repeat(20)}` as const, name: 'Swap', abi: [], deployer: acct.address, txHash: `0x${'34'.repeat(32)}` as const }
 
-function env(kv: Kv = createKv()) {
+function env(base: Kv = createKv()) {
+  // kv as on a persistent browser (Bun has no IndexedDB, so a real kv is memory-only); `disk.kept = false` = it dropped to memory
+  const disk = { kept: true }
+  const kv: Kv = Object.create(base, { persistent: { get: () => disk.kept } })
   const stores = new Map<string, any>()
   const registry = createChainRegistry({
     kv,
@@ -40,7 +43,7 @@ function env(kv: Kv = createKv()) {
   // accounts as the app keeps them: in storage (the app reloads after New/Open, and the accounts module re-reads it)
   const ws = { registry, kv, get accounts(): Account[] { return JSON.parse(local.get(ACCOUNTS_KEY) ?? '[]') }, book, storage, engine: ENGINE }
   const disposeAll = async () => { for (const c of await registry.list()) await registry.peek(c.id)?.dispose() }
-  return { kv, registry, local, book, ws, disposeAll }
+  return { kv, disk, registry, local, book, ws, disposeAll }
 }
 
 describe('buildWorkspace', () => {
@@ -532,6 +535,63 @@ describe('New / Open / Save', () => {
     expect(await openWorkspace(encodeWorkspace(f), e.ws)).toEqual({ ok: true })
     expect((await e.registry.list())[0]!.source).toEqual({ kind: 'import', fileName: 'x.json', height: 0 })
     await e.disposeAll()
+  })
+
+  test('New and Open are refused up front when this browser keeps nothing; nothing changes', async () => {
+    const e = env()
+    await populated(e)
+    const before = await buildWorkspace(e.ws)
+    e.disk.kept = false
+    expect(await newWorkspace(e.ws)).toEqual({ error: NOT_KEEPING })
+    expect(await openWorkspace(encodeWorkspace(before), e.ws)).toEqual({ error: NOT_KEEPING })
+    expect(same(await buildWorkspace(e.ws))).toEqual(same(before))
+    await e.disposeAll()
+  })
+
+  test('kv dropping to memory part-way through an Open is a failure offering both downloads, never {ok}', async () => {
+    const other = env()
+    for (const n of ['a', 'b', 'c']) await other.registry.create(n, 'plain', [])
+    const text = encodeWorkspace(await buildWorkspace(other.ws))
+    await other.disposeAll()
+    const e = env()
+    await populated(e)
+    const before = await buildWorkspace({ ...e.ws, account: acct.address })
+    const set = e.kv.set
+    let n = 0
+    e.kv.set = (...a) => { if (++n === 3) e.disk.kept = false; return set(...a) } // the write "succeeds" — in memory
+    const r = await openWorkspace(text, { ...e.ws, account: acct.address })
+    if (!('error' in r)) throw new Error('expected a failure')
+    expect(r.error).toMatch(/stopped keeping data/)
+    expect(r.failedText).toBe(text)
+    expect(same(valid(r.previousText!))).toEqual(same(before))
+    expect(r.restoreError).toMatch(/stopped keeping data/) // restored into memory only: the download is the way back
+    // New the same way
+    const e2 = env()
+    await populated(e2)
+    e2.registry.remove = async () => { e2.disk.kept = false } // the clear "succeeds" in memory
+    const r2 = await newWorkspace(e2.ws)
+    expect(r2).toMatchObject({ error: expect.stringMatching(/stopped keeping data/), previousText: expect.any(String) })
+    await e.disposeAll(); await e2.disposeAll()
+  })
+
+  test('clear removes the storage keys first; a best-effort clear carries on past errors; orphan records go too', async () => {
+    const e = env()
+    const [x, y] = await populated(e)
+    await createContractsRegistry(e.kv).add('gone-chain', rec) // records of a chain no longer stored
+    const remove = e.registry.remove
+    e.registry.remove = async id => { if (id === x!.info.id) throw new Error('locked'); return remove(id) }
+    await expect(clearWorkspace(e.ws)).rejects.toThrow('locked')
+    expect(e.local.get(ACCOUNTS_KEY)).toBeUndefined() // the storage keys went before any chain
+    expect(e.registry.peek(y!.info.id)).toBeDefined() // nothing after the failure
+    await clearWorkspace(e.ws, { bestEffort: true })
+    expect(e.registry.peek(y!.info.id)).toBeUndefined() // carried on past x
+    expect(e.registry.peek(x!.info.id)).toBeDefined() // only the failing one is still running…
+    expect(await e.registry.list()).toEqual([]) // …and its rows went with the rest of kv
+    expect(await createContractsRegistry(e.kv).list('gone-chain')).toEqual([])
+    expect(await e.kv.list('snapshots')).toEqual([])
+    e.registry.remove = remove
+    await e.disposeAll()
+    await x!.dispose()
   })
 
   test('after Open the address carries the loaded selection, not a stale ?chain=', () => {

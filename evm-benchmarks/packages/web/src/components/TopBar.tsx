@@ -5,17 +5,18 @@ import { ChainPicker } from './ChainPicker'
 import { Menu } from './Menu'
 import { ProfileMenu } from './ProfileMenu'
 
-/** File menu handlers; an item without one shows disabled. `exportReason`: why Export chain is disabled, shown beside it. */
-export type FileActions = Partial<Record<'new' | 'open' | 'save' | 'importChain' | 'exportChain', () => void>> & { exportReason?: string }
+type FileItem = 'new' | 'open' | 'save' | 'importChain' | 'exportChain'
+/** File menu handlers; an item without one shows disabled. `reasons`: why an item is disabled, shown beside it (and disables it). */
+export type FileActions = Partial<Record<FileItem, () => void>> & { reasons?: Partial<Record<FileItem, string>> }
 
 export function FileMenu({ actions = {}, defaultOpen }: { actions?: FileActions; defaultOpen?: boolean }) {
+  const item = (id: FileItem, text: string, separated?: boolean) => {
+    const why = actions.reasons?.[id]
+    return { key: id, separated, label: why ? <>{text}<span className="ml-auto pl-3 text-[11px] text-muted">{why}</span></> : text, onSelect: why ? undefined : actions[id] }
+  }
   return (
     <Menu label="File" trigger="File" defaultOpen={defaultOpen} items={[
-      { key: 'new', label: 'New', onSelect: actions.new },
-      { key: 'open', label: 'Open…', onSelect: actions.open },
-      { key: 'save', label: 'Save', onSelect: actions.save },
-      { key: 'import', label: 'Import chain…', onSelect: actions.importChain, separated: true },
-      { key: 'export', label: actions.exportReason ? <>Export chain<span className="ml-auto pl-3 text-[11px] text-muted">{actions.exportReason}</span></> : 'Export chain', onSelect: actions.exportChain },
+      item('new', 'New'), item('open', 'Open…'), item('save', 'Save'), item('importChain', 'Import chain…', true), item('exportChain', 'Export chain'),
     ]} />
   )
 }

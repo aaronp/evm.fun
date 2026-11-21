@@ -44,18 +44,25 @@ export async function loadWorkspace(f: WorkspaceFile, env: WriteEnv) {
   if (selected) storage.setItem(SELECTED_CHAIN, selected)
 }
 
-/** Clear, then load our own earlier Save; the error if that fails too. */
+export const NOT_KEEPING = "This browser isn't keeping data (private window or storage blocked), so New and Open are off. Save still works."
+const LOST = "This browser stopped keeping data (storage full or blocked), so the workspace wasn't kept"
+/** Storage fell back to memory: what was just written would be gone after a reload. */
+const kept = (env: WriteEnv) => { if (!env.kv.persistent) throw new Error(LOST) }
+
+/** Clear (best effort: it may be what just failed), then load our own earlier Save; the error if that fails too. */
 async function restore(text: string, env: WriteEnv): Promise<string | undefined> {
   try {
-    await clearWorkspace(env)
+    await clearWorkspace(env, { bestEffort: true })
     const p = parseJson(text)
     if ('error' in p) throw new Error(p.error)
     await loadWorkspace(p.value as WorkspaceFile, env)
+    kept(env)
   } catch (e) { return message(e) }
 }
 
 /** New: optionally Save first (`download`), then clear. If the clear fails part-way, the previous workspace is restored. */
 export async function newWorkspace(env: WriteEnv, o: { download?: Download } = {}): Promise<OpenResult> {
+  if (!env.kv.persistent) return { error: NOT_KEEPING }
   let backup: { name: string; text: string } | undefined
   try { backup = await saveWorkspace(env) } catch (e) {
     if (o.download) return { error: message(e) } // "Save first" must not clear unsaved
@@ -64,6 +71,7 @@ export async function newWorkspace(env: WriteEnv, o: { download?: Download } = {
   if (backup) o.download?.(backup)
   try {
     await clearWorkspace(env)
+    kept(env)
     return { ok: true }
   } catch (e) {
     if (!backup) return { error: `Couldn't clear: ${message(e)}` }
@@ -77,12 +85,14 @@ export async function newWorkspace(env: WriteEnv, o: { download?: Download } = {
 export async function openWorkspace(text: string, env: WriteEnv, o: { download?: Download } = {}): Promise<OpenResult> {
   const v = validateWorkspace(text, { engine: env.engine, crossEngineOk: CROSS_ENGINE_OK })
   if ('errors' in v) return v
+  if (!env.kv.persistent) return { error: NOT_KEEPING }
   let backup: { name: string; text: string }
   try { backup = await saveWorkspace(env) } catch (e) { return { error: message(e) } } // nothing changed
   o.download?.(backup)
   try {
     await clearWorkspace(env)
     await loadWorkspace(v.ok, env)
+    kept(env)
     return { ok: true }
   } catch (e) {
     const restoreError = await restore(backup.text, env)

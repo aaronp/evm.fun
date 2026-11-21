@@ -10,6 +10,8 @@ export type Kv = {
   set(store: string, key: string, value: unknown, opts?: { strict?: boolean }): Promise<void>
   del(store: string, key: string): Promise<void>
   list<T>(store: string): Promise<T[]>
+  /** Delete everything (kv holds only workspace data; per-browser settings live in localStorage). */
+  clear(): Promise<void>
   persistent: boolean
   /** Resolves once the IndexedDB open has settled (either way). */
   ready: Promise<void>
@@ -89,6 +91,7 @@ export function createKv(): Kv {
       os => req(os.getAll(IDBKeyRange.bound(s + SEP, s + SEP + '￿'))) as Promise<T[]>,
       () => [...mem].filter(([key]) => key.startsWith(s + SEP)).map(([, v]) => v as T),
     )
+  kv.clear = () => run(async os => { mem.clear(); await req(os.clear()) }, () => mem.clear(), true)
   return kv
 }
 

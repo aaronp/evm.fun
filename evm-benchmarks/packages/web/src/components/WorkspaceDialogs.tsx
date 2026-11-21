@@ -5,8 +5,11 @@ import { kv } from '../store/kv'
 import { accounts } from '../store/accounts'
 import { bookStore } from '../orderbook/store'
 import { useApp } from '../state'
+import { useWizard } from '../walkthrough/wizard'
+import { useNavigate } from 'react-router-dom'
 import { saveWorkspace } from '../workspace/build'
-import { newWorkspace, openWorkspace, selectionHash, type OpenResult } from '../workspace/load'
+import { NOT_KEEPING, newWorkspace, openWorkspace, selectionHash, type OpenResult } from '../workspace/load'
+import { SELECTED_CHAIN } from '../workspace/build'
 import { validateWorkspace } from '../workspace/validate'
 import type { WorkspaceFile } from '../workspace/types'
 import { Button } from '../ui/button'
@@ -38,15 +41,14 @@ type View =
   | { kind: 'failed'; name?: string; r: Extract<OpenResult, { error: string }> }
   | { kind: 'message'; tone: 'success' | 'warn'; text: string }
 
-/** Reload at the given selection: the app re-reads accounts and chains, and a stale `?chain=&as=` can't win (state.tsx lets a link win). */
-function reload(sel?: WorkspaceFile['selection'], people: WorkspaceFile['accounts'] = []) {
-  history.replaceState(null, '', selectionHash(location.hash, sel, people))
-  location.reload()
-}
+/** kv and the accounts store are on disk: a reload keeps what New/Open wrote. */
+const keeping = () => kv.persistent && accounts.persistent
 
 /** File menu handlers and their dialogs (New, Open…, Save, Import chain…, Export chain). */
 export function useWorkspaceDialogs(): { actions: FileActions; dialogs: ReactNode } {
-  const { chain, account } = useApp()
+  const { chain, account, busy: txBusy, refresh, selectChain } = useApp()
+  const wz = useWizard()
+  const nav = useNavigate()
   const [view, setView] = useState<View>()
   const dialog = useRef<HTMLDialogElement>(null)
   const openInput = useRef<HTMLInputElement>(null), importInput = useRef<HTMLInputElement>(null)
@@ -59,6 +61,14 @@ export function useWorkspaceDialogs(): { actions: FileActions; dialogs: ReactNod
     if (view && d && !d.open) d.showModal()
     if (!view && d?.open) d.close()
   }, [view])
+
+  /** Reload at the given selection: the app re-reads accounts and chains, and a stale `?chain=&as=` can't win (state.tsx
+   *  lets a link win). Never when storage isn't kept (a reload would come back empty): re-read in place instead. */
+  function reload(sel?: WorkspaceFile['selection'], people: WorkspaceFile['accounts'] = []) {
+    if (!keeping()) { setView(undefined); void refresh().then(() => selectChain(storage.getItem(SELECTED_CHAIN) ?? undefined)); return }
+    history.replaceState(null, '', selectionHash(location.hash, sel, people))
+    location.reload()
+  }
 
   async function save() {
     setView({ kind: 'busy', text: 'Saving…' })
@@ -83,13 +93,16 @@ export function useWorkspaceDialogs(): { actions: FileActions; dialogs: ReactNod
     setView(r.failedText ? { kind: 'failed', name: o.name, r } : { kind: 'message', tone: 'warn', text: r.error })
   }
 
-  const exportReason = !chain ? 'Select a chain first' : chain.info.ephemeral ? "Benchmark chains aren't exported" : undefined
+  const busyWhy = txBusy ? 'A transaction is in flight' : wz?.busy ? 'A walkthrough step is running' : undefined
+  const exportWhy = !chain ? 'Select a chain first' : chain.info.ephemeral ? "Benchmark chains aren't exported" : undefined
+  const refuse = () => setView({ kind: 'message', tone: 'warn', text: NOT_KEEPING })
   const actions: FileActions = {
-    new: () => setView({ kind: 'new' }),
-    open: () => openInput.current?.click(),
+    new: () => keeping() ? setView({ kind: 'new' }) : refuse(),
+    open: () => keeping() ? openInput.current?.click() : refuse(),
     save: () => seen ? void save() : setView({ kind: 'keys' }),
     importChain: () => importInput.current?.click(),
-    ...(exportReason ? { exportReason } : { exportChain: () => { exportChain(chain!).catch(e => setView({ kind: 'message', tone: 'warn', text: `Export failed: ${message(e)}` })) } }),
+    exportChain: () => { exportChain(chain!).catch(e => setView({ kind: 'message', tone: 'warn', text: `Export failed: ${message(e)}` })) },
+    reasons: { new: busyWhy, open: busyWhy, importChain: busyWhy, exportChain: exportWhy },
   }
 
   const close = () => setView(undefined)
@@ -100,7 +113,7 @@ export function useWorkspaceDialogs(): { actions: FileActions; dialogs: ReactNod
     <>
       <input ref={openInput} type="file" hidden accept=".json,application/json" aria-label="Open workspace file"
         onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) pick(f).catch(err => setView({ kind: 'message', tone: 'warn', text: message(err) })) }} />
-      <ImportButton inputRef={importInput} onFlash={f => setView({ kind: 'message', ...f })} onImported={() => {}} />
+      <ImportButton inputRef={importInput} onFlash={f => setView({ kind: 'message', ...f })} onImported={(id, funded) => { if (!funded) nav('/chains', { state: { noFunds: id } }) }} />
       <dialog ref={dialog} aria-labelledby="ws-title" aria-busy={busy || undefined}
         onCancel={e => { if (busy) e.preventDefault() }} // never close while clearing or loading
         onClose={() => { if (failed) reload(); else setView(undefined) }} // after a failed Open the restored workspace needs a fresh app
