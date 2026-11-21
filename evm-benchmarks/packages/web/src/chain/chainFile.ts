@@ -19,8 +19,24 @@ export const CROSS_ENGINE_OK = true
 // Keys of a webevm 0.9.1 dump (see the ADR); a wrong-shape dump is rejected before anything is created.
 const DUMP_KEYS = ['version', 'chainId', 'accounts', 'code', 'storage', 'blocks', 'receipts', 'transactions']
 
-export const encodeChainFile = (f: ChainFile): string =>
-  JSON.stringify(f, (_k, v) => (typeof v === 'bigint' ? { $bigint: v.toString() } : v))
+/** JSON with bigints as `{ $bigint: "<decimal>" }` (chain and workspace files). */
+export const encodeJson = (v: unknown): string =>
+  JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? { $bigint: x.toString() } : x))
+export const encodeChainFile = (f: ChainFile): string => encodeJson(f)
+
+/** Parse `encodeJson` output back, reviving bigints; an error string for bad JSON or a bad `$bigint`. */
+export function parseJson(text: string): { value: unknown } | { error: string } {
+  let badBigint = false
+  const reviver = (_k: string, v: any) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).length !== 1 || !('$bigint' in v)) return v
+    if (typeof v.$bigint === 'string' && /^-?\d+$/.test(v.$bigint)) return BigInt(v.$bigint)
+    badBigint = true
+    return v
+  }
+  let value: unknown
+  try { value = JSON.parse(text, reviver) } catch { return { error: 'Not valid JSON (the file may be truncated)' } }
+  return badBigint ? { error: 'Invalid $bigint value' } : { value }
+}
 
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const isStr = (v: unknown) => typeof v === 'string'
@@ -71,16 +87,9 @@ export function decodeChainFile(text: string, opts: { engine: string; crossEngin
 
 function decode(text: string, opts: { engine: string; crossEngineOk: boolean }): Decoded {
   const bad = (error: string) => ({ ok: false as const, error })
-  let badBigint = false
-  const reviver = (_k: string, v: any) => {
-    if (!v || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).length !== 1 || !('$bigint' in v)) return v
-    if (isStr(v.$bigint) && /^-?\d+$/.test(v.$bigint)) return BigInt(v.$bigint)
-    badBigint = true
-    return v
-  }
-  let f: any
-  try { f = JSON.parse(text, reviver) } catch { return bad('Not valid JSON (the file may be truncated)') }
-  if (badBigint) return bad('Invalid $bigint value')
+  const p = parseJson(text)
+  if ('error' in p) return bad(p.error)
+  const f: any = p.value
   if (!isObj(f)) return bad('Not a chain file: expected a JSON object')
   if (f.format !== 'evm.fun/chain') return bad(`Wrong format: expected "evm.fun/chain"`)
   if (typeof f.version === 'number' && f.version > 1) return bad(`Unsupported version ${show(f.version)}: made by a newer version of evm.fun`)

@@ -101,6 +101,25 @@ for (const [name, make] of factories) describe(name, () => {
     for (const r of rows) expect(Object.keys(r).filter(k => k.startsWith('__ix_'))).toEqual([])
   })
 
+  test('entries lists every row of a table (incl. meta) with its key, without __ix_ fields', async () => {
+    const s = make()
+    expect(await s.entries('orders')).toEqual([])
+    await s.put('orders', 'b', order('b', 'v', 'buy', 5n, 2))
+    await s.put('orders', 'a', order('a', 'v', 'sell', 7n, 1))
+    await s.put('meta', 'seq', { n: 3 })
+    await s.put('attempts', 'h', { scope: 's1', venue: 'v', owner: '0xa', seq: 1 })
+    await s.del('orders', 'b')
+    await s.put('orders', 'c', order('c', 'w', 'sell', 1n, 3))
+    const rows = (await s.entries('orders')).sort((x, y) => x.key.localeCompare(y.key))
+    expect(rows.map(r => r.key)).toEqual(['a', 'c'])
+    expect((rows[0]!.value as any).price).toBe(7n)
+    for (const r of rows) expect(Object.keys(r.value as object).filter(k => k.startsWith('__ix_'))).toEqual([])
+    expect(await s.entries('meta')).toEqual([{ key: 'seq', value: { n: 3 } }])
+    expect(await s.entries('attempts')).toHaveLength(1)
+    ;(rows[0]!.value as any).price = 0n // returned rows are copies
+    expect((await s.get<any>('orders', 'a'))?.price).toBe(7n)
+  })
+
   test('priceKey rejects out-of-range prices', () => {
     expect(() => priceKey('sell', -1n)).toThrow()
     expect(() => priceKey('buy', 2n ** 256n)).toThrow()

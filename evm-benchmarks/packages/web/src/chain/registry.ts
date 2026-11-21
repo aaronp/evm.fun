@@ -68,9 +68,11 @@ export function createChainRegistry(deps: {
      * `source` is trusted as given, so an import caller must build it from the real file name and height,
      * never from a `source` inside the file.
      */
-    async createFrom(dump: unknown, o: { name: string; type: ChainType; contracts: ContractRecord[]; assets?: Asset[]; source: ChainSource }): Promise<ChainHandle> {
+    async createFrom(dump: unknown, o: { name: string; type: ChainType; contracts: ContractRecord[]; assets?: Asset[]; source: ChainSource; /** keep this id (opening a workspace); refused if it exists */ id?: string }): Promise<ChainHandle> {
       assertRoom()
-      const info: ChainInfo = { id: crypto.randomUUID(), name: o.name, type: o.type, createdAt: new Date().toISOString(), source: o.source }
+      // an existing id must be refused up front: the failure cleanup below would delete that chain's data
+      if (o.id !== undefined && (live.has(o.id) || opening.has(o.id) || await deps.kv.get(STORE, o.id))) throw new Error(`A chain with id ${o.id} already exists`)
+      const info: ChainInfo = { id: o.id ?? crypto.randomUUID(), name: o.name, type: o.type, createdAt: new Date().toISOString(), source: o.source }
       const h = build(info)
       try {
         await h.approach.setup({ prefund: {}, dump })
@@ -122,6 +124,13 @@ export function createChainRegistry(deps: {
         opening.set(id, p)
       }
       return p
+    },
+    /** Dispose a live chain's engine, keeping everything saved; it can be opened again. No-op if not live. */
+    async close(id: string) {
+      const h = live.get(id)
+      if (!h) return
+      live.delete(id)
+      await h.dispose()
     },
     async remove(id: string) {
       await live.get(id)?.dispose()

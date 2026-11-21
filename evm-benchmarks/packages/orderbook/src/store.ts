@@ -7,6 +7,8 @@ export interface Store {
   put(table: string, key: string, value: unknown): Promise<void>
   del(table: string, key: string): Promise<void>
   scan<T>(table: string, index: string, range: Range): Promise<T[]>
+  /** Every row of `table` with its key (for whole-store export). */
+  entries(table: string): Promise<{ key: string; value: unknown }[]>
 }
 
 const MAX = 2n ** 256n - 1n
@@ -82,6 +84,7 @@ export function memoryStore(schema: Schema): Store {
         out.push(structuredClone(m.get(arr[reverse ? end - 1 - k : start + k]!.key)))
       return out
     },
+    async entries(t) { return [...table(t)].map(([key, v]) => ({ key, value: structuredClone(v) })) },
   }
 }
 
@@ -131,6 +134,11 @@ export function idbStore(name: string, schema: Schema, idb: IDBFactory = indexed
           out.push(strip(c.value)); c.continue()
         }
       })
+    },
+    async entries(t) {
+      const { os: s } = await os(t, 'readonly')
+      const [keys, values] = await Promise.all([req(s.getAllKeys()), req(s.getAll())])
+      return keys.map((key, i) => ({ key: key as string, value: strip(values[i]) }))
     },
   }
 }

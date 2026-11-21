@@ -14,6 +14,7 @@ function open(): Store {
     put: async (t, k, v) => (await use).put(t, k, v),
     del: async (t, k) => (await use).del(t, k),
     scan: async (t, i, r) => (await use).scan(t, i, r),
+    entries: async t => (await use).entries(t),
   }
 }
 
