@@ -5,6 +5,7 @@ import { balances, nativeAsset } from '@evmb/assets'
 import { gasShortfall, signAndSend } from '../src/tx/send'
 import { gasFix, linkedSend } from '../src/fix'
 import { fixReturned } from '../src/walkthrough/wizard'
+import { pairsTokenFix } from '../src/components/OrderForm'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry } from '../src/chain/registry'
 
@@ -84,7 +85,18 @@ test('gasShortfall: reads the message wherever it ended up; other errors are not
 
 test('fixReturned: a fix was opened, then the location left it (the Send landed and came back)', () => {
   const href = '/assets?chain=c1&as=bob&asset=c1%3Anative&send=0x1&amount=0.01&back=%2Fswap'
-  expect(fixReturned(false, '/swap?chain=c1&as=carol', href)).toBe(false) // not opened yet
-  expect(fixReturned(true, href, href)).toBe(false) // still on it
-  expect(fixReturned(true, '/swap?chain=c1&as=carol', href)).toBe(true)
+  expect(fixReturned(undefined, '/swap?chain=c1&as=carol', href)).toBe(false) // not opened yet
+  expect(fixReturned(href, href, href)).toBe(false) // still on it
+  expect(fixReturned(href, '/swap?chain=c1&as=carol', href)).toBe(true)
+  // a newer, different fix (another failure) isn't cleared by the old one's round trip
+  expect(fixReturned(href, '/swap?chain=c1&as=carol', href.replace('0.01', '0.02'))).toBe(false)
+})
+
+test('OrderForm: the token fix goes with any error shown while short, except a gas shortfall (no venue copy matched)', () => {
+  const gas = 'Order failed: insufficient funds for gas * price + value: address 0x5cbdd86a2fa8dc4bddd8a8f69dba48572eec07fb have 0 want 6000000000000001'
+  expect(pairsTokenFix(true, 'You hold 0.00 GBP; this order needs 5.00 GBP.')).toBe(true)
+  expect(pairsTokenFix(true, 'Your balance is 0.00 GBP, the order needs 5.00 GBP.')).toBe(true) // reworded venue copy still pairs
+  expect(pairsTokenFix(true, gas)).toBe(false)
+  expect(pairsTokenFix(false, 'You hold 0.00 GBP; this order needs 5.00 GBP.')).toBe(false)
+  expect(pairsTokenFix(true, undefined)).toBe(false)
 })

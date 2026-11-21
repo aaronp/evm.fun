@@ -7,6 +7,7 @@ import { allowanceNote, approveFor, availableText, percentAmount, plan, priceAwa
 import { card, solid } from './TakePanel'
 import { venueName, type VenueKind } from '../orderbook/locate'
 import { GasFix, Shortfall, useRequestFix } from './Shortfall'
+import { gasShortfall } from '../tx/send'
 import { orThrow, useWizardAction, useWizardField, useWizardMark, withFix } from '../walkthrough/wizard'
 
 /** `committed`: what the acting account's other live off-chain orders already claim of this asset (`Venue.committed`) */
@@ -21,6 +22,10 @@ const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 /** The order form: side, Limit/Market, price (or slippage), amount with 25/50/75/Max of what's available, the cost,
  * the allowance warning with "Approve more", and the submit button. */
+/** While the balance is short, the error shown is the venue's balance pre-check unless it's a gas shortfall (the one
+ *  other send error a short form can get): only then does the token fix go with it. */
+export const pairsTokenFix = (lack: boolean, e?: string) => lack && !!e && !gasShortfall(e)
+
 export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApprove, onPlace }: {
   base: Asset; quote: Asset; book?: { bids: Level[]; asks: Level[] }
   /** on-chain (OrderBook: market orders carry a slippage-bounded worst price) or off-chain (Settlement: fills settle at
@@ -67,7 +72,7 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
   // the venue's "You hold …" pre-check failed: the allowance covers the order, the balance doesn't
   const lack = p?.need !== undefined && f.bal !== undefined && f.bal < p.need + held && (f.alw === undefined || f.alw >= p.need + held)
   const fix = useRequestFix(give, lack ? p!.need! + held : 0n, f.bal ?? 0n)
-  const isLack = (e?: string) => lack && !!e?.startsWith('You hold ') // the error shown is that pre-check (not, say, gas)
+  const isLack = (e?: string) => pairsTokenFix(lack, e)
   const thin = p?.thin ? `Book too thin: only ${amountText(p.filled, base)} of ${amountText(amount!, base)} can fill` : undefined
   const total = !p || p.bound === undefined ? '—'
     // a crossing limit order settles its fills at the makers' better prices: the bound is a limit, not exact

@@ -31,7 +31,7 @@ export async function signAndSend(
   // (a sequencer chain's executor stops for good on such a tx). ponytail: ignores the sender's other pending txs
   const need = gas * MAX_FEE + (tx.value ?? 0n)
   const have = BigInt((await handle.request('eth_getBalance', [account.address, 'latest'])) as string)
-  if (have < need) throw new Error(`insufficient funds for gas * price + value: address ${account.address} have ${have} want ${need} — ${account.label} needs ETH to pay for this transaction's fees.`)
+  if (have < need) throw new Error(`insufficient funds for gas * price + value: address ${account.address} have ${have} want ${need} — ${account.label} needs ETH to pay for this transaction (value and fees).`)
   const receipt = await handle.send(await signTx(privateKeyToAccount(account.privateKey), nonce, { ...tx, gas }))
   onSent?.()
   return receipt
