@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { erc20Abi, isAddressEqual, type Address, type Hex } from 'viem'
 import { approveCall, readTokenInfo, type Asset } from '@evmb/assets'
-import { activity, addLiquidityCall, position, removeLiquidityCall, swapCall, type PoolActivity as Item, type PoolState } from '@evmb/pool'
+import { activity, addLiquidityCall, position, quoteRemove, removeLiquidityCall, swapCall, type PoolActivity as Item, type PoolState } from '@evmb/pool'
 import { book, readOffers } from '@evmb/swap'
 import { useApp } from '../state'
 import { useAppBar } from '../state/appBar'
@@ -41,7 +41,11 @@ export function Pool() {
   const [offers, setOffers] = useState<string>()
   const [deploying, setDeploying] = useState(false)
   const [deployed, setDeployed] = useState(0) // bumped after a deploy: the record lands after the send's tick
-  const [err, setErr] = useState<string>()
+  // one error per read source (and one for the last action), so one source's success never hides another's failure
+  const [errs, setErrs] = useState<Partial<Record<'assets' | 'position' | 'activity' | 'offers' | 'action', string>>>({})
+  const report = (k: keyof typeof errs) => (e?: unknown) => setErrs(o => ({ ...o, [k]: e === undefined ? undefined : msg(e) }))
+  const setErr = report('action')
+  const err = errs.assets ?? errs.position ?? errs.activity ?? errs.offers ?? errs.action
   const [busy, setBusy] = useState(false)
   const [after, setAfter] = useState<Pick<PoolState, 'reserveBase' | 'reserveQuote'>>() // the Swap tab's quote, for the curve
   // the chain it belongs to: a tx that lands after a chain switch must not flash on the new chain
@@ -51,7 +55,7 @@ export function Pool() {
   const chainId = chain?.info.id
 
   useEffect(() => {
-    setAssets([]); setErr(undefined)
+    setAssets([]); setErrs({})
     if (!chain) return
     let live = true
     const id = chain.info.id
@@ -63,7 +67,7 @@ export function Pool() {
       }
       return assetRegistry.list(id)
     }
-    list().then(a => live && setAssets(a), e => live && setErr(msg(e)))
+    list().then(a => { if (live) { setAssets(a); report('assets')() } }, e => live && report('assets')(e))
     return () => { live = false }
   }, [chain])
 
@@ -74,7 +78,7 @@ export function Pool() {
 
   // everything below is read live on each balance tick; a tick keeps the old values until the new ones land
   useEffect(() => { setWallet({}) }, [chainId, base?.address, quote?.address, acting?.address, pool.address])
-  useEffect(() => { setErr(undefined); setFlash(undefined) }, [chainId, base?.address, quote?.address, acting?.address]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setErrs({}); setFlash(undefined) }, [chainId, base?.address, quote?.address, acting?.address]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!chain || !base || !quote || !acting) return
     let live = true
@@ -92,13 +96,13 @@ export function Pool() {
   useEffect(() => {
     if (!chain || !s || !acting) return
     let live = true
-    position(chain.request, s, acting.address).then(p => live && setPos(p), e => live && setErr(msg(e)))
+    position(chain.request, s, acting.address).then(p => { if (live) { setPos(p); report('position')() } }, e => live && report('position')(e))
     return () => { live = false }
   }, [chain, s, acting?.address]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!chain || !pool.address || pool.block === undefined) return
     let live = true
-    activity(chain.request, pool.address, pool.block).then(a => live && setItems(a), e => live && setErr(msg(e)))
+    activity(chain.request, pool.address, pool.block).then(a => { if (live) { setItems(a); report('activity')() } }, e => live && report('activity')(e))
     return () => { live = false }
   }, [chain, pool.address, pool.block, balanceTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -108,7 +112,7 @@ export function Pool() {
     let live = true
     const tok = (a: Asset) => ({ address: a.address as Address, decimals: a.decimals })
     swapFor(chain).then(async sw => offersText(sw ? book(await readOffers(chain.request, sw), tok(base), tok(quote)) : undefined))
-      .then(t => live && setOffers(t), e => live && setErr(msg(e)))
+      .then(t => { if (live) { setOffers(t); report('offers')() } }, e => live && report('offers')(e))
     return () => { live = false }
   }, [chain, base?.address, quote?.address, balanceTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -129,12 +133,12 @@ export function Pool() {
   async function deploy() {
     if (!chain || !acting || !base || !quote || deploying) return
     setDeploying(true); setErr(undefined)
-    try { await deployPool(chain, acting, base.address as Address, quote.address as Address, bumpBalance); setDeployed(n => n + 1) } catch (e) { setErr(msg(e)) } finally { setDeploying(false) }
+    try { await deployPool(chain, acting, base.address as Address, quote.address as Address, bumpBalance); setDeployed(n => n + 1) } catch (e) { setErr(e) } finally { setDeploying(false) }
   }
 
   type Tok = { symbol: string; decimals: number }
   /** Send one pool/approve call; flashes the outcome with its tx and resolves to the page's error message when it failed. */
-  async function send(call: { to: Address; data: Hex }, unit: (min: bigint) => Tok, done: string): Promise<string | undefined> {
+  async function send(call: { to: Address; data: Hex }, unit: (out: bigint, min: bigint) => Tok, done: string): Promise<string | undefined> {
     if (!chain || !acting) return 'Create an account first.'
     if (busy) return 'Another transaction is still in flight.'
     setBusy(true); setErr(undefined); setFlash(undefined)
@@ -168,9 +172,11 @@ export function Pool() {
     if (!raw || !base || !quote) return 'No pool for this pair.'
     if (!shares || pos === undefined || shares > pos.shares) return 'Remove between 0 and your shares.'
     const [m0, m1] = onChain(minBase, minQuote)
-    // a Slippage(out, min) names one side by its min; the pool checks its base side first, so a tie names that one
+    // a Slippage(out, min) names one side: the min it failed (pool order); equal mins → the payout nearer `out`
     const [t0, t1] = same(raw.base, base.address) ? [base, quote] : [quote, base]
-    return send(removeLiquidityCall(raw.address, shares, m0, m1), min => (min === m0 ? t0 : t1), `Removed ${amt(shares, LP)} from the pool.`)
+    const pay = quoteRemove(raw, shares), dist = (x: bigint, y: bigint) => (x > y ? x - y : y - x)
+    const side = (out: bigint, min: bigint) => (min !== m1 ? t0 : min !== m0 ? t1 : dist(out, pay.base) <= dist(out, pay.quote) ? t0 : t1)
+    return send(removeLiquidityCall(raw.address, shares, m0, m1), side, `Removed ${amt(shares, LP)} from the pool.`)
   }
   const funds: Funds = a => (same(a.address, base?.address) ? { bal: wallet.base, alw: wallet.allowBase } : { bal: wallet.quote, alw: wallet.allowQuote })
 
@@ -214,7 +220,7 @@ export function Pool() {
         <PoolStats s={s} base={B} quote={Q} />
         <div className={cols}>
           {s && base && quote
-            ? <PoolTabs s={s} base={base} quote={quote} funds={funds} busy={busy || !acting} mine={pos?.shares}
+            ? <PoolTabs key={`${pool.address}:${base.address}`} s={s} base={base} quote={quote} funds={funds} busy={busy || !acting} mine={pos?.shares}
                 onApprove={approve} onSwap={swap} onAdd={add} onRemove={remove} onAfter={setAfter} />
             : <section aria-label="Swap, add or remove liquidity" className={`${card} min-h-40`} />}
           <PoolCurve s={s} after={after} base={B} quote={Q} offers={offers ?? '…'} />

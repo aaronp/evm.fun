@@ -33,10 +33,10 @@ export const swapAfter = (s: Pick<PoolState, 'reserveBase' | 'reserveQuote'>, pa
   payBase ? { reserveBase: s.reserveBase + amountIn, reserveQuote: s.reserveQuote - out }
     : { reserveBase: s.reserveBase - out, reserveQuote: s.reserveQuote + amountIn }
 
-/** A decoded revert as a sentence; `unit(min)` is the token a Slippage(out, min) is counted in. */
-export function revertText(e: { error: string; args: unknown[] }, unit: (min: bigint) => Tok) {
+/** A decoded revert as a sentence; `unit(out, min)` is the token a Slippage(out, min) is counted in. */
+export function revertText(e: { error: string; args: unknown[] }, unit: (out: bigint, min: bigint) => Tok) {
   if (e.error === 'Slippage') {
-    const [out, min] = e.args as [bigint, bigint], t = unit(min)
+    const [out, min] = e.args as [bigint, bigint], t = unit(out, min)
     return `Slippage — you would get ${exactText(out, t.decimals)} ${t.symbol}, below your minimum ${exactText(min, t.decimals)} ${t.symbol}.`
   }
   return e.args.length ? `${e.error}(${e.args.map(String).join(', ')})` : e.error

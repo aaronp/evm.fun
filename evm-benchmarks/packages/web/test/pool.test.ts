@@ -170,6 +170,9 @@ test('a revert reads as a sentence: Slippage names what you would get and your m
   const usdT = { symbol: 'USD', decimals: 6 }
   expect(revertText({ error: 'Slippage', args: [1_253_690_000n, 1_260_000_000n] }, () => usdT))
     .toBe('Slippage — you would get 1,253.69 USD, below your minimum 1,260.00 USD.')
+  const seen: bigint[][] = []
+  revertText({ error: 'Slippage', args: [5n, 7n] }, (out, min) => (seen.push([out, min]), usdT))
+  expect(seen).toEqual([[5n, 7n]]) // the side is chosen from both the payout and the minimum
   expect(revertText({ error: 'BadAmount', args: [] }, () => usdT)).toBe('BadAmount')
   expect(revertText({ error: 'ERC20InsufficientAllowance', args: ['0x01', 0n, 5n] }, () => usdT)).toBe('ERC20InsufficientAllowance(0x01, 0, 5)')
 })

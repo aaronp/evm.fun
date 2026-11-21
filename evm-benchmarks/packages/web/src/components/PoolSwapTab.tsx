@@ -72,6 +72,7 @@ export function PoolSwapTab({ s, base, quote, funds, busy, slip, setSlip, onAppr
     : !q?.out ? `You would receive 0 ${get.symbol} — raise the amount.`
     : bal !== undefined && bal < amt ? `Not enough ${pay.symbol} — you have ${amountText(bal, pay.decimals)}.` : undefined
   const approve = why === undefined ? approveFor(amt, alw) : 0n
+  const unread = why === undefined && alw === undefined // no click may skip an Approve we can't see yet
   const after = q?.out ? swapAfter(s, payBase, amt, q.out) : undefined
   useEffect(() => { onAfter(after) }, [after?.reserveBase, after?.reserveQuote]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => onAfter(undefined), []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -79,6 +80,7 @@ export function PoolSwapTab({ s, base, quote, funds, busy, slip, setSlip, onAppr
   const edit = (v: string) => { setText(v); setError(undefined) }
   async function swap() {
     if (why !== undefined) { const e = why || 'Enter an amount.'; setError(e); return e }
+    if (unread || approve > 0n) { const e = unread ? 'Still reading the allowance — try again.' : `Approve ${pay.symbol} first.`; setError(e); return e }
     const e = await onSwap(pay, amt, q!.minOut)
     if (!e) setText('')
     return e
@@ -111,9 +113,10 @@ export function PoolSwapTab({ s, base, quote, funds, busy, slip, setSlip, onAppr
       {(error ?? (text && why)) && <span role="alert" className="text-xs text-danger">{error ?? why}</span>}
       <div className="flex flex-col gap-2">
         {approve > 0n && <Button className={step} disabled={busy} onClick={() => onApprove(pay, approve)}>1 · Approve {formatUnits(approve, pay.decimals)} {pay.symbol}</Button>}
-        <button className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={busy || approve > 0n || why !== undefined} onClick={swap}>
+        <button className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={busy || unread || approve > 0n || why !== undefined} onClick={swap}>
           {approve > 0n ? '2 · ' : ''}Swap {amt ? payText : pay.symbol}
         </button>
+        {unread && <span className="text-xs text-muted">Pool may spend … {pay.symbol}</span>}
         <span className="text-xs leading-normal text-subtle">Reverts if you would get less than the minimum — e.g. if someone else trades first and moves the price.</span>
       </div>
     </div>

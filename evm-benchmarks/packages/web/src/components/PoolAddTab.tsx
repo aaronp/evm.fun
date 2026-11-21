@@ -39,9 +39,11 @@ export function PoolAddTab({ s, base, quote, funds, busy, slip, setSlip, mine, o
   const ready = why === undefined ? a! : undefined
   const ab = ready ? approveFor(ready.baseUsed, fb.alw) : 0n, aq = ready ? approveFor(ready.quoteUsed, fq.alw) : 0n
   const minShares = ready ? minAt(ready.shares, slip) : 0n
+  const unread = !!ready && (fb.alw === undefined || fq.alw === undefined) // no click may skip an Approve we can't see yet
 
   async function add() {
     if (!ready) { const e = why || 'Enter both amounts.'; setError(e); return e }
+    if (unread || ab || aq) { const e = unread ? 'Still reading the allowances — try again.' : 'Approve both tokens first.'; setError(e); return e }
     const e = await onAdd((b as { ok: bigint }).ok, (q as { ok: bigint }).ok, minShares)
     if (!e) { setBt(''); setQt('') }
     return e
@@ -73,7 +75,8 @@ export function PoolAddTab({ s, base, quote, funds, busy, slip, setSlip, mine, o
       <div className="flex flex-col gap-2">
         {ab > 0n && <Button className={step} disabled={busy} onClick={() => onApprove(base, ab)}>{num()}Approve {formatUnits(ab, base.decimals)} {base.symbol}</Button>}
         {aq > 0n && <Button className={step} disabled={busy} onClick={() => onApprove(quote, aq)}>{num()}Approve {formatUnits(aq, quote.decimals)} {quote.symbol}</Button>}
-        <button className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={busy || ab > 0n || aq > 0n || !ready} onClick={add}>{num()}Add liquidity</button>
+        <button className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={busy || unread || ab > 0n || aq > 0n || !ready} onClick={add}>{num()}Add liquidity</button>
+        {unread && <span className="text-xs text-muted">Pool may spend … {base.symbol} · … {quote.symbol}</span>}
         <span className="text-xs leading-normal text-subtle">Reverts if you would get fewer shares than the minimum.</span>
       </div>
     </div>
