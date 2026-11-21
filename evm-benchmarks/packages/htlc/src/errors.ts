@@ -30,7 +30,7 @@ function fixFor(name: string, x: Record<string, any>, c: ErrorContext): string {
       if (c.chain === undefined || c.head === undefined) return `Refund from block ${x.timeoutBlock}.`
       // the refund needs block.number ≥ timeout, and the next tx is mined at head + 1
       const n = (x.timeoutBlock as bigint) - c.head - 1n
-      return n <= 0n ? `Refund now: the next block on ${c.chain} is the timeout block.` : `Advance ${c.chain} ${n} blocks, then refund.`
+      return n <= 0n ? `Refund now: the next block on ${c.chain} is the timeout block.` : `Advance ${c.chain} ${n} block${n === 1n ? '' : 's'}, then refund.`
     }
     case 'BadLock': return 'Check the lock: a non-zero amount and recipient, a timeout after the current block, and for an offer the wanted token and HashLock.'
     case 'ERC20InsufficientAllowance': return `Approve HashLock to spend at least ${amt(x.needed)}, then lock again.`

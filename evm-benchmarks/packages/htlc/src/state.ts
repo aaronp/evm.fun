@@ -9,11 +9,20 @@ export type SwapState = {
   opening?: LockView; answer?: LockView; phase: Phase
   /** the pair judged with both heads now; only once answered */
   safe?: boolean
-  /** timeout − head per lock (≤ 0 once refundable) */
+  /** timeoutBlock − head per lock. A tx mines at head + 1, so a lock is claimable while blocksLeft ≥ 2 and refundable from 1. */
   blocksLeft: { a?: bigint; b?: bigint }
+  /** per lock: a claim sent now would succeed on time (`canClaim`); pages show buttons from these, not from `phase` */
+  claimable: { a?: boolean; b?: boolean }
+  /** per lock: a refund sent now would pass the timeout (`canRefund`) */
+  refundable: { a?: boolean; b?: boolean }
 }
 
 export const MARGIN = 10n
+type Timed = { status: LockView['status']; timeoutBlock: bigint }
+/** Locked, and the next block (head + 1) is before the timeout: `claim` requires block.number < timeoutBlock. */
+export const canClaim = (l: Timed, head: bigint) => l.status === 'locked' && head + 1n < l.timeoutBlock
+/** Locked, and the next block (head + 1) is at or after the timeout: `refund` requires block.number ≥ timeoutBlock. */
+export const canRefund = (l: Timed, head: bigint) => l.status === 'locked' && head + 1n >= l.timeoutBlock
 /** Safe for the taker iff the maker's lock has at least `margin` more blocks left than the taker's. */
 export const isSafe = (tA: bigint, headA: bigint, tB: bigint, headB: bigint, margin = MARGIN) => tA - headA >= tB - headB + margin
 
@@ -37,10 +46,13 @@ export async function swapState(a: Side, b: Side | undefined, hash: Hex): Promis
     sa === 'refunded' && sb === 'refunded' ? 'refundedBoth'
     : sa === 'refunded' ? 'refundedA'
     : sb === 'refunded' ? 'refundedB'
-    : sa === 'claimed' && sb === 'claimed' ? 'complete'
-    : near(opening, blocksLeft.a) || near(answer, blocksLeft.b) ? 'expiring'
+    // A can only be claimed with the secret, so A claimed is complete with or without B's claim
+    : sa === 'claimed' ? 'complete'
     : sb === 'claimed' ? 'claimedB'
+    : near(opening, blocksLeft.a) || near(answer, blocksLeft.b) ? 'expiring'
     : answer ? 'answered' : 'offered'
   return { ...(opening && { opening }), ...(answer && { answer }), phase,
-    ...(opening && answer && b && { safe: isSafe(opening.timeoutBlock, a.head, answer.timeoutBlock, b.head) }), blocksLeft }
+    ...(opening && answer && b && { safe: isSafe(opening.timeoutBlock, a.head, answer.timeoutBlock, b.head) }), blocksLeft,
+    claimable: { ...(opening && { a: canClaim(opening, a.head) }), ...(answer && b && { b: canClaim(answer, b.head) }) },
+    refundable: { ...(opening && { a: canRefund(opening, a.head) }), ...(answer && b && { b: canRefund(answer, b.head) }) } }
 }

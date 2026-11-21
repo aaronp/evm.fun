@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { decodeFunctionData, encodeErrorResult, keccak256, zeroAddress, type Address, type Hex } from 'viem'
 import { HashLock } from '@evmb/contracts'
 import {
-  claimCall, decodeHtlcError, hashLockAbi, hashOf, isSafe, lockCall, locksFor, newSecret, readLock, refundCall,
+  canClaim, canRefund, claimCall, decodeHtlcError, hashLockAbi, hashOf, isSafe, lockCall, locksFor, newSecret, readLock, refundCall,
   swapReport, swapState, type Side,
 } from '../src'
 import { maker, other, taker, withChains, type K } from './chain'
@@ -207,6 +207,58 @@ test('refunds on both sides → refundedBoth; taker-only refund while A is locke
       ['dave lock maker', 'sue lock taker', 'sue refund taker', 'dave refund maker'])
   }), 120_000)
 
+test('taker misses the window (safe timeouts): claimedB not masked by expiring, flags at 2 and 1 blocks left, taker lost', () =>
+  withChains(async c => {
+    const sides = sidesOf(c)
+    const secret = newSecret(), hash = hashOf(secret)
+    const o = await open(c, hash, 40n)
+    const an = await answer(c, hash, { blocks: 15n })
+    let s = await swapState(...await sides(), hash)
+    expect(s.safe).toBe(true)
+    expect(s.claimable).toEqual({ a: true, b: true })
+    expect(s.refundable).toEqual({ a: false, b: false })
+    expect((await c.send('B', maker, claimCall(c.lock.B, 1n, secret))).status).toBe('success')
+    expect(s = await swapState(...await sides(), hash)).toMatchObject({ phase: 'claimedB', claimable: { a: true, b: false }, refundable: { a: false, b: false } })
+    // the taker is slow: A runs down to 2 blocks left (inside the expiring margin), claimedB still wins
+    await c.mine('A', o.timeoutBlock - 2n - (await c.head('A')))
+    s = await swapState(...await sides(), hash)
+    expect(s).toMatchObject({ phase: 'claimedB', blocksLeft: { a: 2n }, claimable: { a: true }, refundable: { a: false } })
+    await c.mine('A', 1)
+    s = await swapState(...await sides(), hash)
+    expect(s).toMatchObject({ phase: 'claimedB', blocksLeft: { a: 1n }, claimable: { a: false }, refundable: { a: true } })
+    // the flags agree with the chain: a claim sent now mines at the timeout block and reverts (eth_call at 'latest'
+    // runs at the head, so it would still pass); the refund after it succeeds
+    const late = await c.send('A', taker, claimCall(c.lock.A, 1n, secret))
+    expect([late.status, late.block]).toEqual(['reverted', o.timeoutBlock])
+    expect((await c.send('A', maker, refundCall(c.lock.A, 1n))).status).toBe('success')
+    expect((await swapState(...await sides(), hash)).phase).toBe('refundedA')
+    const r = await swapReport(...await sides(), hash)
+    expect(r.outcome).toBe('taker lost')
+    expect(r.unsafe).toBe(false)
+    expect(r.balanceChanges).toEqual([
+      { chain: 'sue', holder: taker.address, token: c.usd, delta: String(-USD) },
+      { chain: 'sue', holder: maker.address, token: c.usd, delta: String(USD) },
+    ])
+    void an
+  }), 120_000)
+
+test('maker lost: A claimed (secret leaked), B refunded; A claimed with no answer reads completed', () =>
+  withChains(async c => {
+    const sides = sidesOf(c)
+    const secret = newSecret(), hash = hashOf(secret)
+    await open(c, hash, 40n)
+    const an = await answer(c, hash, { blocks: 15n })
+    expect((await c.send('A', taker, claimCall(c.lock.A, 1n, secret))).status).toBe('success')
+    expect((await swapState(...await sides(), hash)).phase).toBe('complete')
+    await c.mine('B', an.timeoutBlock - 1n - (await c.head('B')))
+    expect((await c.send('B', taker, refundCall(c.lock.B, 1n))).status).toBe('success')
+    expect((await swapReport(...await sides(), hash)).outcome).toBe('maker lost')
+    // the same chains read without B: A claimed is completed
+    const [sa] = await sides()
+    expect((await swapState(sa, undefined, hash)).phase).toBe('complete')
+    expect((await swapReport(sa, undefined, hash)).outcome).toBe('completed')
+  }), 120_000)
+
 test('stray locks never pair (Review Focus 3): third account, wrong token/amount/recipient, other HashLock, offer-shaped, other chain', () =>
   withChains(async c => {
     const sides = sidesOf(c)
@@ -323,4 +375,12 @@ test('decodeHtlcError: claimed NotLocked, OZ guard errors, Error/Panic, unknown 
   const ne = encodeErrorResult({ abi: hashLockAbi, errorName: 'NotExpired', args: [10n] })
   expect(decodeHtlcError(ne, { chain: 'dave', head: 9n })!.fix).toBe('Refund now: the next block on dave is the timeout block.')
   expect(decodeHtlcError(ne, { chain: 'dave', head: 7n })!.fix).toBe('Advance dave 2 blocks, then refund.')
+  expect(decodeHtlcError(ne, { chain: 'dave', head: 8n })!.fix).toBe('Advance dave 1 block, then refund.')
+})
+
+test('canClaim / canRefund: a tx mines at head + 1', () => {
+  const l = { status: 'locked', timeoutBlock: 10n } as const
+  expect([canClaim(l, 8n), canRefund(l, 8n)]).toEqual([true, false]) // blocksLeft 2
+  expect([canClaim(l, 9n), canRefund(l, 9n)]).toEqual([false, true]) // blocksLeft 1
+  expect([canClaim({ ...l, status: 'claimed' }, 0n), canRefund({ ...l, status: 'refunded' }, 20n)]).toEqual([false, false])
 })

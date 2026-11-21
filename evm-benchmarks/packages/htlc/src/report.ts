@@ -5,7 +5,13 @@ import { isSafe, swapState, type Phase, type Side } from './state'
 type Str<T> = { [K in keyof T]: T[K] extends bigint ? string : T[K] extends bigint | undefined ? string | undefined : T[K] }
 /** A lock as plain data (bigints as decimal strings), without its secret: the report carries that once, top level. */
 export type LockJson = Str<Omit<LockView, 'secret'>>
-export type SwapOutcome = 'completed' | 'refunded (maker)' | 'refunded (taker)' | 'refunded (both)' | 'stuck'
+/** `taker lost`: A refunded and B claimed (the maker has both sides); `maker lost`: A claimed and B refunded. */
+export type SwapOutcome = 'completed' | 'refunded (maker)' | 'refunded (taker)' | 'refunded (both)' | 'taker lost' | 'maker lost' | 'stuck'
+// every closed combination, A/B ('-' = no answer); a lock is never labelled refunded unless it was
+const OUTCOME: Record<string, SwapOutcome> = {
+  'claimed/claimed': 'completed', 'claimed/-': 'completed', 'refunded/refunded': 'refunded (both)', 'refunded/-': 'refunded (maker)',
+  'refunded/claimed': 'taker lost', 'claimed/refunded': 'maker lost',
+}
 export type SwapStep = { chain: string; action: 'lock' | 'claim' | 'refund'; side: 'maker' | 'taker'; id: string; tx: Hash; block: string }
 /** Plain, JSON-ready data: bigints are decimal strings. */
 export type SwapReport = {
@@ -45,10 +51,8 @@ export async function swapReport(a: Side, b: Side | undefined, hash: Hex, opts: 
   ])
   const stillLocked = locks.filter(l => l.status === 'locked').map(l => ({ chain: l.chain, id: String(l.id), timeoutBlock: String(l.timeoutBlock) }))
   const sa = opening.status, sb = answer?.status
-  const outcome: SwapOutcome = stillLocked.length ? 'stuck'
-    : sa === 'claimed' && sb === 'claimed' ? 'completed'
-    : sa === 'refunded' && sb === 'refunded' ? 'refunded (both)'
-    : sa === 'refunded' ? 'refunded (maker)' : 'refunded (taker)'
+  // ponytail: 'refunded (taker)' (B refunded, A untouched) can't be reached: A is then still locked → stuck
+  const outcome: SwapOutcome = stillLocked.length ? 'stuck' : OUTCOME[`${sa}/${sb ?? '-'}`] ?? 'stuck'
   const unsafe = !!answer && !isSafe(opening.timeoutBlock, opts.headAAtAnswer ?? opening.lockedBlock!, answer.timeoutBlock, answer.lockedBlock!)
   return {
     hash, chainA: a.chain, ...(b && { chainB: b.chain }), phase, outcome, unsafe,
