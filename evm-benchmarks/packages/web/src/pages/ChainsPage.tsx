@@ -57,7 +57,7 @@ export function Chains() {
   const { chains, chain, error, selectChain, refresh, balanceTick } = useApp()
   const nav = useNavigate()
   const wide = useWide()
-  const { pathname } = useLocation()
+  const { pathname, search, state: navState } = useLocation()
   const [q, setQ] = useState('')
   const [tab, setTab] = useState<ChainTab>('all')
   const dialog = useRef<HTMLDialogElement>(null)
@@ -69,6 +69,11 @@ export function Chains() {
   const [listTick, setListTick] = useState(0)
   const [flash, setFlash] = useState<Flash>()
   const [noFunds, setNoFunds] = useState<string>() // id of the imported chain with no funded account, checked once at import
+  // an import from the File menu lands here with the same check's result
+  useEffect(() => {
+    const id = (navState as { noFunds?: string } | null)?.noFunds
+    if (id) { setNoFunds(id); nav(pathname + search, { replace: true, state: null }) } // once: a reload or Back doesn't bring it back
+  }, [navState])
   const none = chain ? undefined : 'Select a chain first'
   useAppBar({
     title: 'Chains',

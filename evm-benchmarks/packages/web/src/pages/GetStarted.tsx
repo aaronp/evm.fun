@@ -73,6 +73,7 @@ export function Walkthroughs({ entries, onChange }: { entries: Entry[]; onChange
   const doInstall = async (w: Walkthrough) => {
     if (wz?.w?.id === w.id) wz.exit() // the ribbon would hold the old run
     set(w.id, { at: 0 })
+    app.countInstall(1) // it creates a chain, sends txs and saves a run: New/Open wait for it
     try {
       const { run, failed } = await install(w, { accounts, registry }, i => set(w.id, { at: i }))
       const chain = run.values[Object.keys(w.keys).find(k => 'chain' in w.keys[k]!)!] as Outputs['chain'] | undefined
@@ -81,7 +82,7 @@ export function Walkthroughs({ entries, onChange }: { entries: Entry[]; onChange
       set(w.id, { ok: { chain: chain?.name ?? '', path: binding(w.steps.at(-1)!, w).path(run), failed: failed.map(f => `${f.step}: ${checkText(f.check)} — found ${f.actual}`) } })
     } catch (e) {
       set(w.id, { error: e instanceof Error ? e.message : String(e) })
-    }
+    } finally { app.countInstall(-1) }
     onChange?.()
   }
   const [open, setOpen] = useState<{ id: string; mode: 'view' | 'edit' }>()

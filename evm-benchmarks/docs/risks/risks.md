@@ -782,3 +782,84 @@ On an approach-02-seq-memory (sequencer) chain, a tx whose sender can't afford g
 |---|---|---|
 | `signAndSend` balance pre-check in the web app | Preventive | Partial |
 | Reject at admission in approach-02, counting pending txs (backlog t-91) | Preventive | Partial |
+
+## R42 · A workspace file contains every account private key
+- impact: 3
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+A saved workspace file holds each account's private key unencrypted, so a shared or leaked file hands over those accounts. They are playground keys, but a user may reuse a real one. (ADR-0020)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Notice on first Save and the web README warning: playground keys only | Preventive | Partial |
+
+## R43 · No total size cap on workspace files
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Performance
+- driver: Claude
+- approver: Aaron
+
+Files grow with snapshots and chain history; Save and Open hold the whole file in memory and nothing limits its size, so a very large workspace can be slow or fail to save or open in the browser. Strings in a file are not length-bounded either. (ADR-0020)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Failed Open restores the previous workspace | Corrective | Partial |
+| Chains handled one at a time | Preventive | Partial |
+
+## R44 · Open replaces the whole workspace
+- impact: 4
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+Open clears every account, chain, record and walkthrough before loading the file; opening the wrong file, or a failure the restore cannot undo, loses work. (ADR-0020)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Confirm with Save first, all-or-nothing Open with in-memory backup restored on failure, and a download of the previous workspace (automatic when the restore fails; Close then asks to confirm) | Corrective | Effective |
+
+## R45 · A chain whose removal fails may leave orphaned persisted state
+- impact: 2
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+If removing a chain fails during New or Open, its host-persisted state can remain in the browser, unused. The chain is closed so it does not block the restore. (ADR-0020)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Chain closed when its remove fails; kv.clear() removes other orphan records | Corrective | Partial |
+
+## R46 · Save and Open briefly run LIVE_MAX + 1 engines
+- impact: 2
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Performance
+- driver: Claude
+- approver: Aaron
+
+With 8 live chains, Save opens one extra dump-only engine at a time, so memory briefly holds 9 engines (closed straight after). (ADR-0020)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| One transient chain at a time, closed right after; normal opens keep the cap | Preventive | Partial |

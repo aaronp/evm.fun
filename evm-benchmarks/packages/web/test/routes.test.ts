@@ -38,17 +38,15 @@ describe('/swap', () => {
 })
 
 describe('chain switcher', () => {
-  test('the sidebar context box and the phone strip both carry the chain and account pickers', async () => {
+  test('the top bar chain picker offers the chains', async () => {
     const { createElement: h } = await import('react')
     const { renderToString } = await import('react-dom/server')
     const { MemoryRouter } = await import('react-router-dom')
     const { AppState } = await import('../src/state')
-    const { ContextBox, ContextStrip } = await import('../src/components/ContextBox')
-    for (const C of [ContextBox, ContextStrip]) {
-      const html = renderToString(h(MemoryRouter, null, h(AppState, null, h(C))))
-      expect(html).toContain('aria-label="Chain"')
-      expect(html).toContain('Select a chain')
-    }
+    const { ChainPicker } = await import('../src/components/ChainPicker')
+    const html = renderToString(h(MemoryRouter, null, h(AppState, null, h(ChainPicker))))
+    expect(html).toContain('aria-label="Chain"')
+    expect(html).toContain('Select a chain')
   })
 })
 

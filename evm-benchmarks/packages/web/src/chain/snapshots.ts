@@ -43,6 +43,8 @@ export function createSnapshotStore(kv: Kv) {
       return snap
     },
     get: (id: string) => kv.get<Snapshot>(STORE, id),
+    /** Store `snap` as is, keeping its id (opening a workspace). */
+    put: (snap: Snapshot) => kv.set(STORE, snap.id, snap, { strict: true }),
     remove: (id: string) => kv.del(STORE, id),
     async removeForChain(chainId: string) {
       for (const s of await this.list(chainId)) await kv.del(STORE, s.id)

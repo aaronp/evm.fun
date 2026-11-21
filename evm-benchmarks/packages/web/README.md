@@ -18,9 +18,34 @@ Measured with the CLI (n=10000, median of 3 runs, `REPORT.md`): ERC-20 transfers
 
 Both are real EVMs running unmodified Solidity bytecode; in this playground both run on the revm engine. The full comparison, and other architectures to come, are in `evm-benchmarks/REPORT.md`.
 
+## Top bar and workspace files
+
+One top bar stays at the top of every page (sticky, also on a phone, where it shows the brand, **File**, the chain picker and the profile; the page title and actions wrap below). The sidebar is navigation only, plus the theme switcher. In a walkthrough's focus mode the bar dims with the page and brightens on hover or focus.
+
+- **File** menu: **New**, **Open...**, **Save**, **Import chain...**, **Export chain**. Menus work by keyboard: Enter or Space opens and focuses the first item, arrows move, Escape closes and returns focus to the button.
+- **Chain picker**: switches the selected chain (disabled while a transaction is in flight on it).
+- **Profile menu**: the acting account's initial, label and ETH balance. It lists every account with its balance (pick one to act as it), **Create account...** and **Manage accounts**. Swap's in-page "Acting as" stays.
+
+### Workspace files
+
+**Save** downloads `workspace-YYYY-MM-DD.json` (`format: "evm.fun/workspace"`, `version: 1`). It holds every account **with its private key**, every chain (the same data as a chain export, plus its id), the snapshots, contract records, walkthrough edits and runs, the active walkthrough, the order-book rows (Trade's off-chain orders) and the selected chain. Benchmark (ephemeral) chains are not saved. Chain ids are kept on Open, so `?chain=` links and walkthrough runs still point at the right chain.
+
+**Keys:** the first Save in a browser says "This file contains your accounts' private keys. Playground keys only — never real ones." Treat the file like a password list; there is no encryption.
+
+**Stays per browser** (never saved, cleared or overwritten): theme, dismissed notices, explorer view, fisheye, walkthrough layout and focus, auto speed.
+
+- **New** asks "Start a new workspace? This clears every account, chain, record and walkthrough in this browser." with **Save first** (downloads the file, then clears), **Clear** and **Cancel**.
+- **Open...** reads a file, validates all of it (each chain is checked as an import is), then asks to replace the current workspace: **Save first**, **Replace**, **Cancel**. It is all-or-nothing: the current workspace is backed up in memory, cleared and the file loaded; if anything fails, the backup is put back and a panel shows the error with **Download the file that failed** and **Download your previous workspace**. Open refuses, changing nothing, if the current workspace can't be backed up (a broken chain blocks Open until removed). A failed Open does not bring back benchmark chains.
+- After New or Open the page reloads, with the address rewritten to the loaded selection.
+- **New and Open are off** when the browser isn't keeping data (private window, storage blocked), with a message saying so; Save still works. This avoids reloading into an empty workspace.
+- **New, Open and Import are disabled** while a transaction or a walkthrough step is running.
+- Chains are saved and loaded one at a time, so a workspace can hold more than 8 chains (the cap is on running chains). Saving with 8 running briefly opens a ninth, dump-only engine.
+- There is no size cap: files grow with snapshots and chain history.
+- **Import chain...** and **Export chain** in File do what Import and Export do on Chains; importing a chain with no funded account shows the "no funds" notice.
+
 ## Chains page and explorer
 
-The sidebar links every page and holds the theme switcher; the app bar shows the page title, breadcrumbs and page actions (on Chains, Refresh); the View toggle (table, chain, timeline, fisheye) sits in the explorer card header. **Chains** (`/chains`) combines the chain list and the explorer. Pick a chain on the left (the filter box and tabs narrow the list); the **+** button opens a dialog to create one (Esc closes it and focus returns to **+**), and Delete removes a chain. Below the `lg` breakpoint the list becomes a compact picker above the pane, without the filter box and tabs. The selected chain drives the context box, Studio and Transact. Old `/explorer/...` links redirect to the matching `/chains/...` route.
+The top bar shows the page title, breadcrumbs and page actions (on Chains, Refresh) (see Top bar and workspace files); the View toggle (table, chain, timeline, fisheye) sits in the explorer card header. **Chains** (`/chains`) combines the chain list and the explorer. Pick a chain on the left (the filter box and tabs narrow the list); the **+** button opens a dialog to create one (Esc closes it and focus returns to **+**), and Delete removes a chain. Below the `lg` breakpoint the list becomes a compact picker above the pane, without the filter box and tabs. The selected chain drives the context box, Studio and Transact. Old `/explorer/...` links redirect to the matching `/chains/...` route.
 
 Chains are either running (they hold an engine in this tab) or stopped. The list shows the **last known height** of a stopped chain, saved whenever it changes, so you can see it without opening the chain. At most 8 chains can run at once: the page warns at 4 and refuses to start more at 8. Nothing is closed automatically; delete one or reload.
 

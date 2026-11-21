@@ -4,7 +4,8 @@ import { StorageNotice } from './ui/notice'
 import { ShellNotice, UrlSync } from './components/UrlSync'
 import { AppState } from './state'
 import { AppBarProvider } from './state/appBar'
-import { AppBar } from './components/AppBar'
+import { TopBar } from './components/TopBar'
+import { useWorkspaceDialogs } from './components/WorkspaceDialogs'
 import { Accounts } from './pages/Accounts'
 import { Chains } from './pages/ChainsPage'
 import { legacyRoute } from './routes'
@@ -18,10 +19,9 @@ import { SwapReport } from './pages/SwapReport'
 import { Pool } from './pages/Pool'
 import { Trade } from './pages/Trade'
 import { TradeReport } from './pages/TradeReport'
-import { ContextBox, ContextStrip } from './components/ContextBox'
 import { ThemeSwitcher } from './components/ThemeSwitcher'
 import { ENGINE } from './chain/revm'
-import { AccountsIcon, BenchmarkIcon, BrandIcon, ChainsIcon, StudioIcon, TransactIcon, AssetsIcon, SwapIcon, PoolIcon, TradeIcon, FlagIcon } from './ui/icons'
+import { AccountsIcon, BenchmarkIcon, ChainsIcon, StudioIcon, TransactIcon, AssetsIcon, SwapIcon, PoolIcon, TradeIcon, FlagIcon } from './ui/icons'
 import { AddressList } from './components/AddressList'
 import { Ribbon } from './components/Ribbon'
 import { WizardProvider, useWizard } from './walkthrough/wizard'
@@ -43,28 +43,22 @@ function Main({ children }: { children: ReactNode }) {
   const wz = useWizard()
   const vertical = !!wz?.w && wz.layout === 'vertical'
   return (
-    <main data-wz-focus={wz?.w && wz.focus ? '' : undefined} className={`min-w-0 flex-1 space-y-4 p-3 sm:p-6 ${vertical ? 'sm:flex sm:items-start sm:gap-6 sm:space-y-0' : ''}`}>
+    <main data-wz-focus={wz?.w && wz.focus ? '' : undefined} className={`min-w-0 flex-1 space-y-4 p-3 sm:overflow-y-auto sm:p-6 ${vertical ? 'sm:flex sm:items-start sm:gap-6 sm:space-y-0' : ''}`}>
       <Ribbon />
       <div className="min-w-0 flex-1 space-y-4">{children}</div>
     </main>
   )
 }
 
-export function App() {
+/** The bar on top; below it the navigation sidebar and the page. From `sm` the shell fills the screen and the page scrolls in place, so the bar stays. */
+export function Shell() {
+  const ws = useWorkspaceDialogs()
   return (
-    <AppState>
-    <AppBarProvider>
-    <HashRouter>
-    <WizardProvider>
-      <div className="flex min-h-screen flex-col bg-bg text-text sm:flex-row">
-        <aside className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-panel p-3 sm:sticky sm:top-0 sm:h-screen sm:w-60 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-5 sm:overflow-y-auto sm:border-r sm:border-b-0 sm:p-4">
-          <div className="flex items-center gap-2.5 sm:px-2">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-on-accent"><BrandIcon width={17} height={17} /></span>
-            <div className="flex flex-col">
-              <span className="font-display text-[15px] font-semibold leading-tight">EVM Playground</span>
-              <span className="hidden font-mono text-[11px] text-muted sm:block">{ENGINE}</span>
-            </div>
-          </div>
+    <div className="flex min-h-dvh flex-col bg-bg text-text sm:h-dvh">
+      <TopBar file={ws.actions} />
+      {ws.dialogs}
+      <div className="flex flex-1 flex-col sm:min-h-0 sm:flex-row">
+        <aside className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-panel p-3 sm:w-60 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-5 sm:overflow-y-auto sm:border-r sm:border-b-0 sm:p-4">
           <nav className="flex flex-wrap items-center gap-1 sm:flex-col sm:items-stretch sm:gap-5">
             {groups.map(g => (
               <div key={g.label} className="flex flex-wrap gap-1 sm:flex-col sm:gap-0.5">
@@ -84,12 +78,12 @@ export function App() {
               </div>
             ))}
           </nav>
-          <div className="ml-auto sm:ml-0 sm:order-last"><ThemeSwitcher /></div>
-          <div className="hidden sm:mt-auto sm:block"><ContextBox /></div>
-          <div className="w-full sm:hidden"><ContextStrip /></div>
+          <div className="ml-auto flex items-center gap-3 sm:mt-auto sm:ml-0 sm:flex-col sm:items-start sm:px-2">
+            <ThemeSwitcher />
+            <span className="hidden font-mono text-[11px] text-muted sm:block">{ENGINE}</span>
+          </div>
         </aside>
         <Main>
-          <AppBar />
           <UrlSync />
           <ShellNotice />
           <StorageNotice />
@@ -105,6 +99,17 @@ export function App() {
           </Routes>
         </Main>
       </div>
+    </div>
+  )
+}
+
+export function App() {
+  return (
+    <AppState>
+    <AppBarProvider>
+    <HashRouter>
+    <WizardProvider>
+      <Shell />
     </WizardProvider>
     </HashRouter>
     </AppBarProvider>

@@ -8,6 +8,7 @@ import { Button } from '../ui/button'
 import { Card } from '../ui/card'
 import { CopyIcon } from '../ui/icons'
 import { Input } from '../ui/input'
+import { MAX_NAME } from '../chain/chainFile'
 import { KEYS_WARNING, Notice } from '../ui/notice'
 import { useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
 
@@ -38,7 +39,7 @@ export function Accounts() {
     <div className="space-y-4">
       <Notice>{KEYS_WARNING}</Notice>
       <form {...mark('account.card')} className="flex gap-2" onSubmit={e => { e.preventDefault(); create() }}>
-        <Input {...mark('account.label')} className="min-w-0 flex-1 sm:flex-none" placeholder="Label" value={label} onChange={e => setLabel(e.target.value)} />
+        <Input {...mark('account.label')} className="min-w-0 flex-1 sm:flex-none" placeholder="Label" maxLength={MAX_NAME} value={label} onChange={e => setLabel(e.target.value)} />
         <Button {...mark('account.create')} type="submit">Create account</Button>
       </form>
       {list.length === 0 && <p className="text-sm text-muted">No accounts yet.</p>}

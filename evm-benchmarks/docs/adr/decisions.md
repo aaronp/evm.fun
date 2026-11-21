@@ -996,3 +996,88 @@ Claude's calls (spec "Settled after the builder check"): LP shares normalised to
 - The walkthrough needed a `transfer` step: a launched token's supply goes to its issuer, so Bob could not get GBP otherwise (closes part of t-77).
 - `amm-swap` gives each trader one direction so verify checks the paid token exactly; price impact is Uniswap's (fee excluded), not the pool-price move.
 - Dust-reserve price skew (R38, t-88), a uint256 overflow ceiling (R39, t-89) and fee-on-transfer tokens (R40, t-89) are logged risks.
+
+---
+id: ADR-0020
+title: "Workspace files: one file holds the whole playground; a permanent top bar carries File and profile menus"
+status: accepted
+date: 2026-11-21
+tags: architecture, web, workspace
+decision: whole
+---
+
+## Goal
+Reset, save and open the whole playground from a File menu, and switch accounts from a profile menu, so a workspace can be started fresh, kept, and shared.
+
+## Hypothesis
+- We believe: one `evm.fun/workspace` file (accounts with keys, chains as today's chain files with their ids, snapshots, records, walkthrough data, order-book rows, selection) opened all-or-nothing
+- Will result in: New/Open/Save that behave like any desktop app's
+- Measured by: Save → New → Open round-trips every page's data exactly, including links and walkthrough runs, with more than 8 chains
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| complete | Complete | 5 | Higher = Open restores everything the user had. |
+| simple | Simple to use | 4 | Higher = one file, one action. |
+| safe | Safe | 4 | Higher = nothing is lost when an Open fails. |
+| small | Small files | 2 | Higher = smaller files. |
+
+## Solution: whole — one workspace file
+| criterion | score |
+| --- | --- |
+| complete | 5 |
+| simple | 5 |
+| safe | 4 |
+| small | 2 |
+
+Pros:
+- File semantics people expect; shareable
+
+Cons:
+- Contains private keys; large with snapshots
+
+## Solution: chain — the current chain only (today's export)
+| criterion | score |
+| --- | --- |
+| complete | 2 |
+| simple | 4 |
+| safe | 4 |
+| small | 4 |
+
+Pros:
+- Exists already
+
+Cons:
+- New can't reset accounts or walkthroughs
+
+## Solution: parts — one file per area
+| criterion | score |
+| --- | --- |
+| complete | 4 |
+| simple | 1 |
+| safe | 4 |
+| small | 3 |
+
+Pros:
+- Flexible
+
+Cons:
+- Open becomes a multi-step chore
+
+## Decision
+whole. Decided with Aaron: a workspace file holds everything; New clears (offering Save first), Open replaces (same offer), Save warns about keys; one permanent top bar with File (incl. Import/Export chain) and a profile menu; the sidebar becomes navigation only.
+
+Claude's calls (spec "Settled after the builder check"): Open is all-or-nothing (in-memory backup restored on failure); chains handled one at a time (works beyond the 8 live chains); per-browser settings aren't workspace data; `@evmb/orderbook` Store gains `entries(table)`; chain ids kept on Open.
+
+## Consequences
+- Saved files contain private keys (playground keys only; warned on first Save).
+- Files grow with snapshots and chain history.
+- Save with 8 live chains opens a transient dump-only chain beyond LIVE_MAX (one at a time, closed straight after); normal opens keep the cap.
+- `kv` silently falling back to memory made persistence a precondition: New and Open are refused up front when storage isn't persistent, instead of reloading into nothing.
+- Restore after a failed Open is best-effort: clear, then load the in-memory backup; Open refuses if the current workspace can't be backed up.
+- `@evmb/orderbook` Store gained `entries(table)` so order-book rows can be saved.
+- Risks R42–R46 log the keys in the file, the missing size cap, Open replacing everything, orphaned state, and the nine-engine peak.

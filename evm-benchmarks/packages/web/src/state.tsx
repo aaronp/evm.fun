@@ -24,6 +24,10 @@ type State = {
   /** a page has a tx in flight on the selected chain: the chain switcher is disabled until it lands */
   busy: boolean
   setBusy(b: boolean): void
+  /** walkthrough installs running (Get started): New/Open wait for them */
+  installing: number
+  /** +1 when an install starts, -1 when it ends */
+  countInstall(d: 1 | -1): void
   /** the chain list (on first load) or a chain is loading: the URL sync waits */
   loading: boolean
 }
@@ -37,6 +41,8 @@ export function AppState({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string>()
   const [balanceTick, setTick] = useState(0)
   const [busy, setBusy] = useState(false)
+  const [installing, setInstalling] = useState(0)
+  const countInstall = useCallback((d: 1 | -1) => setInstalling(n => n + d), [])
   const [pending, setPending] = useState(1) // the first load's restore
   const bumpBalance = useCallback(() => setTick(t => t + 1), [])
   const [account, setAccount] = useState<string | undefined>(() => accounts.list()[0]?.address)
@@ -67,5 +73,5 @@ export function AppState({ children }: { children: ReactNode }) {
     }).finally(() => setPending(n => n - 1))
   }, [refresh, selectChain])
 
-  return <Ctx.Provider value={{ chains, chain, error, selectChain, refresh, account, selectAccount: setAccount, balanceTick, bumpBalance, busy, setBusy, loading: pending > 0 }}>{children}</Ctx.Provider>
+  return <Ctx.Provider value={{ chains, chain, error, selectChain, refresh, account, selectAccount: setAccount, balanceTick, bumpBalance, busy, setBusy, installing, countInstall, loading: pending > 0 }}>{children}</Ctx.Provider>
 }

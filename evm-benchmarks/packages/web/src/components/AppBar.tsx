@@ -4,14 +4,15 @@ import { Segmented } from '../ui/segmented'
 import { useAppBarConfig } from '../state/appBar'
 import { useWizardMark } from '../walkthrough/wizard'
 
+/** The page part of the top bar: what the current page registered with `useAppBar`. */
 export function AppBar() {
   const c = useAppBarConfig()
   const mark = useWizardMark()
   if (!c) return null
   return (
-    <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 className="font-display text-xl font-semibold">{c.title}</h1>
+        <h1 className="font-display text-lg font-semibold">{c.title}</h1>
         {c.crumbs && c.crumbs.length > 1 && (
           <nav aria-label="Breadcrumb">
             <ol className="flex flex-wrap items-center gap-1.5 text-sm text-muted">
@@ -51,6 +52,6 @@ export function AppBar() {
           ))}
         </div>
       )}
-    </header>
+    </div>
   )
 }
