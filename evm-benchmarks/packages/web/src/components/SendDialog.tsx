@@ -27,7 +27,7 @@ export function SendDialog({ dialogRef, chain, asset, from, balance, accounts, t
   amount?: string
   onSent: () => void
   /** the transfer landed: the amount as entered */
-  onDone?: (amount: string) => void
+  onDone?: (amount: string, to: string) => void
   onClose: () => void
 }) {
   const others = accounts.filter(a => a.address !== from?.address)
@@ -59,7 +59,7 @@ export function SendDialog({ dialogRef, chain, asset, from, balance, accounts, t
       if (r.status !== 'success') throw new Error(`Transfer ${r.status}${r.error ? `: ${r.error}` : ''}`)
       report('send.submit', { tx: r.hash })
       dialogRef.current?.close()
-      onDone?.(amount)
+      onDone?.(amount, dest)
     } catch (e) {
       return fail(e instanceof Error ? e.message : String(e))
     } finally {

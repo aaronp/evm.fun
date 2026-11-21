@@ -60,7 +60,9 @@ describe('gasFix', () => {
   test('no other account holds more than the amount: no fix', () => {
     expect(gasFix({ ...base, balances: bals(0n, 0n) })).toBeUndefined()
     expect(gasFix({ ...base, balances: bals(parseEther('0.01'), 0n) })).toBeUndefined()
-    expect(gasFix({ ...base, balances: bals(parseEther('0.01') + 1n, 0n) })!.label).toBe('Request 0.01 ETH from alice')
+    // amount + the payer's own fees (3M gas at 2 gwei = 0.006 ETH)
+    expect(gasFix({ ...base, balances: bals(parseEther('0.016'), 0n) })).toBeUndefined()
+    expect(gasFix({ ...base, balances: bals(parseEther('0.016') + 1n, 0n) })!.label).toBe('Request 0.01 ETH from alice')
   })
   test('never from the sender itself, however rich', () => {
     expect(gasFix({ ...base, shortfall: { ...shortfall, address: alice.address }, balances: bals(parseEther('9'), 0n) })).toBeUndefined()

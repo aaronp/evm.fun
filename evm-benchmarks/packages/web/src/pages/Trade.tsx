@@ -56,8 +56,8 @@ export function Trade() {
   const [orders, setOrders] = useState<Order[]>()
   const [busy, setBusy] = useState(false)
   // the chain it belongs to: a result that lands after a chain switch must not flash on the new chain
-  const [flash, setFlashOn] = useState<{ text: string; tone: 'success' | 'danger'; link?: { to: string; label: string }; chainId?: string }>()
-  const setFlash = (f?: { text: string; tone: 'success' | 'danger'; link?: { to: string; label: string } }) => setFlashOn(f && { ...f, chainId: chain?.info.id })
+  const [flash, setFlashOn] = useState<{ text: string; tone: 'success' | 'danger'; link?: { to: string; label: string }; chainId?: string; own?: boolean }>()
+  const setFlash = (f?: { text: string; tone: 'success' | 'danger'; link?: { to: string; label: string }; own?: boolean }) => setFlashOn(f && { ...f, chainId: chain?.info.id })
   const [deploying, setDeploying] = useState(false)
   const reconciled = useRef(new Set<string>())
   const chainId = chain?.info.id
@@ -161,7 +161,7 @@ export function Trade() {
       bumpBalance() // a signed off-chain order sends nothing; the book and My orders still need a re-read
       if (r.reverted) {
         reverted = `Order reverted: ${r.reverted.error}`
-        return setFlash({ text: `${reverted}; nothing moved.`, tone: 'danger', link: r.order && reportLink(r.order.id) })
+        return setFlash({ text: `${reverted}; nothing moved.`, tone: 'danger', own: true, link: r.order && reportLink(r.order.id) }) // own: the order form shows this error and its fix
       }
       report('order.submit', placedOutputs(r))
       const filled = r.fills.reduce((n, f) => n + f.amount, 0n)
@@ -247,10 +247,9 @@ export function Trade() {
       )}
       {pair.error && <p role="alert" className="text-sm text-warn-text">{pair.error}</p>}
       {[err, readErr.book, readErr.orders].map((e, i) => e && <p key={i} role="alert" className="text-sm text-danger">{e}</p>)}
-      <GasFix error={err} />
+      <GasFix error={err ?? (flash?.tone === 'danger' && flash.chainId === chainId && !flash.own ? flash.text : undefined)} />
 
       {flash && flash.chainId === chainId && <Notice tone={flash.tone} action={flash.link && <Link to={flash.link.to} className="ml-auto font-semibold">{flash.link.label}</Link>}>{flash.text}</Notice>}
-      {flash?.tone === 'danger' && flash.chainId === chainId && <GasFix error={flash.text} />}
 
       {base && quote && (
         <div inert={disabled} className={`flex flex-col gap-4 ${disabled ? 'opacity-45' : ''}`}>

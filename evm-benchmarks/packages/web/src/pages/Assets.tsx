@@ -109,9 +109,10 @@ export function Assets() {
     setPrefill(link)
     setSender(link.from)
   }, [linkKey, cur?.id, bals, sender]) // eslint-disable-line react-hooks/exhaustive-deps
-  function sent(amount: string) {
+  function sent(amount: string, to: string) {
     if (!prefill?.back || !sender || !cur) return
-    pushNotice(`Received ${amount} ${cur.symbol} from ${sender.label}`, 'success')
+    const asked = to.toLowerCase() === prefill.to.toLowerCase() // the user may have changed the recipient
+    pushNotice(asked ? `Received ${amount} ${cur.symbol} from ${sender.label}` : `Sent ${amount} ${cur.symbol} to ${people.find(p => p.address.toLowerCase() === to.toLowerCase())?.label ?? shortAddress(to)}`, 'success')
     nav(prefill.back, { replace: true }) // carries chain and as: the requester's page and persona come back
   }
 

@@ -30,6 +30,7 @@ export function requestFix({ chainId, asset, issuer, recipient, need, have, issu
 }
 
 const CENT = 10n ** 16n // 0.01 ETH
+const FEE_MARGIN = 3_000_000n * 2_000_000_000n // the payer's own Send gas: the pre-check's fallback limit at 2 gwei
 
 /** "Request {amount} ETH from {account}" for a sender with no ETH for fees: the Assets page's native Send acting as
  *  the local account (not the sender) with the most ETH. Amount: the known shortfall rounded up to 0.01 ETH, else 1 ETH;
@@ -39,7 +40,7 @@ export function gasFix({ chainId, shortfall, balances, back, accounts }: {
 }): Fix | undefined {
   const short = (shortfall.need ?? 0n) - (shortfall.have ?? 0n)
   const amount = short > 0n ? (short + CENT - 1n) / CENT * CENT : 10n ** 18n
-  let rich: Persona | undefined, most = amount
+  let rich: Persona | undefined, most = amount + FEE_MARGIN
   for (const a of accounts) {
     const has = balances.get(a.address) ?? 0n
     if (!eq(a.address, shortfall.address) && has > most) { rich = a; most = has }
