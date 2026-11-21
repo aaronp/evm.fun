@@ -138,8 +138,9 @@ describe('walkthrough focus mode', () => {
   })
   test('index.css dims the bar like main: outermost unmarked children only, marked ones stay bright', () => {
     const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
-    expect(css).toContain(':is(main, header)[data-wz-focus] > :not(:has([data-wz-on])):not([data-wz-on])')
-    expect(css).toContain(':is(main, header)[data-wz-focus] :has([data-wz-on]) > :not([data-wz-on]):not(:has([data-wz-on]))')
+    expect(css).toContain('main[data-wz-focus] > :not(:has([data-wz-on])):not([data-wz-on])')
+    expect(css).toContain('header[data-wz-focus] > :not(:has([data-wz-on])):not([data-wz-on]):not(:hover, :focus-within)') // brightens like the sidebar
+    expect(css).toContain('header[data-wz-focus] :has([data-wz-on]) > :not([data-wz-on]):not(:has([data-wz-on])):not(:hover, :focus-within)')
   })
 })
 
