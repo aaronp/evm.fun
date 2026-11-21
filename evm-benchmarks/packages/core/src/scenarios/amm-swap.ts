@@ -10,18 +10,13 @@ const abi = MintableToken.abi;
 const U = 10n ** 18n; // one whole unit; each swap pays 1 unit in
 const SEED = 1_000_000n * U;
 
-/** a large seed pool; N swaps of 1 unit from disjoint traders, even index base in, odd quote in, minOut 0 */
+/** a large seed pool; N swaps of 1 unit from disjoint traders, each trader one direction (even j pays base, odd j quote), minOut 0 */
 export const ammSwap = (): Scenario => {
   const next = nonces();
   let pool: Address, base: Address, quote: Address, k0 = 0n;
   const deployer = (seed: string) => deriveAccounts(seed + ':dep', 1)[0]!;
   const traders = (seed: string, s: number) => deriveAccounts(seed, s);
-  /** how many base-in (even index) and quote-in swaps trader j makes */
-  const dirs = (p: {n: number; senders: number}, j: number) => {
-    let b = 0, q = 0;
-    for (let i = j; i < p.n; i += p.senders) i % 2 === 0 ? b++ : q++;
-    return {b: BigInt(b), q: BigInt(q)};
-  };
+  const paysBase = (j: number) => j % 2 === 0;
   const reserves = async (approach: Parameters<Scenario['verify']>[0]) => {
     const data = encodeFunctionData({abi: Pool.abi, functionName: 'reserves'});
     return decodeFunctionResult({abi: Pool.abi, functionName: 'reserves', data: await approach.call({to: pool, data})}) as readonly [bigint, bigint];
@@ -52,10 +47,9 @@ export const ammSwap = (): Scenario => {
       }
       for (const [j, a] of traders(p.seed, p.senders).entries()) {
         const amt = BigInt(txCount(p, j)) * U;
-        for (const t of [base, quote]) {
-          await call(d, t, mint(a.address, amt));
-          await call(a, t, approve, 60_000n);
-        }
+        const t = paysBase(j) ? base : quote;
+        await call(d, t, mint(a.address, amt));
+        await call(a, t, approve, 60_000n);
       }
       await call(d, pool, encodeFunctionData({abi: Pool.abi, functionName: 'addLiquidity', args: [SEED, SEED, 0n]}), 400_000n);
       await settleSetup(approach, setup);
@@ -68,7 +62,7 @@ export const ammSwap = (): Scenario => {
         onSigned,
         Array.from({length: p.n}, (_, i) => {
           const a = t[i % p.senders]!;
-          const data = encodeFunctionData({abi: Pool.abi, functionName: 'swap', args: [i % 2 === 0 ? base : quote, U, 0n]});
+          const data = encodeFunctionData({abi: Pool.abi, functionName: 'swap', args: [paysBase(i % p.senders) ? base : quote, U, 0n]});
           return () => signTx(a, next(a.address), {to: pool, data, gas: 250_000n});
         }),
       );
@@ -81,15 +75,14 @@ export const ammSwap = (): Scenario => {
       const bad: string[] = [];
       for (const [j, a] of traders(p.seed, p.senders).entries()) {
         const [tb, tq] = await Promise.all([balanceOf(approach, base, a.address), balanceOf(approach, quote, a.address)]);
-        const {b, q} = dirs(p, j);
         const fund = BigInt(txCount(p, j)) * U;
+        const [paid, got] = paysBase(j) ? [tb, tq] : [tq, tb];
         sb += tb;
         sq += tq;
-        minted = {b: minted.b + fund, q: minted.q + fund};
-        // output = balance minus what is left after paying; each 1-unit swap yields ~0.997 near price 1, so a
-        // missing swap shows as a shortfall. ponytail: 90% floor assumes the pool price stays near 1 (n << SEED)
-        if (q > 0n && tb - (fund - b * U) <= (q * U * 9n) / 10n) bad.push(`trader ${j} base output short`);
-        if (b > 0n && tq - (fund - q * U) <= (b * U * 9n) / 10n) bad.push(`trader ${j} quote output short`);
+        minted = {b: minted.b + (paysBase(j) ? fund : 0n), q: minted.q + (paysBase(j) ? 0n : fund)};
+        // the paid token only goes out, so one missing swap breaks this exactly; the other token must have arrived
+        if (paid !== 0n) bad.push(`trader ${j} paid token left ${paid}`);
+        if (txCount(p, j) > 0 && got <= 0n) bad.push(`trader ${j} received nothing`);
       }
       const k = rb * rq;
       if (sb !== minted.b || sq !== minted.q) bad.push('token conservation broken');
