@@ -1,0 +1,14 @@
+{
+  "name": "@evmb/pool",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@evmb/assets": "workspace:*",
+    "viem": "^2.58.1"
+  },
+  "devDependencies": {
+    "@evmb/contracts": "workspace:*",
+    "webevm": "0.9.1"
+  }
+}
