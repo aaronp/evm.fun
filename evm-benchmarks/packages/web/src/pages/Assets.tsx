@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import type { Address } from 'viem'
 import { balances as readBalances, readTokenInfo, totalSupply, type Asset } from '@evmb/assets'
 import { useApp } from '../state'
@@ -16,6 +16,8 @@ import { SendDialog } from '../components/SendDialog'
 import { Button } from '../ui/button'
 import { InfoIcon, PlusIcon } from '../ui/icons'
 import { useWizardAction } from '../walkthrough/wizard'
+import { linkedSend } from '../fix'
+import { pushNotice } from '../notice'
 
 const NATIVE_DP = 8
 const kindText = (a: Asset) => (a.kind === 'native' ? 'Native' : `ERC-20${a.mintable ? ' · Mintable' : ''}`)
@@ -37,6 +39,9 @@ export function Assets() {
   const [supply, setSupply] = useState<bigint>()
   const [bals, setBals] = useState<Map<Address, bigint>>()
   const [sender, setSender] = useState<Account>()
+  const [prefill, setPrefill] = useState<ReturnType<typeof linkedSend>>() // the Send a request link opened
+  const opened = useRef<string | undefined>(undefined)
+  const nav = useNavigate()
   const [dlg, setDlg] = useState<'import' | 'launch'>()
   const reconciled = useRef(new Set<string>())
   const prevId = useRef<string | undefined>(undefined)
@@ -93,6 +98,22 @@ export function Assets() {
   }, [chain, cur?.id, addrKey, balanceTick])
 
   useEffect(() => { if (sender) sendRef.current?.showModal() }, [sender])
+
+  // a request link (`?as=&asset=&send=&amount=&back=`): once its asset's balances are read and `as` holds some, open
+  // its Send — once per link, so closing it stays closed
+  const link = linkedSend(params, people)
+  const linkKey = link && [link.from.address, link.asset, link.to, link.amount, link.back].join('|')
+  useEffect(() => {
+    if (!link || opened.current === linkKey || sender || cur?.id !== link.asset || !bals || !((bals.get(link.from.address) ?? 0n) > 0n)) return
+    opened.current = linkKey
+    setPrefill(link)
+    setSender(link.from)
+  }, [linkKey, cur?.id, bals, sender]) // eslint-disable-line react-hooks/exhaustive-deps
+  function sent(amount: string) {
+    if (!prefill?.back || !sender || !cur) return
+    pushNotice(`Received ${amount} ${cur.symbol} from ${sender.label}`, 'success')
+    nav(prefill.back, { replace: true }) // carries chain and as: the requester's page and persona come back
+  }
 
   async function added(a: Asset) {
     if (chainId) setAssets(await assetRegistry.list(chainId))
@@ -173,7 +194,8 @@ export function Assets() {
 
       {dlg === 'import' && <ImportTokenDialog chain={chain} known={assets} onAdded={added} onClose={() => setDlg(undefined)} />}
       {dlg === 'launch' && <LaunchAssetDialog chain={chain} accounts={people} onLaunched={added} onSent={bumpBalance} onClose={() => setDlg(undefined)} />}
-      {sender && <SendDialog dialogRef={sendRef} chain={chain} asset={cur} from={sender} balance={bals?.get(sender.address)} accounts={people} onSent={bumpBalance} onClose={() => setSender(undefined)} />}
+      {sender && <SendDialog dialogRef={sendRef} chain={chain} asset={cur} from={sender} balance={bals?.get(sender.address)} accounts={people}
+        to={prefill?.to} amount={prefill?.amount} onSent={bumpBalance} onDone={sent} onClose={() => { setSender(undefined); setPrefill(undefined) }} />}
     </div>
   )
 }

@@ -19,6 +19,9 @@ const sizes = {
   barPrimary: 'min-h-10 gap-2 px-4 text-[13px] font-semibold',
 }
 
+/** Button classes for a non-button element (e.g. a link styled as a button). */
+export const buttonClass = (variant: keyof typeof variants = 'primary', size: keyof typeof sizes = 'md') => `${base} ${variants[variant]} ${sizes[size]}`
+
 export function Button({
   variant = 'primary',
   size = 'md',

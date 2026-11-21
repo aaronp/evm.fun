@@ -5,6 +5,7 @@ import { amountText, crosses, exactText, formQuote } from '../swap/ui'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { card, solid, type Funds } from './TakePanel'
+import { Shortfall } from './Shortfall'
 import { orThrow, useWizardAction, useWizardField, useWizardMark, type Outcome } from '../walkthrough/wizard'
 
 const label = 'text-xs font-medium text-muted'
@@ -35,12 +36,13 @@ export function MakeOfferCard({ base, quote, book: b, funds, busy, onApprove, on
   const note = ready && b ? crosses(side, price, b) : undefined
   const leg = (l?: { asset: Asset; amount: bigint }) => (l ? `${exactText(l.amount, l.asset.decimals)} ${l.asset.symbol}` : '—')
   const sell = side === 'ask'
+  const short = !!ready && bal !== undefined && bal < ready.give.amount
 
   /** returns the error message when it failed */
   async function create() {
     const fail = (e: string) => (setError(e), e)
     if (!ready) return fail((q as { error: string }).error)
-    if (bal !== undefined && bal < ready.give.amount)
+    if (short)
       return fail(`Not enough ${ready.give.asset.symbol} — you have ${amountText(bal, ready.give.asset.decimals)}.`)
     const { made, error } = await onCreate(ready.give, ready.get)
     if (made) { setAmount(''); setPrice(''); setError(undefined) }
@@ -71,7 +73,9 @@ export function MakeOfferCard({ base, quote, book: b, funds, busy, onApprove, on
         <div className="flex justify-between"><span className="text-muted">You get when taken</span><span className="font-mono">{leg(ready?.get)}</span></div>
       </div>
       {note && <div className="rounded-[10px] border border-warn/40 bg-warn-soft px-3 py-2.5 text-xs leading-normal text-warn-text">{note}</div>}
-      {error && <span role="alert" className="text-xs text-danger">{error}</span>}
+      {error && (short
+        ? <Shortfall asset={ready!.give.asset} need={ready!.give.amount} have={bal!}><span role="alert" className="text-xs text-danger">{error}</span></Shortfall>
+        : <span role="alert" className="text-xs text-danger">{error}</span>)}
       <div className="mt-auto flex flex-col gap-2">
         {needsApprove && <Button {...mark('offer.approve')} className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={() => onApprove(ready!.give.asset, ready!.give.amount)}>1 · Approve {leg(ready?.give)}</Button>}
         <button {...mark('offer.create')} className={`${solid} min-h-12 text-[15px] ${sell ? 'bg-ask' : 'bg-bid'}`} disabled={needsApprove || busy} onClick={create}>

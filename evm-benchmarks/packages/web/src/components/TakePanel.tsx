@@ -3,6 +3,7 @@ import { priceText, type BookRow } from '@evmb/swap'
 import { allowText, amountText } from '../swap/ui'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
+import { Shortfall } from './Shortfall'
 import { orThrow, useWizardAction, useWizardMark, type Outcome } from '../walkthrough/wizard'
 
 export const card = 'rounded-2xl border border-line-strong bg-surface'
@@ -59,7 +60,9 @@ export function TakePanel({ row, base, quote, maker, own, funds, busy, onApprove
       </>}
       {open && !own && <>
         <ul className="flex flex-col gap-2 text-[13px]">
-          <li className="flex gap-2">{mark(bal === undefined ? undefined : !balShort)}<span>{bal === undefined ? `Balance … ${pay.symbol}` : balShort ? `Not enough ${pay.symbol} — you have ${amountText(bal, pay.decimals)}` : `Balance ${amountText(bal, pay.decimals)} ${pay.symbol} covers it`}</span></li>
+          <li className="flex gap-2">{mark(bal === undefined ? undefined : !balShort)}{balShort
+            ? <Shortfall asset={pay} need={payAmt} have={bal}><span>{`Not enough ${pay.symbol} — you have ${amountText(bal, pay.decimals)}`}</span></Shortfall>
+            : <span>{bal === undefined ? `Balance … ${pay.symbol}` : `Balance ${amountText(bal, pay.decimals)} ${pay.symbol} covers it`}</span>}</li>
           <li className="flex gap-2">{mark(alw === undefined ? undefined : !alwShort)}<span>{alw === undefined ? `Swap may spend … ${pay.symbol}` : alwShort ? `Swap may spend ${allowText(alw, pay.decimals)} ${pay.symbol} — needs ${amountText(payAmt, pay.decimals)}` : 'Swap is allowed to spend it'}</span></li>
         </ul>
         <div className="mt-auto flex flex-col gap-2">

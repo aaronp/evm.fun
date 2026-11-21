@@ -7,7 +7,7 @@ import { approveFor, fillOther, minAt, newShareText } from '../pool/form'
 import { lpText, poolPriceText } from '../pool/ui'
 import { Button } from '../ui/button'
 import { solid } from './TakePanel'
-import { AmountBox, amountOf, details, label, row, SlippageRow, step, val, type Outcome, type TabProps } from './PoolSwapTab'
+import { AmountBox, amountOf, details, label, Problem, row, SlippageRow, step, val, type Outcome, type TabProps } from './PoolSwapTab'
 
 /** Add liquidity: both amounts; with liquidity, typing one fills the other at the pool ratio (an empty pool takes both
  * as given and shows the initial price they set). */
@@ -36,10 +36,11 @@ export function PoolAddTab({ s, base, quote, funds, busy, slip, setSlip, mine, o
   const ok = 'ok' in b && 'ok' in q
   const a = ok ? quoteAdd(s, b.ok, q.ok) : undefined
   const fb = funds(base), fq = funds(quote)
-  const short = (have: bigint | undefined, need: bigint, t: typeof base) => (have !== undefined && have < need ? `Not enough ${t.symbol} — you have ${amountText(have, t.decimals)}.` : undefined)
+  const short = (have: bigint | undefined, need: bigint, t: typeof base) => (have !== undefined && have < need ? { asset: t, need, have, text: `Not enough ${t.symbol} — you have ${amountText(have, t.decimals)}.` } : undefined)
+  const lack = a ? short(fb.bal, a.baseUsed, base) ?? short(fq.bal, a.quoteUsed, quote) : undefined
   const why = 'error' in b ? b.error : 'error' in q ? q.error
     : !a!.shares ? (empty ? 'Too small for a first deposit — raise both amounts.' : 'Too small — this would mint 0 LP shares.')
-    : short(fb.bal, a!.baseUsed, base) ?? short(fq.bal, a!.quoteUsed, quote)
+    : lack?.text
   const ready = why === undefined ? a! : undefined
   const ab = ready ? approveFor(ready.baseUsed, fb.alw) : 0n, aq = ready ? approveFor(ready.quoteUsed, fq.alw) : 0n
   const minShares = ready ? minAt(ready.shares, slip) : 0n
@@ -80,7 +81,7 @@ export function PoolAddTab({ s, base, quote, funds, busy, slip, setSlip, mine, o
         <div className={`${row} border-t border-line pt-2`}><span className="text-muted">Minimum shares</span><span className={val}>{ready ? `${lpText(minShares)} LP` : '—'}</span></div>
       </div>
       {empty && <p className="text-xs leading-normal text-muted">First deposit: the two amounts set the pool's price. 1,000 of the minted shares are locked forever.</p>}
-      {(error ?? (bt && qt && why)) && <span role="alert" className="text-xs text-danger">{error ?? why}</span>}
+      <Problem text={error ?? (bt && qt ? why : undefined)} lack={lack} />
       <div className="flex flex-col gap-2">
         {ab > 0n && <Button {...approveMark(base)} className={step} disabled={busy} onClick={() => onApprove(base, ab)}>{num()}Approve {formatUnits(ab, base.decimals)} {base.symbol}</Button>}
         {aq > 0n && <Button {...approveMark(quote)} className={step} disabled={busy} onClick={() => onApprove(quote, aq)}>{num()}Approve {formatUnits(aq, quote.decimals)} {quote.symbol}</Button>}

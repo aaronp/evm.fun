@@ -6,6 +6,7 @@ import { formatAmount, parseAmount } from '../assets/ui'
 import { allowanceNote, approveFor, availableText, percentAmount, plan, priceAway, slippageOf, spendable, submitText } from '../orderbook/form'
 import { card, solid } from './TakePanel'
 import { venueName, type VenueKind } from '../orderbook/locate'
+import { Shortfall } from './Shortfall'
 import { orThrow, useWizardAction, useWizardField, useWizardMark } from '../walkthrough/wizard'
 
 /** `committed`: what the acting account's other live off-chain orders already claim of this asset (`Venue.committed`) */
@@ -63,6 +64,8 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
   // off-chain orders share one balance and allowance: this one must fit on top of the maker's other live orders
   const held = venue === 'offchain' ? f.committed ?? 0n : 0n
   const toApprove = p?.need !== undefined && f.alw !== undefined ? approveFor(p.need + held, f.alw) : undefined
+  // the venue's "You hold …" pre-check failed: the allowance covers the order, the balance doesn't
+  const lack = p?.need !== undefined && f.bal !== undefined && f.bal < p.need + held && (f.alw === undefined || f.alw >= p.need + held)
   const thin = p?.thin ? `Book too thin: only ${amountText(p.filled, base)} of ${amountText(amount!, base)} can fill` : undefined
   const total = !p || p.bound === undefined ? '—'
     // a crossing limit order settles its fills at the makers' better prices: the bound is a limit, not exact
@@ -152,7 +155,9 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
           </span>
         </div>
       )}
-      {(error ?? thin) && <span role="alert" className="text-xs text-danger">{error ?? thin}</span>}
+      {error && lack
+        ? <Shortfall asset={give} need={p!.need! + held} have={f.bal!}><span role="alert" className="text-xs text-danger">{error}</span></Shortfall>
+        : (error ?? thin) && <span role="alert" className="text-xs text-danger">{error ?? thin}</span>}
       <button type="button" {...mark('order.submit')} disabled={busy} onClick={submit} className={`${solid} mt-auto min-h-12 text-[15px] ${buy ? 'bg-bid' : 'bg-ask'}`}>{submitText(side, amount, base)}</button>
     </section>
   )

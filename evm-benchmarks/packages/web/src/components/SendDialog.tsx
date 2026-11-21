@@ -14,20 +14,26 @@ import { WizardInline } from './WizardInline'
 const OTHER = 'other'
 
 /** Native modal; the parent mounts it per send and opens it with ref.current.showModal(), unmounting on onClose (state resets). Esc/Cancel close it, and the browser restores focus to the opener. */
-export function SendDialog({ dialogRef, chain, asset, from, balance, accounts, onSent, onClose }: {
+export function SendDialog({ dialogRef, chain, asset, from, balance, accounts, to: to0, amount: amount0, onSent, onDone, onClose }: {
   dialogRef: RefObject<HTMLDialogElement | null>
   chain: ChainHandle
   asset: Asset
   from?: Account
   balance?: bigint
   accounts: Account[]
+  /** prefill (a request link): the recipient address and the amount */
+  to?: string
+  amount?: string
   onSent: () => void
+  /** the transfer landed: the amount as entered */
+  onDone?: (amount: string) => void
   onClose: () => void
 }) {
   const others = accounts.filter(a => a.address !== from?.address)
-  const [to, setTo] = useState<string>(others[0]?.address ?? OTHER)
-  const [other, setOther] = useState('')
-  const [amount, setAmount] = useState('')
+  const known = to0 && others.find(a => a.address.toLowerCase() === to0.toLowerCase())?.address
+  const [to, setTo] = useState<string>(to0 ? known || OTHER : others[0]?.address ?? OTHER)
+  const [other, setOther] = useState(to0 && !known ? to0 : '')
+  const [amount, setAmount] = useState(amount0 ?? '')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
   useWizardField('send.to', to, setTo)
@@ -52,6 +58,7 @@ export function SendDialog({ dialogRef, chain, asset, from, balance, accounts, o
       if (r.status !== 'success') throw new Error(`Transfer ${r.status}${r.error ? `: ${r.error}` : ''}`)
       report('send.submit', { tx: r.hash })
       dialogRef.current?.close()
+      onDone?.(amount)
     } catch (e) {
       return fail(e instanceof Error ? e.message : String(e))
     } finally {
