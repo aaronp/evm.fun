@@ -10,14 +10,24 @@ import { checks, done, initialInputs, newRun, record, type Env } from './run'
 import { sameRoute, setAutoDelay, withAuto } from './auto'
 import { activeId, loadRun, saveRun, setActiveId } from './runs'
 import type { Outputs, Run, Step, StepType, Walkthrough } from './types'
+import type { Fix } from '../fix'
 
 type Active = { w: Walkthrough; run: Run; index: number }
 export type CheckResult = Awaited<ReturnType<typeof checks>>[number]
-/** What a page's handler returns: its error message when it did not succeed, else nothing. */
-export type Outcome = string | undefined | void
+/** A step's failure: the page's message, and a one-click fix when there is one (e.g. "Request 5 GBP from alice"). */
+export type Failure = { message: string; fix?: Fix }
+/** What a page's handler returns: its error message (or `Failure`) when it did not succeed, else nothing. */
+export type Outcome = string | Failure | undefined | void
 type Press = () => Outcome | Promise<Outcome>
-/** Wraps a page handler for `useWizardAction`: throws the page's own message, so Next shows it as the step's error. */
-export const orThrow = async (o: Outcome | Promise<Outcome>) => { const e = await o; if (e) throw new Error(e) }
+/** Wraps a page handler for `useWizardAction`: throws the page's own message (and fix), so Next shows it as the step's error. */
+export const orThrow = async (o: Outcome | Promise<Outcome>) => {
+  const e = await o
+  if (e) throw typeof e === 'string' ? new Error(e) : Object.assign(new Error(e.message), { fix: e.fix })
+}
+/** A handler's error message paired with `fix` (when both); success and fix-less failures unchanged. */
+export const withFix = (e: string | undefined, fix?: Fix): Outcome => (e && fix ? { message: e, fix } : e)
+/** What Next shows for a thrown failure: its message and the fix `orThrow` attached. */
+export const failure = (e: unknown): Failure => ({ message: message(e), fix: (e as { fix?: Fix } | undefined)?.fix })
 const tick = () => new Promise(r => setTimeout(r, 50))
 export type Layout = 'horizontal' | 'vertical'
 
@@ -26,6 +36,8 @@ export type Wizard = {
   isDone(step: Step): boolean
   results: Record<string, CheckResult[]>
   error?: string; busy: boolean
+  /** the step error's one-click fix, shown under it */
+  fix?: Fix
   /** account steps recorded because the label already existed */
   reused: Set<string>
   start(w: Walkthrough): Promise<void>
@@ -69,7 +81,7 @@ const defaultEnv: Env = { accounts, registry } // module-level: a fresh object p
 
 type Status = { run?: Run; done: Record<string, boolean>; results: Record<string, CheckResult[]>; errors: Record<string, string> }
 
-export function WizardProvider({ children, seed, env = defaultEnv }: { children?: ReactNode; seed?: { w: Walkthrough; run: Run; index?: number }; env?: Env }) {
+export function WizardProvider({ children, seed, env = defaultEnv }: { children?: ReactNode; seed?: { w: Walkthrough; run: Run; index?: number; error?: Failure }; env?: Env }) {
   const app = useApp() as ReturnType<typeof useApp> | undefined
   const goTo = useNavigate()
   /** every walkthrough navigation carries the current `?auto=` so the speed stays in the address */
@@ -77,7 +89,8 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
   const location = useLocation()
   const [active, setActive] = useState<Active | undefined>(seed && { ...seed, index: seed.index ?? firstOpen(seed.w, seed.run) })
   const [status, setStatus] = useState<Status>({ done: {}, results: {}, errors: {} })
-  const [error, setError] = useState<string>()
+  const [fail, setFail] = useState<Failure | undefined>(seed?.error)
+  const setError = useCallback((m?: string) => setFail(m === undefined ? undefined : { message: m }), [])
   const [busy, setBusy] = useState(false)
   const [reused, setReused] = useState(() => new Set<string>())
   const [layout, setLayoutState] = useState<Layout>(() => read(LAYOUT) === 'vertical' ? 'vertical' : 'horizontal')
@@ -238,7 +251,7 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
       if (!id) throw new Error("This page didn't offer the step's action. Open it and try again.")
       await actions.get(id)!()
     } catch (e) {
-      setError(message(e))
+      setFail(failure(e))
     } finally {
       setBusy(false)
     }
@@ -269,11 +282,11 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
   const value = useMemo<Wizard>(() => ({
     w, run, index: index ?? 0, step, b, isDone, results: status.run === run ? status.results : {},
     // the step's own failure first, then why its values can't be worked out, then why done/checks couldn't be read
-    error: error ?? initialError ?? (status.run === run && step ? status.errors[step.id] : undefined), busy, reused,
+    error: fail?.message ?? initialError ?? (status.run === run && step ? status.errors[step.id] : undefined), fix: fail?.fix, busy, reused,
     start, restart, exit, next, back, layout, setLayout, focus, setFocus,
     actions, values: fields.values, filled: fields.filled, refill, bump, report,
     initial: (id: string) => (step && run?.steps[step.id]?.inputs[id]) ?? initials[id],
-  }), [w, run, index, status, error, initialError, busy, reused, layout, focus, version, refill, initials]) // eslint-disable-line react-hooks/exhaustive-deps
+  }), [w, run, index, status, fail, initialError, busy, reused, layout, focus, version, refill, initials]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

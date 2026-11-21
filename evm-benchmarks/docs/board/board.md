@@ -295,6 +295,16 @@ ADR-0019, R39, R40: use full-precision mulDiv in Pool.sol to remove the theoreti
 
 ## Done
 
+### Links and fix-it actions
+- id: t-90
+- tags: web, walkthrough
+- history:
+  - Done @ 2026-11-21T13:52:32Z
+
+```md
+Spec: docs/superpowers/specs/2026-11-21-links-and-fixes-design.md (plan 12). Every page carries ?chain=&as= (synced both ways); balance shortfalls on Swap, Trade and Pool offer "Request {amount} {SYM} from {issuer}" (Send as the issuer, prefilled, then back with a notice); the walkthrough ribbon shows the same fix under a step's error. Web README: "Links and fix-it actions".
+```
+
 ### Liquidity pool (Uniswap v2-style, x·y = k)
 - id: t-63
 - history:

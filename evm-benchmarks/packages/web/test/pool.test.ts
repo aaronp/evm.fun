@@ -207,14 +207,17 @@ test('Review Focus 5: an empty pool shows only Add liquidity, both amounts free,
   const { createElement: h } = await import('react')
   const { renderToString } = await import('react-dom/server')
   const { PoolTabs } = await import('../src/components/PoolTabs')
+  const { MemoryRouter } = await import('react-router-dom')
+  const { AppState } = await import('../src/state')
+  const shell = (el: any) => h(MemoryRouter, null, h(AppState, null, el)) // the tabs read the chain and location (request fixes)
   const GBP = { id: 'g', chainId: 'c', kind: 'erc20', symbol: 'GBP', name: 'GBP', decimals: 2, address: gbp } as any
   const USD = { id: 'u', chainId: 'c', kind: 'erc20', symbol: 'USD', name: 'USD', decimals: 6, address: usd } as any
   const props = { base: GBP, quote: USD, funds: () => ({}), busy: false, onApprove: async () => undefined, onSwap: async () => undefined, onAdd: async () => undefined, onRemove: async () => undefined, onAfter: () => {} }
-  const empty = renderToString(h(PoolTabs, { ...props, s: { ...s, reserveBase: 0n, reserveQuote: 0n, totalShares: 0n } }))
+  const empty = renderToString(shell(h(PoolTabs, { ...props, s: { ...s, reserveBase: 0n, reserveQuote: 0n, totalShares: 0n } })))
   expect(empty).toContain('Add liquidity'); expect(empty).toContain('Initial price')
   expect(empty).not.toContain('>Swap<'); expect(empty).not.toContain('>Remove<'); expect(empty).not.toContain('You pay')
   expect(empty).not.toMatch(/readonly|readOnly/)
-  const live = renderToString(h(PoolTabs, { ...props, s }))
+  const live = renderToString(shell(h(PoolTabs, { ...props, s })))
   for (const t of ['>Swap<', 'Add liquidity', '>Remove<', 'You pay', 'You receive (estimate)', 'Your price', 'Price impact', 'Fee (0.30%)', 'Slippage tolerance', '0.1%', '0.5%', '1%', 'Minimum received',
     'Reverts if you would get less than the minimum — e.g. if someone else trades first and moves the price.']) expect(live).toContain(t)
   expect(live).toMatch(/aria-pressed="true"[^>]*>0\.5%/) // default tolerance

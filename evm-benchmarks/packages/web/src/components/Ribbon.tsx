@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useLocation } from 'react-router-dom'
-import { Button } from '../ui/button'
+import { Link, useLocation } from 'react-router-dom'
+import { Button, buttonClass } from '../ui/button'
 import { FuseNext, useAutoUrl } from './FuseNext'
 import { adoptAuto } from '../walkthrough/auto'
 import { Notice } from '../ui/notice'
@@ -99,6 +99,7 @@ export function Ribbon() {
         <p className="text-sm text-text-2">{step.text}</p>
         {c.reused.has(step.id) && <p className="text-sm text-muted">{label(step)} already exists — reused.</p>}
         {c.error && <p role="alert" className="rounded-lg border border-danger bg-danger-soft px-3 py-2 text-sm text-danger">{c.error}</p>}
+        {c.error && c.fix && <Link to={c.fix.href} className={buttonClass('outline', 'chip')}>{c.fix.label}</Link>}
         {results.length > 0 && (
           <ul className="space-y-1 text-sm">
             {results.map((r, i) => {

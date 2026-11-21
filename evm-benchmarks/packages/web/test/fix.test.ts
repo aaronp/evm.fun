@@ -80,10 +80,10 @@ test('SendDialog prefilled with an address not in this browser: Other address', 
 })
 
 test('Shortfall renders the message; with a fix, the request link', () => {
-  const html = render(h(Shortfall, { asset: GBP, need: 10n, have: 0n, fix: { label: 'Request 0.1 GBP from alice', href: '/assets?as=alice' } }, 'Not enough GBP — you have 0.00.'))
+  const html = render(h(Shortfall, { fix: { label: 'Request 0.1 GBP from alice', href: '/assets?as=alice' } }, 'Not enough GBP — you have 0.00.'))
   expect(html).toContain('Not enough GBP — you have 0.00.')
   expect(html).toMatch(/<a [^>]*href="\/assets\?as=alice"[^>]*>Request 0.1 GBP from alice<\/a>/)
-  const none = render(h(Shortfall, { asset: GBP, need: 10n, have: 0n }, 'Not enough GBP'))
+  const none = render(h(Shortfall, {}, 'Not enough GBP'))
   expect(none).toContain('Not enough GBP')
   expect(none).not.toContain('<a ')
 })

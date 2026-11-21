@@ -4,12 +4,13 @@ import type { Asset } from '@evmb/assets'
 import { quoteSwap, type PoolState } from '@evmb/pool'
 import { parseAmount } from '../assets/ui'
 import { amountText, same } from '../swap/ui'
-import { orThrow, useWizardAction, useWizardField, useWizardMark } from '../walkthrough/wizard'
+import { orThrow, useWizardAction, useWizardField, useWizardMark, withFix } from '../walkthrough/wizard'
 import { approveFor, SLIPPAGES, swapAfter } from '../pool/form'
 import { poolPriceText } from '../pool/ui'
 import { Button } from '../ui/button'
 import { solid, type Funds } from './TakePanel'
-import { Shortfall } from './Shortfall'
+import { Shortfall, useRequestFix } from './Shortfall'
+import type { Fix } from '../fix'
 
 export type Outcome = Promise<string | undefined>
 export type TabProps = {
@@ -50,11 +51,11 @@ export function SlippageRow({ slip, setSlip }: { slip: number; setSlip(bps: numb
   )
 }
 
-/** The tab's error line; a balance shortfall (`lack`, when it's the error shown) adds the request fix. */
-export function Problem({ text, lack }: { text?: string; lack?: { asset: Asset; need: bigint; have: bigint; text: string } }) {
+/** The tab's error line; a balance shortfall (`lack`, when it's the error shown) adds its fix. */
+export function Problem({ text, lack, fix }: { text?: string; lack?: string; fix?: Fix }) {
   if (!text) return null
   const line = <span role="alert" className="text-xs text-danger">{text}</span>
-  return lack?.text === text ? <Shortfall asset={lack.asset} need={lack.need} have={lack.have}>{line}</Shortfall> : line
+  return lack === text ? <Shortfall fix={fix}>{line}</Shortfall> : line
 }
 
 /** Parsed `text`, or the reason it can't be used ('' while empty). */
@@ -81,6 +82,7 @@ export function PoolSwapTab({ s, base, quote, funds, busy, slip, setSlip, onAppr
   const q = amt ? quoteSwap(s, pay.address as `0x${string}`, amt, slip) : undefined
   const { bal, alw } = funds(pay)
   const lack = bal !== undefined && bal < amt ? `Not enough ${pay.symbol} — you have ${amountText(bal, pay.decimals)}.` : undefined
+  const fix = useRequestFix(pay, lack ? amt : 0n, bal ?? 0n)
   const why = 'error' in a ? a.error
     : !q?.out ? `You would receive 0 ${get.symbol} — raise the amount.`
     : lack
@@ -99,7 +101,7 @@ export function PoolSwapTab({ s, base, quote, funds, busy, slip, setSlip, onAppr
     return e
   }
   useWizardAction('pool.approve', !busy && approve > 0n ? () => orThrow(onApprove(pay, approve)) : undefined)
-  useWizardAction('pool.swap', !busy && !unread && approve === 0n ? () => orThrow(swap()) : undefined)
+  useWizardAction('pool.swap', !busy && !unread && approve === 0n ? () => orThrow(swap().then(e => withFix(e, e === lack ? fix : undefined))) : undefined)
   // your price in quote per base whichever side you pay: the exact rational of the two amounts
   const yourPrice = q?.out ? poolPriceText({ ...s, ...(payBase ? { reserveBase: amt, reserveQuote: q.out } : { reserveBase: q.out, reserveQuote: amt }) }) : '—'
   const payText = `${amountText(amt, pay.decimals)} ${pay.symbol}`
@@ -125,7 +127,7 @@ export function PoolSwapTab({ s, base, quote, funds, busy, slip, setSlip, onAppr
         <SlippageRow slip={slip} setSlip={setSlip} />
         <div className={`${row} border-t border-line pt-2`}><span className="text-muted">Minimum received</span><span className={val}>{dash(q?.out ? `${amountText(q.minOut, get.decimals)} ${get.symbol}` : undefined)}</span></div>
       </div>
-      <Problem text={error ?? (text ? why : undefined)} lack={lack ? { asset: pay, need: amt, have: bal!, text: lack } : undefined} />
+      <Problem text={error ?? (text ? why : undefined)} lack={lack} fix={fix} />
       <div className="flex flex-col gap-2">
         {approve > 0n && <Button {...mark('pool.approve')} className={step} disabled={busy} onClick={() => onApprove(pay, approve)}>1 · Approve {formatUnits(approve, pay.decimals)} {pay.symbol}</Button>}
         <button {...mark('pool.swap')} className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={busy || unread || approve > 0n || why !== undefined} onClick={swap}>

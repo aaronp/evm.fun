@@ -105,6 +105,16 @@ Two guard tests:
 - `test/contrast.test.ts` checks WCAG contrast ratios for every theme block in `tokens.css`, and that `tokens.css`, `THEMES` and `index.html` list the same themes.
 - `test/no-raw-colours.test.ts` fails if any file in `src/` (other than `tokens.css`) contains a hex, `rgb()`/`hsl()` or Tailwind palette colour. Its allowlist is empty and must stay so.
 
+## Links and fix-it actions
+
+Every page's address carries `?chain=<registry id>&as=<persona>` (with the page's own params: `base`, `quote`, `venue`, `auto`, `asset`, …), so a URL reproduces what you were looking at and as whom. `src/components/UrlSync.tsx` keeps them in step both ways (`syncDecision` in `src/links.ts`): opening a link selects the chain and account; switching in the app rewrites the address (replace, no history entry); a navigation that drops them (sidebar, the walkthrough ribbon) gets them re-added. Spec: `docs/superpowers/specs/2026-11-21-links-and-fixes-design.md`.
+
+- **`chain`:** a registry id. An unknown one is ignored with "No chain {id} in this browser". Benchmark chain ids end up in the URL too, but benchmark chains aren't persisted, so after a reload that link warns.
+- **`as`:** the account's label when no other account has it, else its checksummed address; either is read (label case-sensitive, address any case). Unknown: "No account {as} in this browser".
+- **`back`:** a URI-encoded in-app path (`/swap?…`) to return to after a fix; anything else (a scheme, a host, `//`) is dropped.
+- **Back/Forward** switches chain and persona to the ones in that history entry, by design: the address is the source.
+- **Fix actions:** a balance shortfall ("Not enough GBP — you have 0.00.") on Swap (make, take), Trade (order form) and Pool (swap, add) offers **Request {amount} {SYM} from {issuer}** when the token's issuer is one of this browser's accounts, isn't you, and holds the shortfall (`requestFix` in `src/fix.ts`). It opens `/assets?chain=&as=<issuer>&asset=&send=<you>&amount=<shortfall>&back=<this page>`: the Send dialog acting as the issuer, prefilled. After the transfer lands it goes back to `back` (as you again) with "Received {amount} {SYM} from {issuer}". In a walkthrough the same fix shows under the step's error in the ribbon.
+
 ## Known limits
 
 - The UI stutters during benchmarks: the EVM runs on the main thread.

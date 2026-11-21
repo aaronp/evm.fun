@@ -5,8 +5,8 @@ import { amountText, crosses, exactText, formQuote } from '../swap/ui'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { card, solid, type Funds } from './TakePanel'
-import { Shortfall } from './Shortfall'
-import { orThrow, useWizardAction, useWizardField, useWizardMark, type Outcome } from '../walkthrough/wizard'
+import { Shortfall, useRequestFix } from './Shortfall'
+import { orThrow, useWizardAction, useWizardField, useWizardMark, withFix, type Outcome } from '../walkthrough/wizard'
 
 const label = 'text-xs font-medium text-muted'
 const input = 'min-h-11 rounded-[10px] px-3 font-mono font-medium'
@@ -37,6 +37,7 @@ export function MakeOfferCard({ base, quote, book: b, funds, busy, onApprove, on
   const leg = (l?: { asset: Asset; amount: bigint }) => (l ? `${exactText(l.amount, l.asset.decimals)} ${l.asset.symbol}` : '—')
   const sell = side === 'ask'
   const short = !!ready && bal !== undefined && bal < ready.give.amount
+  const fix = useRequestFix(ready?.give.asset, short ? ready!.give.amount : 0n, bal ?? 0n)
 
   /** returns the error message when it failed */
   async function create() {
@@ -49,7 +50,7 @@ export function MakeOfferCard({ base, quote, book: b, funds, busy, onApprove, on
     return error
   }
   useWizardAction('offer.approve', needsApprove && !busy ? () => orThrow(onApprove(ready!.give.asset, ready!.give.amount)) : undefined)
-  useWizardAction('offer.create', !needsApprove && !busy ? () => orThrow(create()) : undefined)
+  useWizardAction('offer.create', !needsApprove && !busy ? () => orThrow(create().then(e => withFix(e, fix))) : undefined)
   const pick = (s: Side) => { setSide(s); setError(undefined) }
   const sideBtn = (s: Side, text: string) => (
     <button aria-pressed={side === s} onClick={() => pick(s)}
@@ -74,7 +75,7 @@ export function MakeOfferCard({ base, quote, book: b, funds, busy, onApprove, on
       </div>
       {note && <div className="rounded-[10px] border border-warn/40 bg-warn-soft px-3 py-2.5 text-xs leading-normal text-warn-text">{note}</div>}
       {error && (short
-        ? <Shortfall asset={ready!.give.asset} need={ready!.give.amount} have={bal!}><span role="alert" className="text-xs text-danger">{error}</span></Shortfall>
+        ? <Shortfall fix={fix}><span role="alert" className="text-xs text-danger">{error}</span></Shortfall>
         : <span role="alert" className="text-xs text-danger">{error}</span>)}
       <div className="mt-auto flex flex-col gap-2">
         {needsApprove && <Button {...mark('offer.approve')} className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={() => onApprove(ready!.give.asset, ready!.give.amount)}>1 · Approve {leg(ready?.give)}</Button>}

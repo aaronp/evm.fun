@@ -101,6 +101,8 @@ while a press is in flight and while a dialog's own Next is showing, restarts wh
 is never cut off), and stops on an error or at the end. The countdown beside Next pauses and resumes it. The ▶ beside Next (shown when auto-advance is off) starts it at 5s and writes `?auto=5s` into the address; the ribbon keeps `?auto=` on every address it navigates to, so you can change the speed by editing it in the URL (e.g. `?auto=2s`), which takes effect at once. Reduced motion: no ring, the
 countdown remains.
 
+When a step fails for a balance shortfall (e.g. "Not enough GBP — you have 0.00."), the ribbon shows the fix under the error, as the page does: **Request {amount} {SYM} from {issuer}** (a page handler may return `{ message, fix }`; see the web README, "Links and fix-it actions"). It sends from the issuer and comes back to the step's page as you, with the ribbon still on that step; press Next again. A take that would revert for the balance reports the shortfall instead of sending, unless the step has `expectRevert`.
+
 In the app, an approve step approves what the form asks for (what the order needs, including the maker's other open orders; on the Pool page what the swap or add needs, in the token the step's `amount` names), not the JSON `amount`; headless runs use the JSON amount, so leftover allowances can differ.
 
 ## Install

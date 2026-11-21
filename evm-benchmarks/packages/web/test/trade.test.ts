@@ -245,7 +245,8 @@ async function ssr(el: (h: typeof import('react').createElement) => any) {
   const { createElement: h } = await import('react')
   const { renderToString } = await import('react-dom/server')
   const { MemoryRouter } = await import('react-router-dom')
-  return renderToString(h(MemoryRouter, null, el(h))).replaceAll('<!-- -->', '')
+  const { AppState } = await import('../src/state')
+  return renderToString(h(MemoryRouter, null, h(AppState, null, el(h)))).replaceAll('<!-- -->', '')
 }
 
 test('OrderForm renders the mockup copy (no fee row, no settlement select)', async () => {

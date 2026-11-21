@@ -3,8 +3,8 @@ import { priceText, type BookRow } from '@evmb/swap'
 import { allowText, amountText } from '../swap/ui'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
-import { Shortfall } from './Shortfall'
-import { orThrow, useWizardAction, useWizardMark, type Outcome } from '../walkthrough/wizard'
+import { Shortfall, useRequestFix } from './Shortfall'
+import { orThrow, useWizard, useWizardAction, useWizardMark, type Outcome } from '../walkthrough/wizard'
 
 export const card = 'rounded-2xl border border-line-strong bg-surface'
 export const statusTone = { open: 'accent', filled: 'success', cancelled: 'neutral', none: 'neutral' } as const
@@ -33,8 +33,13 @@ export function TakePanel({ row, base, quote, maker, own, funds, busy, onApprove
   const alwShort = alw !== undefined && alw < payAmt
   const needsApprove = alwShort && !balShort
   const takeable = open && !own && !busy
+  const fix = useRequestFix(pay, balShort ? payAmt : 0n, bal ?? 0n)
+  const shortText = balShort ? `Not enough ${pay.symbol} — you have ${amountText(bal, pay.decimals)}` : ''
+  // the take would revert: Next reports the shortfall (and its fix) instead, unless the step expects that revert
+  const expectRevert = useWizard()?.step?.expectRevert
+  const doomed = balShort && !expectRevert
   useWizardAction('take.approve', takeable && needsApprove ? () => orThrow(onApprove(pay, payAmt)) : undefined)
-  useWizardAction('take.submit', takeable ? () => orThrow(onTake()) : undefined)
+  useWizardAction('take.submit', takeable ? () => orThrow(doomed ? { message: `${shortText}.`, fix } : onTake()) : undefined)
   if (!row) return (
     <section {...wz('take.card')} aria-labelledby="tk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
       <h2 id="tk-h" className="text-sm font-semibold">Take offer</h2>
@@ -61,7 +66,7 @@ export function TakePanel({ row, base, quote, maker, own, funds, busy, onApprove
       {open && !own && <>
         <ul className="flex flex-col gap-2 text-[13px]">
           <li className="flex gap-2">{mark(bal === undefined ? undefined : !balShort)}{balShort
-            ? <Shortfall asset={pay} need={payAmt} have={bal}><span>{`Not enough ${pay.symbol} — you have ${amountText(bal, pay.decimals)}`}</span></Shortfall>
+            ? <Shortfall fix={fix}><span>{shortText}</span></Shortfall>
             : <span>{bal === undefined ? `Balance … ${pay.symbol}` : `Balance ${amountText(bal, pay.decimals)} ${pay.symbol} covers it`}</span>}</li>
           <li className="flex gap-2">{mark(alw === undefined ? undefined : !alwShort)}<span>{alw === undefined ? `Swap may spend … ${pay.symbol}` : alwShort ? `Swap may spend ${allowText(alw, pay.decimals)} ${pay.symbol} — needs ${amountText(payAmt, pay.decimals)}` : 'Swap is allowed to spend it'}</span></li>
         </ul>

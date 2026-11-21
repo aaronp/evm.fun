@@ -4,11 +4,13 @@ import { renderToString } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { bundled } from '../walkthroughs'
 import { binding, lastRegistered } from '../src/walkthrough/bindings'
-import { WizardProvider, checkTone, useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../src/walkthrough/wizard'
+import { WizardProvider, checkTone, failure, orThrow, withFix, useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../src/walkthrough/wizard'
 import { WizardInline } from '../src/components/WizardInline'
 import { AppState } from '../src/state'
 import { newRun } from '../src/walkthrough/run'
 import type { Outputs, Run, StepType } from '../src/walkthrough/types'
+import { syncDecision, withParams } from '../src/links'
+import { withAuto } from '../src/walkthrough/auto'
 
 const w = bundled.find(x => x.id === 'gbp-usd')!
 const step = (id: string) => w.steps.find(s => s.id === id)!
@@ -22,7 +24,7 @@ const fullRun = (): Run => ({
   steps: { take: { inputs: {}, outputs: { tx, reverted: false }, at: '' } },
 })
 
-const render = (el: any, seed?: { run: Run; index: number }) =>
+const render = (el: any, seed?: { run: Run; index: number; error?: { message: string; fix?: { label: string; href: string } } }) =>
   renderToString(h(MemoryRouter, null, h(AppState, null, seed ? h(WizardProvider, { seed: { w, ...seed } }, el) : el))).replaceAll('<!-- -->', '')
 
 describe('binding', () => {
@@ -170,5 +172,56 @@ describe('review fixes', () => {
     const { Ribbon } = await import('../src/components/Ribbon')
     const html = render(h(Ribbon), { run: newRun(w), index: w.steps.findIndex(s => s.id === 'gbp') })
     expect(html).toContain('Step gbp: $alice has no value yet')
+  })
+})
+
+describe('step fixes (a handler failing with { message, fix })', () => {
+  const fix = { label: 'Request 5 GBP from alice', href: '/assets?as=alice&asset=x&send=0xb&amount=5&back=%2Fswap' }
+  test('orThrow: strings as before; { message, fix } throws an error carrying the fix; failure() reads both', async () => {
+    expect(await orThrow(undefined)).toBeUndefined()
+    expect(failure(await orThrow('Nope').catch(e => e))).toEqual({ message: 'Nope', fix: undefined })
+    expect(failure(await orThrow(Promise.resolve({ message: 'Not enough GBP', fix })).catch(e => e))).toEqual({ message: 'Not enough GBP', fix })
+    expect(failure('plain')).toEqual({ message: 'plain', fix: undefined })
+  })
+  test('withFix: pairs a failure with its fix; success or no fix unchanged', () => {
+    expect(withFix('Not enough GBP', fix)).toEqual({ message: 'Not enough GBP', fix })
+    expect(withFix('Not enough GBP')).toBe('Not enough GBP')
+    expect(withFix(undefined, fix)).toBeUndefined()
+  })
+  test('the ribbon shows the step error and the fix under it', async () => {
+    const { Ribbon } = await import('../src/components/Ribbon')
+    const html = render(h(Ribbon), { run: fullRun(), index: 2, error: { message: 'Not enough GBP — you have 0.00.', fix } })
+    expect(html).toContain('Not enough GBP — you have 0.00.')
+    expect(html).toContain(`href="${fix.href.replaceAll('&', '&amp;')}"`)
+    expect(html.indexOf('Not enough GBP')).toBeLessThan(html.indexOf(fix.label))
+    expect(render(h(Ribbon), { run: fullRun(), index: 2, error: { message: 'Nope' } })).not.toContain('Request ')
+  })
+  test('the inline step shows it too', () => {
+    const html = render(h(WizardInline, { step: 'chain' }), { run: fullRun(), index: 2, error: { message: 'Not enough GBP', fix } })
+    expect(html).toContain('Not enough GBP')
+    expect(html).toContain(`>${fix.label}</a>`)
+  })
+})
+
+describe('Review Focus 4: ribbon navigations keep chain/as', () => {
+  const accts = [{ label: 'alice', address: a(7) }, { label: 'bob', address: a(8) }]
+  const known = { chains: ['c1'], accounts: accts }
+  // what the wizard navigates to: the step's page (no chain/as) with ?auto=
+  const go = withAuto(binding(step('take'), w).path(fullRun()), 5000)
+  const params = (path: string) => Object.fromEntries(new URLSearchParams(path.split('?')[1]))
+  test('the sync re-adds them, keeping auto and the page params, then settles', () => {
+    expect(params(go).chain).toBeUndefined()
+    const last = { chain: 'c1', as: 'alice' }, sel = { chain: 'c1', account: a(7), loading: false }
+    const d = syncDecision(params(go), sel, last, known)
+    expect(d.chain).toBeUndefined()
+    expect(d.account).toBeUndefined() // no switch: the dropped params don't select anything
+    const url = withParams(go, d.url!)
+    expect(params(url)).toEqual({ ...params(go), chain: 'c1', as: 'alice' })
+    expect(syncDecision(params(url), sel, d.last, known).url).toBeUndefined()
+  })
+  test("a step acting as someone else: Next selects them, the sync writes them in", () => {
+    const d = syncDecision(params(go), { chain: 'c1', account: a(8), loading: false }, { chain: 'c1', as: 'alice' }, known)
+    expect(d.account).toBeUndefined()
+    expect(params(withParams(go, d.url!))).toMatchObject({ chain: 'c1', as: 'bob', auto: '5s' })
   })
 })
