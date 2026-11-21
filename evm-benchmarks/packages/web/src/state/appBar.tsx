@@ -11,8 +11,9 @@ export interface AppBarConfig { title: string; crumbs?: { label: string; to?: st
 const Value = createContext<AppBarConfig | undefined>(undefined)
 const Setter = createContext<(c: AppBarConfig | undefined) => void>(() => {})
 
-export const AppBarProvider = ({ children }: { children: ReactNode }) => {
-  const [config, set] = useState<AppBarConfig>()
+/** `initial` seeds the config (server render has no effects to register it). */
+export const AppBarProvider = ({ children, initial }: { children: ReactNode; initial?: AppBarConfig }) => {
+  const [config, set] = useState(initial)
   return <Setter.Provider value={set}><Value.Provider value={config}>{children}</Value.Provider></Setter.Provider>
 }
 export const useAppBarConfig = () => useContext(Value)
