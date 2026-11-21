@@ -1081,3 +1081,68 @@ Claude's calls (spec "Settled after the builder check"): Open is all-or-nothing 
 - Restore after a failed Open is best-effort: clear, then load the in-memory backup; Open refuses if the current workspace can't be backed up.
 - `@evmb/orderbook` Store gained `entries(table)` so order-book rows can be saved.
 - Risks R42–R46 log the keys in the file, the missing size cap, Open replacing everything, orphaned state, and the nine-engine peak.
+
+---
+id: ADR-0021
+title: "Hash-locked cross-chain swap: the maker's lock is the offer, the page plays both parties"
+status: accepted
+date: 2026-11-22
+tags: architecture, web, htlc
+decision: lock
+---
+
+## Goal
+Swap GBP on one chain for USD on another with no trusted party: either both legs complete or both are refunded.
+
+## Hypothesis
+- We believe: a hash time-locked `HashLock.sol` on each chain, where the maker's lock carries the terms (`wantChain`, `wantLock`, `wantToken`, `wantAmount`), is enough to find, answer, claim and refund a swap
+- Will result in: a claim path and a refund path that each produce a report, with no off-chain offer registry
+- Measured by: both paths run headless and in the page; the secret is shown only to the maker until claimed
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| simple | Simple | 5 | Higher = fewer moving parts. |
+| honest | Real data only | 4 | Higher = everything shown comes from chain logs. |
+| safe | Safe | 4 | Higher = a mistake costs less. |
+
+## Solution: lock — the maker's lock is the offer
+| criterion | score |
+| --- | --- |
+| simple | 5 |
+| honest | 5 |
+| safe | 4 |
+
+Pros:
+- One contract per chain; the offer lives on-chain in the lock, so a reload or a saved file finds it
+
+Cons:
+- Every lock carries four extra term fields; pairing rules live in the page
+
+## Solution: registry — a separate offer registry
+| criterion | score |
+| --- | --- |
+| simple | 2 |
+| honest | 3 |
+| safe | 4 |
+
+Pros:
+- Locks stay minimal
+
+Cons:
+- A second contract and a place for offers and locks to disagree
+
+## Decision
+lock. Decided with Aaron: the maker's lock is the offer (a lock with empty `wantChain` is an answer); the page plays both parties (no watcher); unsafe timeouts warn and ask "Lock anyway" instead of blocking; the maker's secret lives in `kv` keyed by its hash until it is claimed.
+
+Claude's calls (spec "Settled after the builder check" 3-4): `wantLock` added to the terms and no `answers` field; claim needs `block.number < timeoutBlock` and refund `block.number >= timeoutBlock`, so the two never overlap; `BadLock` refuses zero amount or recipient, a timeout not in the future, and terms with a zero `wantToken` or `wantLock`.
+
+## Consequences
+- An answer pairs with its opening lock only on matching hash, sender/recipient swapped, the wanted token, an amount at least the wanted one, and the wanted lock on the wanted chain; anything else with that hash is ignored.
+- Timeouts are in blocks, so the page needs an "Advance N blocks" control; safe means the maker's remaining blocks exceed the taker's by 10.
+- `locksFor` reads `Locked` logs from the contract's deploy block (the same unbounded read as ADR-0019's activity); logged as a risk and backlog card.
+- The secret is in the workspace file while unclaimed.

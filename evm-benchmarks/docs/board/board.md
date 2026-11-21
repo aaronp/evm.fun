@@ -6,27 +6,6 @@ theme: ledger
 
 ## To Do
 
-### Cross-chain swap (HTLC)
-- id: t-62
-- history:
-  - To Do @ 2026-11-20T08:47:27.136Z
-
-```md
-The same offer, but GBP on dave and USD on sue, using your AtomicSwap.sol:
-
-the maker locks GBP under a hash;
-the taker locks USD under the same hash;
-the maker claims the USD, which reveals the secret;
-the taker uses the secret to claim the GBP.
-
-Two new playground pieces are needed:
-
-A watcher. Something has to see events on one chain and act on the other. In the playground, the UI can play both parties.
-A way to make blocks pass. Timeouts are measured in blocks, and a plain chain only makes blocks when there are transactions. You’d need an “advance N blocks” control to test refunds.
-
-This gives you cross-chain settlement early and with little machinery. Done when both the claim path and the refund path work and each produces a report.
-```
-
 ### Signed orders and off-chain matching
 - id: t-65
 - history:
@@ -303,6 +282,29 @@ ADR-0019, R39, R40: use full-precision mulDiv in Pool.sol to remove the theoreti
 ```
 
 ## Doing
+
+### Cross-chain swap (HTLC)
+- id: t-62
+- history:
+  - To Do @ 2026-11-20T08:47:27.136Z
+  - Doing @ 2026-11-21T20:46:44Z
+
+```md
+The same offer, but GBP on dave and USD on sue, using your AtomicSwap.sol:
+
+the maker locks GBP under a hash;
+the taker locks USD under the same hash;
+the maker claims the USD, which reveals the secret;
+the taker uses the secret to claim the GBP.
+
+Two new playground pieces are needed:
+
+A watcher. Something has to see events on one chain and act on the other. In the playground, the UI can play both parties.
+A way to make blocks pass. Timeouts are measured in blocks, and a plain chain only makes blocks when there are transactions. You’d need an “advance N blocks” control to test refunds.
+
+This gives you cross-chain settlement early and with little machinery. Done when both the claim path and the refund path work and each produces a report.
+```
+
 
 ## Done
 

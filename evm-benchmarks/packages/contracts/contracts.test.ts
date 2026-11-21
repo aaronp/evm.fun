@@ -1,8 +1,8 @@
 import {expect, test} from 'bun:test'
 import {createNode} from 'webevm'
-import {createPublicClient, createWalletClient, custom, decodeErrorResult, encodeDeployData, getAddress, parseEventLogs, type Address} from 'viem'
+import {createPublicClient, createWalletClient, custom, decodeErrorResult, encodeDeployData, getAddress, keccak256, parseEventLogs, type Address} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {AssetToken, AtomicSwap, MintableToken, OrderBook, Pool, Settlement, Swap, type Contract} from './index.ts'
+import {AssetToken, AtomicSwap, MintableToken, HashLock, OrderBook, Pool, Settlement, Swap, type Contract} from './index.ts'
 
 const fnNames = (abi: readonly {type: string; name?: string}[]) =>
   abi.filter((x) => x.type === 'function').map((x) => x.name)
@@ -883,4 +883,198 @@ test('Pool: constructor refuses the same token twice, the zero address and decim
     const t19 = await deploy(AssetToken, ['Nineteen', 'T19', 19, 1n, issuer.address])
     for (const args of [[gbp, gbp], [zero, gbp], [gbp, zero], [t19, gbp], [gbp, t19]])
       expect(await deployRevert(args)).toMatchObject({errorName: 'BadToken'})
+  }), 60_000)
+
+// ---- HashLock ----
+async function withHashLock(
+  fn: (c: {
+    lockA: Address
+    lockB: Address
+    gbp: Address
+    usd: Address
+    maker: Account
+    taker: Account
+    secret: `0x${string}`
+    hash: `0x${string}`
+    bal: (node: 'A' | 'B', token: Address, who: Address) => Promise<bigint>
+    head: (node: 'A' | 'B') => Promise<bigint>
+    mine: (node: 'A' | 'B', n: number) => Promise<void>
+    call: (node: 'A' | 'B', from: Account, address: Address, functionName: string, args: unknown[]) => Promise<any>
+    open: (timeout: bigint, wantChain?: string) => Promise<any>
+    revertOf: (node: 'A' | 'B', from: Account, address: Address, functionName: string, args: unknown[]) => Promise<{errorName: string; args?: readonly unknown[]}>
+    read: (node: 'A' | 'B', address: Address, functionName: string, args?: unknown[]) => Promise<any>
+  }) => Promise<void>,
+) {
+  const mk = () =>
+    createNode({chainId: 31337, miningConfig: {type: 'auto'}, initialBalances: {[issuer.address]: 10n ** 21n, [other.address]: 10n ** 21n}})
+  const nodes = {A: await mk(), B: await mk()}
+  try {
+    const abi = [...HashLock.abi, ...AssetToken.abi]
+    const tr = (k: 'A' | 'B') => custom({request: ({method, params}: any) => nodes[k].request({method, params}) as any})
+    const pub = {A: createPublicClient({transport: tr('A')}), B: createPublicClient({transport: tr('B')})}
+    const wallet = (k: 'A' | 'B', account: Account) => createWalletClient({account, transport: tr(k)})
+    const deploy = async (k: 'A' | 'B', c: Contract, args: unknown[]) => {
+      const h = await wallet(k, issuer).deployContract({abi: c.abi, bytecode: c.bytecode, args, chain: null} as any)
+      return getAddress((await pub[k].waitForTransactionReceipt({hash: h})).contractAddress!)
+    }
+    // two assets (GBP 2 dp on A, USD 6 dp on B), one HashLock per chain
+    const gbp = await deploy('A', AssetToken, ['British Pound', 'GBP', 2, 1_000_000n, issuer.address])
+    const usd = await deploy('B', AssetToken, ['US Dollar', 'USD', 6, 10_000_000_000n, issuer.address])
+    const lockA = await deploy('A', HashLock, [])
+    const lockB = await deploy('B', HashLock, [])
+    const read = (k: 'A' | 'B', address: Address, functionName: string, args: unknown[] = []) =>
+      pub[k].readContract({address, abi, functionName, args} as any)
+    const call = async (k: 'A' | 'B', from: Account, address: Address, functionName: string, args: unknown[]) => {
+      const h = await wallet(k, from).writeContract({address, abi, functionName, args, chain: null, gas: 500_000n} as any)
+      return pub[k].waitForTransactionReceipt({hash: h})
+    }
+    const revertOf = async (k: 'A' | 'B', from: Account, address: Address, functionName: string, args: unknown[]) => {
+      try {
+        await pub[k].simulateContract({account: from, address, abi, functionName, args} as any)
+      } catch (e: any) {
+        const err = e.walk?.((x: any) => x?.data?.errorName)
+        if (err) return err.data
+        throw e
+      }
+      throw new Error('did not revert')
+    }
+    const head = async (k: 'A' | 'B') => pub[k].getBlockNumber({cacheTime: 0})
+    // a block is made per transaction, so a self-transfer advances the chain by one block
+    const mine = async (k: 'A' | 'B', n: number) => {
+      for (let i = 0; i < n; i++) await wallet(k, other).sendTransaction({to: other.address, value: 0n, chain: null} as any).then((h) => pub[k].waitForTransactionReceipt({hash: h}))
+    }
+    // issuer = maker (holds GBP on A), other = taker (gets USD on B)
+    await call('B', issuer, usd, 'transfer', [other.address, 5_000_000_000n])
+    await call('A', issuer, gbp, 'approve', [lockA, 2n ** 255n])
+    await call('B', other, usd, 'approve', [lockB, 2n ** 255n])
+    const secret = `0x${'ab'.repeat(32)}` as const
+    const hash = keccak256(secret)
+    const open = async (timeout: bigint, wantChain = 'B') =>
+      call('A', issuer, lockA, 'lock', [gbp, 100_000n, other.address, hash, timeout, wantChain, wantChain ? lockB : zero, wantChain ? usd : zero, 127_000_000n])
+    await fn({lockA, lockB, gbp, usd, maker: issuer, taker: other, secret, hash, head, mine, call, open, revertOf, read, bal: (k, t, w) => read(k, t, 'balanceOf', [w])})
+  } finally {
+    await nodes.A.dispose()
+    await nodes.B.dispose()
+  }
+}
+const HStatus = {None: 0, Locked: 1, Claimed: 2, Refunded: 3}
+
+test('HashLock: lock pulls funds, stores terms, ids start at 1, emits Locked', () =>
+  withHashLock(async ({lockA, lockB, gbp, usd, maker, taker, hash, bal, open, read, head}) => {
+    expect(await read('A', lockA, 'nextId')).toBe(1n)
+    const before = await bal('A', gbp, maker.address)
+    const T = (await head('A')) + 100n
+    const r = await open(T)
+    expect(r.status).toBe('success')
+    const ev = parseEventLogs({abi: HashLock.abi, logs: r.logs, eventName: 'Locked'})
+    expect(ev.map((l: any) => l.args)).toEqual([{id: 1n, sender: maker.address, recipient: taker.address, hash, token: gbp, amount: 100_000n, timeoutBlock: T}])
+    expect(await bal('A', gbp, maker.address)).toBe(before - 100_000n)
+    expect(await bal('A', gbp, lockA)).toBe(100_000n)
+    expect(await read('A', lockA, 'nextId')).toBe(2n)
+    expect(await read('A', lockA, 'locks', [1n])).toEqual([maker.address, taker.address, gbp, 100_000n, hash, T, HStatus.Locked, 0n, `0x${'00'.repeat(32)}`, 'B', lockB, usd, 127_000_000n])
+  }), 60_000)
+
+test('HashLock: claim with the secret pays the recipient, stores secret and closedBlock, emits Claimed', () =>
+  withHashLock(async ({lockA, lockB, gbp, usd, maker, taker, secret, hash, bal, open, call, read, head}) => {
+    await open((await head('A')) + 100n)
+    const before = await bal('A', gbp, taker.address)
+    const r = await call('A', taker, lockA, 'claim', [1n, secret])
+    expect(r.status).toBe('success')
+    expect(parseEventLogs({abi: HashLock.abi, logs: r.logs, eventName: 'Claimed'}).map((l: any) => l.args)).toEqual([{id: 1n, secret}])
+    expect(await bal('A', gbp, taker.address)).toBe(before + 100_000n)
+    expect(await bal('A', gbp, lockA)).toBe(0n)
+    const l = await read('A', lockA, 'locks', [1n])
+    expect([l[6], l[7], l[8]]).toEqual([HStatus.Claimed, r.blockNumber, secret])
+    void lockB; void usd; void maker; void hash
+  }), 60_000)
+
+test('HashLock: BadSecret, NotRecipient, NotSender, NotLocked (double claim, refund after claim, unknown id)', () =>
+  withHashLock(async ({lockA, maker, taker, secret, open, call, revertOf, head, mine}) => {
+    await open((await head('A')) + 100n)
+    expect(await revertOf('A', taker, lockA, 'claim', [1n, `0x${'cd'.repeat(32)}`])).toMatchObject({errorName: 'BadSecret'})
+    expect(await revertOf('A', maker, lockA, 'claim', [1n, secret])).toMatchObject({errorName: 'NotRecipient'})
+    expect(await revertOf('A', taker, lockA, 'refund', [1n])).toMatchObject({errorName: 'NotSender'})
+    expect(await revertOf('A', taker, lockA, 'claim', [9n, secret])).toMatchObject({errorName: 'NotLocked', args: [9n, 0]})
+    await call('A', taker, lockA, 'claim', [1n, secret])
+    expect(await revertOf('A', taker, lockA, 'claim', [1n, secret])).toMatchObject({errorName: 'NotLocked', args: [1n, 2]})
+    expect(await revertOf('A', maker, lockA, 'refund', [1n])).toMatchObject({errorName: 'NotLocked', args: [1n, 2]})
+    void mine
+  }), 60_000)
+
+test('HashLock: timeout edges — claim at timeout-1 succeeds; refund at timeout-1 reverts NotExpired, at timeout succeeds', () =>
+  withHashLock(async ({lockA, gbp, maker, taker, secret, open, call, read, revertOf, head, mine}) => {
+    const T = (await head('A')) + 20n
+    await open(T)
+    await call('A', maker, lockA, 'lock', [gbp, 50_000n, taker.address, keccak256(secret), T, '', zero, zero, 0n])
+    await mine('A', Number(T - 2n - (await head('A')))) // head = T-2, so the next block mined is T-1
+    expect(await head('A')).toBe(T - 2n)
+    const early = await call('A', maker, lockA, 'refund', [2n]) // mined at T-1
+    expect([early.status, early.blockNumber]).toEqual(['reverted', T - 1n])
+    expect(await read('A', lockA, 'locks', [2n]).then((l) => l[6])).toBe(HStatus.Locked)
+    const r = await call('A', taker, lockA, 'claim', [1n, secret]) // mined at T
+    expect([r.status, r.blockNumber]).toEqual(['reverted', T])
+    expect(await revertOf('A', taker, lockA, 'claim', [1n, secret])).toMatchObject({errorName: 'Expired', args: [T]})
+    const ok = await call('A', maker, lockA, 'refund', [2n]) // mined at T+1
+    expect(ok.status).toBe('success')
+  }), 60_000)
+
+test('HashLock: claim mined at timeout-1 succeeds; refund mined at the timeout block succeeds', () =>
+  withHashLock(async ({lockA, gbp, maker, taker, secret, open, call, read, head, mine}) => {
+    const T = (await head('A')) + 20n
+    await open(T)
+    await call('A', maker, lockA, 'lock', [gbp, 50_000n, taker.address, keccak256(secret), T, '', zero, zero, 0n])
+    await mine('A', Number(T - 2n - (await head('A'))))
+    const c = await call('A', taker, lockA, 'claim', [1n, secret]) // mined at T-1
+    expect([c.status, c.blockNumber]).toEqual(['success', T - 1n])
+    const r = await call('A', maker, lockA, 'refund', [2n]) // mined at T
+    expect([r.status, r.blockNumber]).toEqual(['success', T])
+    expect(await read('A', lockA, 'locks', [2n]).then((l) => [l[6], l[7]])).toEqual([HStatus.Refunded, T])
+  }), 60_000)
+
+test('HashLock: claim at the timeout block reverts Expired; refund after timeout returns the funds and Claimed is then impossible', () =>
+  withHashLock(async ({lockA, gbp, maker, taker, secret, bal, open, call, read, revertOf, head, mine}) => {
+    const before = await bal('A', gbp, maker.address)
+    const T = (await head('A')) + 5n
+    await open(T)
+    await mine('A', Number(T - 1n - (await head('A')))) // head = T-1, next block is T
+    expect((await call('A', taker, lockA, 'claim', [1n, secret])).status).toBe('reverted') // mined at T
+    expect(await revertOf('A', taker, lockA, 'claim', [1n, secret])).toMatchObject({errorName: 'Expired', args: [T]})
+    const r = await call('A', maker, lockA, 'refund', [1n])
+    expect(r.status).toBe('success')
+    expect(parseEventLogs({abi: HashLock.abi, logs: r.logs, eventName: 'Refunded'}).map((l: any) => l.args)).toEqual([{id: 1n}])
+    expect(await bal('A', gbp, maker.address)).toBe(before)
+    expect(await read('A', lockA, 'locks', [1n]).then((l) => [l[6], l[7]])).toEqual([HStatus.Refunded, r.blockNumber])
+    expect(await revertOf('A', taker, lockA, 'claim', [1n, secret])).toMatchObject({errorName: 'NotLocked', args: [1n, 3]})
+    expect(await revertOf('A', maker, lockA, 'refund', [1n])).toMatchObject({errorName: 'NotLocked', args: [1n, 3]})
+  }), 60_000)
+
+test('HashLock: BadLock — zero amount, zero recipient, timeout not in the future, terms without wantToken or wantLock', () =>
+  withHashLock(async ({lockA, lockB, gbp, usd, taker, hash, revertOf, head, maker, call}) => {
+    const T = (await head('A')) + 100n
+    const bad = (args: unknown[]) => revertOf('A', maker, lockA, 'lock', args)
+    const ok = [gbp, 1n, taker.address, hash, T, 'B', lockB, usd, 5n]
+    expect(await bad([gbp, 0n, ...ok.slice(2)])).toMatchObject({errorName: 'BadLock'})
+    expect(await bad([gbp, 1n, zero, ...ok.slice(3)])).toMatchObject({errorName: 'BadLock'})
+    expect(await bad([...ok.slice(0, 4), 0n, ...ok.slice(5)])).toMatchObject({errorName: 'BadLock'})
+    expect(await bad([...ok.slice(0, 4), await head('A'), ...ok.slice(5)])).toMatchObject({errorName: 'BadLock'}) // timeout == head: next block is head+1, which is after it
+    const n = (await head('A')) + 1n // the block the next tx is mined in
+    expect(await call('A', maker, lockA, 'lock', [...ok.slice(0, 4), n, ...ok.slice(5)])).toMatchObject({status: 'reverted', blockNumber: n})
+    expect(await bad([...ok.slice(0, 6), zero, usd, 5n])).toMatchObject({errorName: 'BadLock'})
+    expect(await bad([...ok.slice(0, 7), zero, 5n])).toMatchObject({errorName: 'BadLock'})
+  }), 60_000)
+
+test('HashLock: an answer lock (empty terms) locks, claims and refunds the same way', () =>
+  withHashLock(async ({lockB, usd, maker, taker, secret, hash, bal, call, read, revertOf, head, mine}) => {
+    const T = (await head('B')) + 50n
+    const before = await bal('B', usd, taker.address)
+    // the taker answers on B: sender = taker, recipient = maker, no terms
+    const r = await call('B', taker, lockB, 'lock', [usd, 127_000_000n, maker.address, hash, T, '', zero, zero, 0n])
+    expect(r.status).toBe('success')
+    expect(await bal('B', usd, taker.address)).toBe(before - 127_000_000n)
+    expect(await read('B', lockB, 'locks', [1n]).then((l) => [l[9], l[10], l[11], l[12]])).toEqual(['', zero, zero, 0n])
+    const c = await call('B', maker, lockB, 'claim', [1n, secret])
+    expect(c.status).toBe('success')
+    expect(await bal('B', usd, maker.address)).toBeGreaterThanOrEqual(127_000_000n)
+    expect(await revertOf('B', taker, lockB, 'refund', [1n])).toMatchObject({errorName: 'NotLocked', args: [1n, 2]})
+    void mine
   }), 60_000)
