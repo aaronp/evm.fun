@@ -8,7 +8,7 @@ export type PoolState = {
 
 const pow10 = (n: number) => 10n ** BigInt(n)
 const div = (a: bigint, b: bigint) => (b === 0n ? 0n : a / b)
-const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b
+export const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b
 /** bps of `a / b` as a number with 2 decimals of a bp, e.g. 99.0099 → 99.0 */
 const bps = (a: bigint, b: bigint) => Number(div(a * 1_000_000n, b)) / 100
 

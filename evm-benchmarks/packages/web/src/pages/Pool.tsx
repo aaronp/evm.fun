@@ -162,7 +162,7 @@ export function Pool() {
       return r.error
     } catch (e) { setErr(e); return msg(e) } finally { setBusy(false) }
   }
-  const reported = (id: string, kind: 'addLiquidity' | 'removeLiquidity' | 'poolSwap') => async (tx: Hex) => wzReport(id, await poolOutputs(chain!, kind, tx))
+  const reported = (id: string, kind: 'addLiquidity' | 'removeLiquidity' | 'poolSwap') => async (tx: Hex) => { try { wzReport(id, await poolOutputs(chain!, kind, tx)) } catch { /* the tx landed; a failed extra read must not look like a failed send */ } }
   const raw = pool.raw, LP: Tok = { symbol: 'LP', decimals: 18 }
   /** page (base, quote) amounts → the pool's on-chain order */
   const onChain = (b: bigint, q: bigint): [bigint, bigint] => (raw && base && same(raw.base, base.address) ? [b, q] : [q, b])

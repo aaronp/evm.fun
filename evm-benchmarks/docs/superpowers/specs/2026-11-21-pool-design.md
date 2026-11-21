@@ -102,8 +102,7 @@ Same shape as `@evmb/swap`: deps viem and `@evmb/assets`; dev deps webevm and `@
 ## Walkthrough `gbp-usd-pool`
 
 Alice and Bob; GBP/USD; deploy Pool; Alice sends Bob GBP (`transfer`); Alice adds 100,000 GBP + 127,000 USD; Bob swaps 1,000 GBP with 0.5% slippage;
-checks: Bob received ≥ the minimum, k grew, Alice's position worth more than 227,000 USD at the new price minus
-impact is not asserted (only k and balances). New step types `deployPool`, `addLiquidity`, `removeLiquidity`,
+checks: Bob received ≥ the minimum, k grew. Only k and balances are checked; the position's worth is not asserted. New step types `deployPool`, `addLiquidity`, `removeLiquidity`,
 `poolSwap`; checks `{ pool: $pool, kGrew: true }` and balances. Runs headless and in the ribbon.
 
 ## Benchmark `amm-swap`

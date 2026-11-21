@@ -180,7 +180,7 @@
       "id": "view",
       "do": "view",
       "title": "See the pool",
-      "text": "Here is the pool now: more pounds, fewer dollars, a slightly higher price for pounds, and Alice's deposit worth a little more thanks to the fee.",
+      "text": "Here is the pool now: more pounds, fewer dollars, a slightly lower price for pounds, and k a little bigger: the fee stayed in the pool.",
       "args": {
         "page": "pool",
         "pool": "$pool"

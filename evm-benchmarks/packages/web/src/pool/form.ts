@@ -1,9 +1,8 @@
-import type { PoolState } from '@evmb/pool'
+import { ceilDiv, type PoolState } from '@evmb/pool'
 import { exactText } from '../swap/ui'
 import { shareText } from './ui'
 
 type Tok = { symbol: string; decimals: number }
-const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b
 
 /** Slippage tolerances in bps: 0.1% / 0.5% / 1%; 0.5% is the default. */
 export const SLIPPAGES = [[10, '0.1%'], [50, '0.5%'], [100, '1%']] as const
