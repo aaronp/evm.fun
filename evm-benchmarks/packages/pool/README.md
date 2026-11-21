@@ -4,7 +4,7 @@ UI-free helpers for `Pool.sol`, an x · y = k liquidity pool for one unordered p
 
 ## The contract
 
-`Pool.sol` is one contract per pair and is its own LP token (ERC-20 "PLP", name built from the two tokens). Constructor `(base, quote)`; decimals above 18 revert `BadToken`.
+`Pool.sol` is one contract per pair and is its own LP token (ERC-20 "PLP", name built from the two tokens). Constructor `(base, quote)`; `BadToken` for decimals above 18 and for a zero or identical token address.
 
 ```solidity
 function reserves() view returns (uint256, uint256)
@@ -18,7 +18,7 @@ error BadAmount()  error BadToken()  error Slippage(out, min)  error NoLiquidity
 
 - **Swap:** 30 bps fee on the input. `inWithFee = amountIn·9970`; `out = inWithFee·Rout / (Rin·10000 + inWithFee)`, rounded down; `out < minOut` reverts `Slippage(out, minOut)`. k never decreases.
 - **LP shares are in 18-dp whole units** whatever the token decimals. First deposit: `floor(sqrt(baseIn·10^(18-db) · quoteIn·10^(18-dq))) - 1000`; the 1,000 raw units are locked at `0x...dEaD` (v2's guard). Later deposits: `shares = min(baseIn·S/Rb, quoteIn·S/Rq)` (floor).
-- **Add pulls only the proportional amounts**, rounded up: `baseUsed = ceil(shares·Rb/S)`, `quoteUsed = ceil(shares·Rq/S)`, never more than offered, so the pool never loses to rounding. `minShares` protects the depositor.
+- **The first deposit pulls the full amounts offered** and reverts `BadAmount` if the square root is 1,000 or less (nothing left to mint). **Later adds pull only the proportional amounts**, rounded up: `baseUsed = ceil(shares·Rb/S)`, `quoteUsed = ceil(shares·Rq/S)`, never more than offered, so the pool never loses to rounding. `minShares` protects the depositor.
 - **Remove** pays `shares·Rb/S` and `shares·Rq/S`, floored (one side may round to 0; only 0 shares reverts `BadAmount`).
 - **Reserves are tracked in storage**, not read from `balanceOf`, so a donation to the pool does not move the price.
 

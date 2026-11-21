@@ -69,7 +69,7 @@ Same shape as `@evmb/swap`: deps viem and `@evmb/assets`; dev deps webevm and `@
 - `readPool(request, pool) → { base, quote, reserveBase, reserveQuote, totalShares, k }`; `position(request, pool,
   owner) → { shares, share (bps), base, quote }`.
 - Pure maths, mirroring the contract exactly: `amountOut(amountIn, rIn, rOut)`, `quoteSwap(pool, tokenIn, amountIn,
-  slippageBps) → { out, price, priceAfter, impactBps, fee, minOut }`, `quoteAdd(pool, baseIn, quoteIn) → { shares,
+  slippageBps) → { out, price, priceAfter, impactBps (execution price excluding the fee vs the current price), fee, minOut }`, `quoteAdd(pool, baseIn, quoteIn) → { shares,
   baseUsed, quoteUsed }`, `quoteRemove(pool, shares) → { base, quote }`, `poolPrice(pool)` (quote per base, in the
   order-book price units: quote raw per whole base).
 - Calls: `addLiquidityCall`, `removeLiquidityCall`, `swapCall`. Errors: `decodePoolError`.
@@ -101,7 +101,7 @@ Same shape as `@evmb/swap`: deps viem and `@evmb/assets`; dev deps webevm and `@
 
 ## Walkthrough `gbp-usd-pool`
 
-Alice and Bob; GBP/USD; deploy Pool; Alice adds 100,000 GBP + 127,000 USD; Bob swaps 1,000 GBP with 0.5% slippage;
+Alice and Bob; GBP/USD; deploy Pool; Alice sends Bob GBP (`transfer`); Alice adds 100,000 GBP + 127,000 USD; Bob swaps 1,000 GBP with 0.5% slippage;
 checks: Bob received ≥ the minimum, k grew, Alice's position worth more than 227,000 USD at the new price minus
 impact is not asserted (only k and balances). New step types `deployPool`, `addLiquidity`, `removeLiquidity`,
 `poolSwap`; checks `{ pool: $pool, kGrew: true }` and balances. Runs headless and in the ribbon.
@@ -109,10 +109,10 @@ impact is not asserted (only k and balances). New step types `deployPool`, `addL
 ## Benchmark `amm-swap`
 
 Setup deploys two MintableTokens and a Pool, seeds liquidity, funds and approves N traders; timed: N swaps from
-disjoint traders alternating direction (so the price stays near the start), each with `minOut = 0`; verify (order-
+disjoint traders, each one direction, split across both directions (so the price stays near the start), each with `minOut = 0`; verify (order-
 independent, since approaches may reorder): per token, reserves + every trader's balance equal the starting totals,
-every trader received a positive output, and the final k ≥ the starting k. The slippage revert is covered by the
-contract tests and the walkthrough, not the benchmark.
+every trader's paid token is accounted for exactly (one direction per trader), and the final k ≥ the starting k. The slippage revert is covered by the
+contract and page tests, not the walkthrough or the benchmark.
 
 ## Approaches considered
 
@@ -144,7 +144,7 @@ flag O(n) reads (activity's log read) as risks with backlog cards.
    deposits and removals stay proportional (`min(baseIn·S/Rb, quoteIn·S/Rq)`, `shares·R/S`, floored). The package
    mirrors this to the unit. The 1,000 locked raw units are 1e-15 LP: negligible on screen, still v2's guard.
 2. **`amm-swap` verifies invariants, not a replay** (see Benchmark): approaches may reorder, so verify checks token
-   conservation, positive outputs and final k ≥ starting k; timed swaps carry `minOut = 0`.
+   conservation, exact paid-token accounting per trader and final k ≥ starting k; timed swaps carry `minOut = 0`.
 3. **A pool belongs to an unordered pair.** `base()`/`quote()` are public immutables; `findPool(request, records, a,
    b)` reads them and matches either order (newest wins); deploying refuses when a pool for the pair exists in either
    order. The page and the Trade header show the price in the page's orientation (inverting when the pool's base is
