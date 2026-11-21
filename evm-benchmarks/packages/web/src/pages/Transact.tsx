@@ -16,6 +16,7 @@ import { Erc20Card, isErc20 } from '../components/Erc20Card'
 import { FunctionForm } from '../components/FunctionForm'
 import { ADDRESS_LIST } from '../components/AddressList'
 import { ReceiptView } from '../components/ReceiptView'
+import { GasFix } from '../components/Shortfall'
 
 const ETH = 'eth'
 const NONE = ''
@@ -78,6 +79,7 @@ export function Transact() {
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={sendEth}>Send</Button>
         {ethErr && <span role="alert" className="text-danger">{ethErr}</span>}
+        <GasFix error={ethErr} />
       </div>
     </div>
   ) : (

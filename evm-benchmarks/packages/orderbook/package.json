@@ -1,0 +1,14 @@
+{
+  "name": "@evmb/orderbook",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "viem": "^2.58.1"
+  },
+  "devDependencies": {
+    "@evmb/contracts": "workspace:*",
+    "fake-indexeddb": "6.0.1",
+    "webevm": "0.9.1"
+  }
+}

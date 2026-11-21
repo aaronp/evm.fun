@@ -1,4 +1,4 @@
-import { useAppBar } from '../state/appBar'
+import { useAppBar, type AppBarAction } from '../state/appBar'
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { basicSetup, EditorView } from 'codemirror'
@@ -24,6 +24,12 @@ import { assetRegistry } from '../assets/registry'
 import { tokenAsset } from '../assets/build'
 import { contractsRegistry, type DeployedContract } from '../contracts/registry'
 import { deploySwap, NO_RECORDS, swapFor } from '../swap/locate'
+import { deployVenue, venueFor } from '../orderbook/locate'
+import { deployPool } from '../pool/locate'
+import type { Asset } from '@evmb/assets'
+import type { ChainHandle } from '../chain/handle'
+import type { Account } from '../store/accounts'
+import { GasFix } from '../components/Shortfall'
 
 // Only var(--c-…) strings: a theme switch recolours the editor live, no remount.
 const editorTheme = EditorView.theme({
@@ -90,6 +96,85 @@ function Editor({ value, onChange, viewRef }: { value: string; onChange(v: strin
   return <div ref={host} className="h-96 overflow-auto border-t border-line-strong" />
 }
 
+/** A "Deploy {name}.sol" app-bar action: from the acting account; one per chain, none on benchmark chains. */
+function useDeployOne(id: string, name: string, find: (c: ChainHandle) => Promise<string | undefined>, deploy: (c: ChainHandle, from: Account, onSent: () => void) => Promise<string>, ctx: {
+  chain?: ChainHandle; acting?: Account; deployed: DeployedContract[]; setDeployed(d: DeployedContract[]): void; setStatus(s: { ok: boolean; text: string } | undefined): void; bumpBalance(): void
+}): AppBarAction {
+  const { chain, acting } = ctx
+  const [at, setAt] = useState<string | null>() // null: looking
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string>() // lookup failed: stay disabled rather than risk a second one
+  useEffect(() => {
+    setAt(null); setErr(undefined)
+    if (!chain) return
+    let live = true
+    find(chain).then(a => live && setAt(a), e => live && setErr(e instanceof Error ? e.message : String(e)))
+    return () => { live = false }
+  }, [chain, ctx.deployed]) // eslint-disable-line react-hooks/exhaustive-deps
+  const whyNot = !chain ? 'Select a chain first' : chain.info.ephemeral ? NO_RECORDS : err ?? (at ? `This chain already has ${name} at ${at}` : !acting ? 'Create an account first' : undefined)
+  const run = async () => {
+    if (!chain || !acting || whyNot || busy) return
+    setBusy(true)
+    ctx.setStatus(undefined)
+    try {
+      const addr = await deploy(chain, acting, ctx.bumpBalance)
+      ctx.setDeployed(await contractsRegistry.list(chain.info.id))
+      ctx.setStatus({ ok: true, text: `Deployed ${name} at ${addr}` })
+    } catch (e) {
+      ctx.setStatus({ ok: false, text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return { kind: 'button', id, label: busy ? `Deploying ${name}.sol…` : `Deploy ${name}.sol`, icon: null, text: true, title: whyNot, disabled: !!whyNot || at === null || busy, onClick: run }
+}
+
+/** "Deploy Pool.sol" for a picked base/quote: from the acting account; refused when the pair has a pool in either order. */
+function DeployPoolCard({ chain, acting, deployed, setDeployed, bumpBalance }: {
+  chain?: ChainHandle; acting?: Account; deployed: DeployedContract[]; setDeployed(d: DeployedContract[]): void; bumpBalance(): void
+}) {
+  const [status, setStatus] = useState<{ ok: boolean; text: string }>()
+  const [tokens, setTokens] = useState<Asset[]>([])
+  const [pick, setPick] = useState<[string, string]>(['', ''])
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { setPick(['', '']); setStatus(undefined) }, [chain])
+  useEffect(() => {
+    setTokens([])
+    if (!chain) return
+    let live = true
+    assetRegistry.list(chain.info.id).then(a => live && setTokens(a.filter(t => t.kind === 'erc20')))
+    return () => { live = false }
+  }, [chain, deployed])
+  const [base, quote] = [pick[0] || tokens[0]?.address || '', pick[1] || tokens.find(t => t.address !== (pick[0] || tokens[0]?.address))?.address || '']
+  const whyNot = !chain ? 'Select a chain first' : chain.info.ephemeral ? NO_RECORDS : tokens.length < 2 ? 'Pool needs two ERC-20 assets on this chain.' : base === quote ? 'Pick two different tokens.' : !acting ? 'Create an account first' : undefined
+  const run = async () => {
+    if (!chain || !acting || whyNot || busy) return
+    setBusy(true); setStatus(undefined)
+    try {
+      const addr = await deployPool(chain, acting, base as `0x${string}`, quote as `0x${string}`, bumpBalance)
+      setDeployed(await contractsRegistry.list(chain.info.id))
+      setStatus({ ok: true, text: `Deployed Pool at ${addr}` })
+    } catch (e) { setStatus({ ok: false, text: e instanceof Error ? e.message : String(e) }) } finally { setBusy(false) }
+  }
+  const select = (i: 0 | 1, v: string, label: string) => (
+    <Select aria-label={label} className="flex-1" value={v} onChange={e => setPick(p => (i ? [p[0] || base, e.target.value] : [e.target.value, p[1] || quote]))}>
+      {tokens.map(t => <option key={t.id} value={t.address}>{t.symbol}</option>)}
+    </Select>
+  )
+  return (
+    <Card className="space-y-3">
+      <h2 className="font-display text-sm font-semibold">Deploy Pool.sol</h2>
+      <div className="flex items-center gap-2">{select(0, base, 'Pool base')}<span className="text-muted">/</span>{select(1, quote, 'Pool quote')}</div>
+      <span title={whyNot} className="flex">
+        <Button className="w-full" onClick={run} disabled={!!whyNot || busy}>{busy ? 'Deploying Pool.sol…' : 'Deploy Pool.sol'}</Button>
+      </span>
+      {whyNot && <p className="text-xs text-muted">{whyNot}</p>}
+      {status && <div role="status" className={`break-words text-sm ${status.ok ? 'text-success-text' : 'text-danger'}`}>{status.text}</div>}
+      <GasFix error={status?.ok ? undefined : status?.text} />
+    </Card>
+  )
+}
+
 export function Studio() {
   const { chain, account, bumpBalance } = useApp()
   const [source, setSource] = useState(templates[0]!.source)
@@ -113,37 +198,12 @@ export function Studio() {
   }, [chain])
   useEffect(() => setDeployer(d => d || account || ''), [account])
 
-  // "Deploy Swap.sol": from the acting account; one Swap per chain, none on benchmark chains
-  const [swap, setSwap] = useState<string | null>() // null: looking
-  const [swapBusy, setSwapBusy] = useState(false)
-  const [swapErr, setSwapErr] = useState<string>() // lookup failed: stay disabled rather than risk a second Swap
-  useEffect(() => {
-    setSwap(null); setSwapErr(undefined)
-    if (!chain) return
-    let live = true
-    swapFor(chain).then(a => live && setSwap(a), e => live && setSwapErr(e instanceof Error ? e.message : String(e)))
-    return () => { live = false }
-  }, [chain, deployed])
   const acting = list.find(a => a.address === account)
-  const swapWhyNot = !chain ? 'Select a chain first' : chain.info.ephemeral ? NO_RECORDS : swapErr ?? (swap ? `This chain already has Swap at ${swap}` : !acting ? 'Create an account first' : undefined)
-  const deploySwapNow = async () => {
-    if (!chain || !acting || swapWhyNot || swapBusy) return
-    setSwapBusy(true)
-    setStatus(undefined)
-    try {
-      const at = await deploySwap(chain, acting, bumpBalance)
-      setDeployed(await contractsRegistry.list(chain.info.id))
-      setStatus({ ok: true, text: `Deployed Swap at ${at}` })
-    } catch (e) {
-      setStatus({ ok: false, text: e instanceof Error ? e.message : String(e) })
-    } finally {
-      setSwapBusy(false)
-    }
-  }
-  useAppBar({
-    title: 'Studio',
-    actions: [{ kind: 'button', id: 'swap', label: swapBusy ? 'Deploying Swap.sol…' : 'Deploy Swap.sol', icon: null, text: true, title: swapWhyNot, disabled: !!swapWhyNot || swap === null || swapBusy, onClick: deploySwapNow }],
-  })
+  const deployCtx = { chain, acting, deployed, setDeployed, setStatus, bumpBalance }
+  const swapAction = useDeployOne('swap', 'Swap', swapFor, deploySwap, deployCtx)
+  const bookAction = useDeployOne('orderbook', 'OrderBook', c => venueFor(c, 'onchain'), (c, a, s) => deployVenue(c, 'onchain', a, s), deployCtx)
+  const settlementAction = useDeployOne('settlement', 'Settlement', c => venueFor(c, 'offchain'), (c, a, s) => deployVenue(c, 'offchain', a, s), deployCtx)
+  useAppBar({ title: 'Studio', actions: [swapAction, bookAction, settlementAction] })
 
   const compile = async () => {
     setBusy(true)
@@ -247,6 +307,7 @@ export function Studio() {
 
         <div className="min-w-0 space-y-4">
           {!contract && status && <Card role="status" className={`break-words text-sm ${status.ok ? 'text-success-text' : 'text-danger'}`}>{status.text}</Card>}
+          {!contract && <GasFix error={status?.ok ? undefined : status?.text} />}
           {contract && (
             <Card className="space-y-3">
               {result!.contracts.length > 1 && (
@@ -276,9 +337,12 @@ export function Studio() {
                   {chain && list.length === 0 && <span className="text-xs text-muted">Create an account first.</span>}
                 </div>
                 {status && <div role="status" className={`break-words text-sm ${status.ok ? 'text-success-text' : 'text-danger'}`}>{status.text}</div>}
+                <GasFix error={status?.ok ? undefined : status?.text} />
               </div>
             </Card>
           )}
+
+          <DeployPoolCard {...deployCtx} />
 
           {deployed.length > 0 && (
             <Card className="space-y-2 text-sm">

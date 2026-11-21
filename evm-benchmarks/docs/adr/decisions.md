@@ -824,3 +824,175 @@ Claude's calls (spec `docs/superpowers/specs/2026-11-20-walkthroughs-design.md`)
 - Focus mode dims the sidebar as well as the page chrome.
 - Render-time writes in `useWizardField` / `useWizardAction` and the missing DOM harness are logged risks (R24, R25, backlog t-79, t-80).
 - Deferred, each a backlog card: `transfer`, `cancel`, snapshot / fork / restore steps (t-77); reusing an existing chain and funding traders on it (t-78).
+
+---
+id: ADR-0018
+title: "Order book: two venues (on-chain, off-chain with on-chain settlement) behind one Venue API"
+status: accepted
+date: 2026-11-20
+tags: architecture, orderbook, step-5
+decision: both
+---
+
+## Goal
+A Trade screen with limit and market orders and a live book, on a UI-free package with a realistic API over a lower-level persistence API that IndexedDB can back, so the playground can compare order-book designs.
+
+## Hypothesis
+- We believe: one `Venue` API with two implementations (orders resting in `OrderBook.sol`; signed orders in a store matched off-chain and settled by `Settlement.sol`) and a venue switch on the Trade screen
+- Will result in: two real designs exercised by the same screen, walkthroughs and benchmark
+- Measured by: both walkthroughs pass headless and in the ribbon; `book-match-onchain` vs `book-match-offchain` give comparable numbers
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| compare | Compares designs | 5 | Higher = both designs can be run and measured the same way. |
+| real | Realistic | 4 | Higher = the API and storage look like a real venue's. |
+| effort | Low effort | 3 | Higher = less to build. |
+| truth | Never shows unhonourable liquidity | 5 | Higher = the book only shows what a settle would honour. |
+
+## Solution: both — two venues, one API, header switch
+| criterion | score |
+| --- | --- |
+| compare | 5 |
+| real | 5 |
+| effort | 2 |
+| truth | 4 |
+
+Pros:
+- Same screen, walkthroughs and benchmark for both designs
+- Uses the persistence API for real (off-chain book, attempt journal)
+
+Cons:
+- Two contracts and two venue implementations to build
+
+## Solution: onchain — orders rest in OrderBook.sol only (t-64 as written)
+| criterion | score |
+| --- | --- |
+| compare | 1 |
+| real | 3 |
+| effort | 4 |
+| truth | 5 |
+
+Pros:
+- Simplest; the contract is the only truth
+
+Cons:
+- Every place/cancel costs gas; no use for the persistence API
+
+## Solution: offchain — signed orders and off-chain matching only (t-65)
+| criterion | score |
+| --- | --- |
+| compare | 1 |
+| real | 5 |
+| effort | 3 |
+| truth | 4 |
+
+Pros:
+- Free to place; how real venues work
+
+Cons:
+- No on-chain baseline to compare against
+
+## Decision
+Both. Decided with Aaron: a realistic API over a lower-level persistence API; a venue switch in the header (not side by side); a walkthrough per venue; t-64 moved ahead of t-62 and t-63, including t-65's single-chain work.
+
+Claude's calls (spec `docs/superpowers/specs/2026-11-20-orderbook-design.md`, "Settled after the builder check"): failed attempts journalled by the sender in the Store for both venues (no block scan); the benchmark uses the package's lower layers and times only transactions; off-chain liquidity capped per maker, summed, oldest first; market orders carry a worst price with a 1% default slippage bound; no settlement choices and no fees in this step.
+
+## Consequences
+- The off-chain book's fill/cancel truth is on-chain; the store holds signed orders and attempts only.
+- Off-chain liquidity reads each maker's balance and allowance live (O(makers) per book read; risk to log).
+- The comparison deliberately excludes off-chain matching time; reports must say so.
+- Store keys use `scope` (the app's chain id), not the EVM chain id: every playground chain is 31337 and a fresh chain deploys at the same addresses, so chain-id keys collided. A fork starts with an empty book and journal.
+- `Venue.committed(owner, asset)` was added: the off-chain form's allowance need must include the maker's other open orders, or Approve more unfunds older ones (on-chain it is 0, the escrow holds it).
+- A limit order whose matching is cut short by `maxLevels` would rest crossing the book, so the contract reverts instead (tested for the buy side); the package pre-checks and tells the user before sending.
+- The taker pays each maker per fill (ceil per fill) and escrows only its resting part: escrow-then-refund at one ceil can't cover the sum of per-fill ceils. Allowances need `quoteFor(up)` plus one raw unit per fill.
+- Attempts carry the decoded revert `reason`; failed orders show it as a badge. Expired orders show as cancelled.
+- O(n) reads and contract list growth are logged risks with backlog cards (R26-R33, t-82 to t-85).
+
+---
+id: ADR-0019
+title: "Liquidity pool: one Pool.sol per pair that is its own LP token (v2 shape, from scratch)"
+status: accepted
+date: 2026-11-21
+tags: architecture, pool, step-4
+decision: pair
+---
+
+## Goal
+A GBP/USD pool to add/remove liquidity and swap against with a quote and a slippage limit, giving later steps a reference price, readable in a playground.
+
+## Hypothesis
+- We believe: one small x·y = k contract per pair, itself the ERC-20 LP token, with a UI-free `@evmb/pool` that mirrors its maths to the unit
+- Will result in: quotes that always match execution, and a pool price the order book and Swap can reference
+- Measured by: quote == on-chain output in tests across decimals; `amm-swap` verifies conservation and k
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| read | Readable | 5 | Higher = easy to read and explain in a playground. |
+| familiar | Familiar | 4 | Higher = matches what people know (Uniswap v2). |
+| effort | Low effort | 3 | Higher = less to build. |
+| lp | LP transferable | 2 | Higher = LP shares are a normal ERC-20. |
+
+## Solution: pair — one Pool.sol per pair, its own LP ERC-20
+| criterion | score |
+| --- | --- |
+| read | 5 |
+| familiar | 5 |
+| effort | 4 |
+| lp | 5 |
+
+Pros:
+- About a page of Solidity; the v2 model people know
+- LP shares are transferable ERC-20s
+
+Cons:
+- One deploy per pair; no factory
+
+## Solution: singleton — one contract for every pair, internal LP balances
+| criterion | score |
+| --- | --- |
+| read | 3 |
+| familiar | 2 |
+| effort | 3 |
+| lp | 1 |
+
+Pros:
+- One deploy
+
+Cons:
+- LP not transferable; less familiar
+
+## Solution: vendor — vendor Uniswap v2
+| criterion | score |
+| --- | --- |
+| read | 1 |
+| familiar | 5 |
+| effort | 4 |
+| lp | 5 |
+
+Pros:
+- Battle-tested
+
+Cons:
+- Hard to read in a playground; licence questions
+
+## Decision
+pair. Decided with Aaron: the pool goes next (before t-62); the screenshot (design/step4/Pool.png) is the layout reference.
+
+Claude's calls (spec "Settled after the builder check"): LP shares normalised to 18-decimal whole units before the √ (first deposit locks 1,000 raw units); `amm-swap` verifies order-independent invariants (conservation, positive outputs, final k ≥ start) with minOut = 0; a pool belongs to an unordered pair (public base/quote, found in either order, no duplicates).
+
+## Consequences
+- Prices display from an exact rational of the reserves (4 dp half-up); orderbook-style integer units collapse when the oriented quote token has few decimals (USD per GBP at 2 dp).
+- The unordered-pair lookup reads `base()`/`quote()` on every record; it skips only no-code and decode failures, so transport errors surface instead of letting the page offer a duplicate deploy.
+- The walkthrough needed a `transfer` step: a launched token's supply goes to its issuer, so Bob could not get GBP otherwise (closes part of t-77).
+- `amm-swap` gives each trader one direction so verify checks the paid token exactly; price impact is Uniswap's (fee excluded), not the pool-price move.
+- Dust-reserve price skew (R38, t-88), a uint256 overflow ceiling (R39, t-89) and fee-on-transfer tokens (R40, t-89) are logged risks.

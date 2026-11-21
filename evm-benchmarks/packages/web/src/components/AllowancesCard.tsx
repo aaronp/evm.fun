@@ -6,6 +6,7 @@ import type { Account } from '../store/accounts'
 import { readContract, signAndSend } from '../tx/send'
 import { allowanceLabel, parseAmount, shortAddress } from '../assets/ui'
 import { Button } from '../ui/button'
+import { GasFix } from './Shortfall'
 
 const OTHER = 'other'
 const field = 'min-h-11 w-full rounded-[10px] border border-input-line bg-surface px-3 text-sm text-text placeholder:text-subtle focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent'
@@ -104,6 +105,7 @@ export function AllowancesCard({ chain, asset, people, tick, onSent }: {
           {readErr && <div role="alert" className="border-t border-line p-[22px] text-[13px] text-danger">Couldn’t read allowances: {readErr}</div>}
           {revokeFlash && <div role="status" className="border-t border-line px-[22px] py-3 text-xs text-success-text">{revokeFlash}</div>}
           {revokeErr && <div role="alert" className="border-t border-line px-[22px] py-3 text-xs text-danger">{revokeErr}</div>}
+          {revokeErr && <div className="px-[22px] pb-3"><GasFix error={revokeErr} /></div>}
           {!readErr && rows?.length === 0 && <div className="border-t border-line p-[22px] text-[13px] text-muted">No allowances on {asset.symbol} yet.</div>}
         </div>
 
@@ -134,6 +136,7 @@ export function AllowancesCard({ chain, asset, people, tick, onSent }: {
               Unlimited (max uint256)
             </label>
             {err && <span id="am-err" role="alert" className="text-xs text-danger">{err}</span>}
+            <GasFix error={err} />
           </div>
           <div className="text-xs text-subtle">Currently allowed: <span className="font-mono text-text">{current === undefined ? '—' : allowanceLabel(current, asset.decimals, asset.symbol)}</span></div>
           <Button type="submit" disabled={busy} className="min-h-11 rounded-[10px] font-semibold">{busy ? 'Sending…' : 'Approve'}</Button>

@@ -27,30 +27,14 @@ A way to make blocks pass. Timeouts are measured in blocks, and a plain chain on
 This gives you cross-chain settlement early and with little machinery. Done when both the claim path and the refund path work and each produces a report.
 ```
 
-### Liquidity pool (Uniswap v2-style, x·y = k)
-- id: t-63
-- history:
-  - To Do @ 2026-11-20T08:47:49.803Z
-
-```md
-Create a GBP/USD pool, add and remove liquidity, and swap with a quote and a slippage limit. It’s self-contained, with no matching and no counterparty online, and it gives every later step a reference price. I’d write a minimal pool yourself (about a page of Solidity) rather than vendoring Uniswap’s code. That’s easier to read in a playground and avoids licence questions. Benchmark scenario: amm-swap.
-```
-
-### On-chain order book, single chain
-- id: t-64
-- history:
-  - To Do @ 2026-11-20T08:47:58.873Z
-
-```md
-Limit orders rest in a contract, a taker’s transaction matches them, and settlement is atomic within that transaction. This is the Trade screen we designed, minus the settlement choices. It reuses step 2’s report and step 4’s pool price as a reference. Benchmark scenarios: book-match, plus book versus pool on the same trade.
-```
-
 ### Signed orders and off-chain matching
 - id: t-65
 - history:
   - To Do @ 2026-11-20T08:48:16.886Z
 
 ```md
+Folded into t-64 (ADR-0018): the off-chain venue builds signed orders and off-chain matching on one chain. What remains for step 7 is a book spanning two chains.
+
 This is the hybrid model. It’s required for step 7, because a single contract can’t hold a book that spans two chains.
 ```
 
@@ -65,6 +49,17 @@ Off-chain matching (step 6) with HTLC settlement (step 3): matched pairs whose l
 Later: netting, auctions, the vault, and the full market wizard. By then each is an option added to pieces that already work.
 
 Why this order: steps 2 and 3 are the same feature, first on one chain and then across two. That gets you cross-chain settlement by step 3 without first building an order book. The pool is independent, so you could swap it with step 5 if order books matter more to you.
+```
+
+### Approach 02: a tx whose sender can't pay gas×fee+value stops the executor for good; reject at admission
+- id: t-91
+- owner: Claude
+- tags: approach
+- history:
+  - To Do @ 2026-11-21T16:19:09.000Z
+
+```md
+On an approach-02-seq-memory chain, a tx whose sender can't pay gas × fee + value makes webevm's mine() throw, and approach-02 marks that fatal: the chain's executor stops permanently. The web app's signAndSend pre-checks the balance (partial control, see R41); fix it where all clients meet: reject such a tx at admission in approach-02 so it never reaches the executor.
 ```
 
 ### Approach 03: seq-stateroot
@@ -144,7 +139,7 @@ ADR-0016: non-status failures are replayed with eth_call at the parent block, so
   - To Do @ 2026-11-20T15:00:00Z
 
 ```md
-ADR-0017: the first slice has only the steps the two bundled walkthroughs use. Add transfer, cancel, and snapshot / fork / restore so long scenarios can branch from a saved state.
+ADR-0017: the first slice has only the steps the two bundled walkthroughs use. `transfer` now exists (ADR-0019, gbp-usd-pool). Still to add: cancel, and snapshot / fork / restore so long scenarios can branch from a saved state.
 ```
 
 ### Walkthroughs: run on an existing chain
@@ -227,9 +222,125 @@ ADR-0016, R20: makeOffer records offer ids per maker so "your offers" reads the 
 ADR-0016, R22: measure the balance delta on deposit, or refuse such tokens, so escrow can't be left short.
 ```
 
+### Order book: contract list growth and push payments
+- id: t-82
+- tags: orderbook, backlog
+- history:
+  - To Do @ 2026-11-20T20:08:20Z
+
+```md
+ADR-0018, R28, R29: compact dead ids out of level queues, bound the hint walk and ordersOf, and skip a failing maker (or pull payments) so one token can't block a level.
+```
+
+### Order book: reads that grow with history
+- id: t-83
+- tags: orderbook, backlog
+- history:
+  - To Do @ 2026-11-20T20:08:20Z
+
+```md
+ADR-0018, R26, R27: index trades instead of reading the log from the deploy block; batch and cache the off-chain book's balance/allowance reads; poll the Trade page less.
+```
+
+### Order book: signatures, nonces and journal gaps
+- id: t-84
+- tags: orderbook, backlog
+- history:
+  - To Do @ 2026-11-20T20:08:20Z
+
+```md
+ADR-0018, R31, R32, R33: ERC-1271 and a per-maker nonce floor in Settlement; record the tx hash at broadcast and reconcile pending attempts; warn when an off-chain order loses coverage.
+```
+
+### Order book: idbStore in a real browser
+- id: t-85
+- tags: orderbook, backlog
+- history:
+  - To Do @ 2026-11-20T20:08:20Z
+
+```md
+ADR-0018, R30: run the store conformance suite in a real browser; keep rows with undefined/NaN index keys consistent with memoryStore; handle versionchange and blocked opens.
+```
+
+### Walkthroughs: personas and strategy bots (market makers, traders)
+- id: t-86
+- tags: walkthrough, backlog
+- history:
+  - To Do @ 2026-11-20T22:37:53Z
+
+```md
+ADR-0017, ADR-0018. Extend walkthroughs with personas: a setup that deploys assets, then market-maker and trader bots that place bids/asks on a venue according to a strategy (e.g. a spread around a reference price, random takers), so a book fills with realistic activity.
+```
+
+### Pool: bound the activity read (R36)
+- id: t-87
+- tags: pool, backlog
+- history:
+  - To Do @ 2026-11-21T12:40:00Z
+
+```md
+ADR-0019, R36: `activity` reads every event from the deploy block on each call. Use a bounded window with "load more", or an incremental read that keeps the last block seen.
+```
+
+### Pool: discovery and dust-liquidity guards (R37, R38)
+- id: t-88
+- tags: pool, backlog
+- history:
+  - To Do @ 2026-11-21T12:40:00Z
+
+```md
+ADR-0019, R37, R38: no factory, so pools are found via contract records. Add a registry (or factory) so pools deployed elsewhere are found and duplicates refused chain-wide; warn on or refuse adds into dust reserves.
+```
+
+### Pool: mulDiv and non-standard tokens (R39, R40)
+- id: t-89
+- tags: pool, backlog
+- history:
+  - To Do @ 2026-11-21T12:40:00Z
+
+```md
+ADR-0019, R39, R40: use full-precision mulDiv in Pool.sol to remove the theoretical uint256 overflow ceiling; support or explicitly reject fee-on-transfer and rebasing tokens (measure received balances).
+```
+
 ## Doing
 
 ## Done
+
+### Links and fix-it actions
+- id: t-90
+- tags: web, walkthrough
+- history:
+  - Done @ 2026-11-21T13:52:32Z
+
+```md
+Spec: docs/superpowers/specs/2026-11-21-links-and-fixes-design.md (plan 12). Every page carries ?chain=&as= (synced both ways); balance shortfalls on Swap, Trade and Pool offer "Request {amount} {SYM} from {issuer}" (Send as the issuer, prefilled, then back with a notice); a send the account can't pay fees for offers "Request {amount} ETH from {account}" (the richest other local account) wherever the error shows; the walkthrough ribbon shows the same fix under a step's error. Web README: "Links and fix-it actions".
+```
+
+### Liquidity pool (Uniswap v2-style, x·y = k)
+- id: t-63
+- history:
+  - To Do @ 2026-11-20T08:47:49.803Z
+  - Doing @ 2026-11-21T10:08:25Z
+  - Done @ 2026-11-21T12:32:06Z
+
+```md
+ADR-0019. Taken next, before t-62. Spec: docs/superpowers/specs/2026-11-21-pool-design.md.
+
+Create a GBP/USD pool, add and remove liquidity, and swap with a quote and a slippage limit. It’s self-contained, with no matching and no counterparty online, and it gives every later step a reference price. I’d write a minimal pool yourself (about a page of Solidity) rather than vendoring Uniswap’s code. That’s easier to read in a playground and avoids licence questions. Benchmark scenario: amm-swap.
+```
+
+### Order book: on-chain and off-chain venues, single chain
+- id: t-64
+- history:
+  - To Do @ 2026-11-20T08:47:58.873Z
+  - Doing @ 2026-11-20T17:21:04Z
+  - Done @ 2026-11-20T20:08:20Z
+
+```md
+ADR-0018 (moved ahead of t-62/t-63; includes t-65's signed orders and off-chain matching). Spec: docs/superpowers/specs/2026-11-20-orderbook-design.md. Two venues behind one Venue API with a header switch.
+
+Limit orders rest in a contract, a taker’s transaction matches them, and settlement is atomic within that transaction. This is the Trade screen we designed, minus the settlement choices. It reuses step 2’s report and step 4’s pool price as a reference. Benchmark scenarios: book-match, plus book versus pool on the same trade.
+```
 
 ### Walkthroughs: auto-advance (?auto=5s)
 - id: t-81

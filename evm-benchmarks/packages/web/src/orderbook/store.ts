@@ -1,0 +1,21 @@
+import { bookSchema, idbStore, memoryStore, type Store } from '@evmb/orderbook'
+
+/** IndexedDB when it opens, else memory (no IndexedDB, blocked storage, SSR, tests). */
+function open(): Store {
+  const mem = memoryStore(bookSchema)
+  if (typeof indexedDB === 'undefined' || typeof IDBKeyRange === 'undefined') return mem
+  let use: Promise<Store>
+  try {
+    const idb = idbStore('evmb-orderbook', bookSchema)
+    use = idb.get('meta', 'open').then(() => idb, () => mem)
+  } catch { use = Promise.resolve(mem) }
+  return {
+    get: async (t, k) => (await use).get(t, k),
+    put: async (t, k, v) => (await use).put(t, k, v),
+    del: async (t, k) => (await use).del(t, k),
+    scan: async (t, i, r) => (await use).scan(t, i, r),
+  }
+}
+
+/** The app's one order-book store; rows are keyed by scope (the playground chain id) and venue address. */
+export const bookStore: Store = open()

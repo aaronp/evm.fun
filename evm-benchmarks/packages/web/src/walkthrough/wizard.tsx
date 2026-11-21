@@ -7,18 +7,33 @@ import { kv } from '../store/kv'
 import { bundled } from '../../walkthroughs'
 import { binding, lastRegistered, type Binding } from './bindings'
 import { checks, done, initialInputs, newRun, record, type Env } from './run'
-import { setAutoDelay } from './auto'
+import { sameRoute, setAutoDelay, withAuto } from './auto'
 import { activeId, loadRun, saveRun, setActiveId } from './runs'
 import type { Outputs, Run, Step, StepType, Walkthrough } from './types'
+import type { Fix } from '../fix'
+import { useGasFix } from '../components/Shortfall'
 
 type Active = { w: Walkthrough; run: Run; index: number }
 export type CheckResult = Awaited<ReturnType<typeof checks>>[number]
-/** What a page's handler returns: its error message when it did not succeed, else nothing. */
-export type Outcome = string | undefined | void
+/** A step's failure: the page's message, and a one-click fix when there is one (e.g. "Request 5 GBP from alice"). */
+export type Failure = { message: string; fix?: Fix }
+/** What a page's handler returns: its error message (or `Failure`) when it did not succeed, else nothing. */
+export type Outcome = string | Failure | undefined | void
 type Press = () => Outcome | Promise<Outcome>
-/** Wraps a page handler for `useWizardAction`: throws the page's own message, so Next shows it as the step's error. */
-export const orThrow = async (o: Outcome | Promise<Outcome>) => { const e = await o; if (e) throw new Error(e) }
+/** Wraps a page handler for `useWizardAction`: throws the page's own message (and fix), so Next shows it as the step's error. */
+export const orThrow = async (o: Outcome | Promise<Outcome>) => {
+  const e = await o
+  if (e) throw typeof e === 'string' ? new Error(e) : Object.assign(new Error(e.message), { fix: e.fix })
+}
+/** A handler's error message paired with `fix` (when both); success and fix-less failures unchanged. */
+export const withFix = (e: string | undefined, fix?: Fix): Outcome => (e && fix ? { message: e, fix } : e)
+/** What Next shows for a thrown failure: its message and the fix `orThrow` attached. */
+export const failure = (e: unknown): Failure => ({ message: message(e), fix: (e as { fix?: Fix } | undefined)?.fix })
 const tick = () => new Promise(r => setTimeout(r, 50))
+/** A fix's round trip is over: this fix (`opened`: the href last opened) was opened and the location has left it — its Send landed and came back
+ *  (or you went elsewhere). The step's error and fix are then stale, and a second Request would send twice. */
+export const fixReturned = (opened: string | undefined, here: string, href: string) => opened === href && !sameRoute(here, href)
+
 export type Layout = 'horizontal' | 'vertical'
 
 export type Wizard = {
@@ -26,6 +41,8 @@ export type Wizard = {
   isDone(step: Step): boolean
   results: Record<string, CheckResult[]>
   error?: string; busy: boolean
+  /** the step error's one-click fix, shown under it */
+  fix?: Fix
   /** account steps recorded because the label already existed */
   reused: Set<string>
   start(w: Walkthrough): Promise<void>
@@ -69,13 +86,16 @@ const defaultEnv: Env = { accounts, registry } // module-level: a fresh object p
 
 type Status = { run?: Run; done: Record<string, boolean>; results: Record<string, CheckResult[]>; errors: Record<string, string> }
 
-export function WizardProvider({ children, seed, env = defaultEnv }: { children?: ReactNode; seed?: { w: Walkthrough; run: Run; index?: number }; env?: Env }) {
+export function WizardProvider({ children, seed, env = defaultEnv }: { children?: ReactNode; seed?: { w: Walkthrough; run: Run; index?: number; error?: Failure }; env?: Env }) {
   const app = useApp() as ReturnType<typeof useApp> | undefined
-  const navigate = useNavigate()
+  const goTo = useNavigate()
+  /** every walkthrough navigation carries the current `?auto=` so the speed stays in the address */
+  const navigate = useCallback((path: string) => goTo(withAuto(path)), [goTo])
   const location = useLocation()
   const [active, setActive] = useState<Active | undefined>(seed && { ...seed, index: seed.index ?? firstOpen(seed.w, seed.run) })
   const [status, setStatus] = useState<Status>({ done: {}, results: {}, errors: {} })
-  const [error, setError] = useState<string>()
+  const [fail, setFail] = useState<Failure | undefined>(seed?.error)
+  const setError = useCallback((m?: string) => setFail(m === undefined ? undefined : { message: m }), [])
   const [busy, setBusy] = useState(false)
   const [reused, setReused] = useState(() => new Set<string>())
   const [layout, setLayoutState] = useState<Layout>(() => read(LAYOUT) === 'vertical' ? 'vertical' : 'horizontal')
@@ -158,6 +178,17 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
     })().catch(e => setError(`Couldn't resume the walkthrough: ${message(e)}`))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // a step that failed for lack of ETH for fees gets "Request … ETH from …", fixed when found (its href keeps the failing page)
+  const gas = useGasFix(fail && !fail.fix ? fail.message : undefined)
+  useEffect(() => { if (gas) setFail(f => f && !f.fix ? { ...f, fix: gas } : f) }, [gas?.href]) // eslint-disable-line react-hooks/exhaustive-deps
+  // after the fix's round trip, clear the step's error (and fix): pressing Request again would send twice
+  const here = location.pathname + location.search, fixHref = fail?.fix?.href, opened = useRef<string>(undefined)
+  useEffect(() => {
+    if (!fixHref) opened.current = undefined
+    else if (fixReturned(opened.current, here, fixHref)) { opened.current = undefined; setFail(undefined) }
+    else if (sameRoute(here, fixHref)) opened.current = fixHref
+  }, [here, fixHref])
+
   const latest = useRef({ active, status, initials, busy, location, app })
   latest.current = { active, status, initials, busy, location, app }
 
@@ -209,7 +240,7 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
         }
       }
       if (step.do === 'view') {
-        if (location.pathname + location.search !== path) navigate(path)
+        if (!sameRoute(location.pathname + location.search, path)) navigate(path)
         setRun(record(w, run, step, {})); return
       }
       // chain and acting account first, and wait until the app (and so the page) has them: an action already
@@ -228,7 +259,7 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
         await tick() // the page's effects for the switch (e.g. Swap clearing its selection) run first
         setRefill(n => n + 1)
       }
-      if (location.pathname + location.search !== path) navigate(path)
+      if (!sameRoute(location.pathname + location.search, path)) navigate(path)
       await tick() // the page re-renders (or mounts) before its actions are looked up
       // ponytail: polls for the page to mount and register; 5 s ceiling, an event per registration if it's ever too slow
       let id: string | undefined
@@ -236,7 +267,7 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
       if (!id) throw new Error("This page didn't offer the step's action. Open it and try again.")
       await actions.get(id)!()
     } catch (e) {
-      setError(message(e))
+      setFail(failure(e))
     } finally {
       setBusy(false)
     }
@@ -267,11 +298,11 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
   const value = useMemo<Wizard>(() => ({
     w, run, index: index ?? 0, step, b, isDone, results: status.run === run ? status.results : {},
     // the step's own failure first, then why its values can't be worked out, then why done/checks couldn't be read
-    error: error ?? initialError ?? (status.run === run && step ? status.errors[step.id] : undefined), busy, reused,
+    error: fail?.message ?? initialError ?? (status.run === run && step ? status.errors[step.id] : undefined), fix: fail?.fix, busy, reused,
     start, restart, exit, next, back, layout, setLayout, focus, setFocus,
     actions, values: fields.values, filled: fields.filled, refill, bump, report,
     initial: (id: string) => (step && run?.steps[step.id]?.inputs[id]) ?? initials[id],
-  }), [w, run, index, status, error, initialError, busy, reused, layout, focus, version, refill, initials]) // eslint-disable-line react-hooks/exhaustive-deps
+  }), [w, run, index, status, fail, initialError, busy, reused, layout, focus, version, refill, initials]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
@@ -314,6 +345,13 @@ export function useWizardAction(id: string, fn: Press | undefined) {
     bump!()
     return () => { if (actions.get(id) === press) actions.delete(id); bump!() }
   }, [on, id, actions, bump, press])
+}
+
+/** The actual address of the asset the current step's `amount` names ("1000 $GBP" → GBP's), e.g. which token an approve step is for. */
+export function useWizardAmountAsset(): string | undefined {
+  const c = useContext(Ctx)
+  const ref = /\$\w+/.exec(String(c?.step?.args?.amount ?? ''))?.[0]
+  return ref && c?.run ? addressOf(c.run, ref) : undefined
 }
 
 const noop = () => {}

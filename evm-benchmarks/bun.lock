@@ -66,10 +66,33 @@
       "name": "@evmb/core",
       "dependencies": {
         "@evmb/contracts": "workspace:*",
+        "@evmb/orderbook": "workspace:*",
         "viem": "^2.58.1",
       },
       "devDependencies": {
         "@evmb/approach-01-webevm-baseline": "workspace:*",
+      },
+    },
+    "packages/orderbook": {
+      "name": "@evmb/orderbook",
+      "dependencies": {
+        "viem": "^2.58.1",
+      },
+      "devDependencies": {
+        "@evmb/contracts": "workspace:*",
+        "fake-indexeddb": "6.0.1",
+        "webevm": "0.9.1",
+      },
+    },
+    "packages/pool": {
+      "name": "@evmb/pool",
+      "dependencies": {
+        "@evmb/assets": "workspace:*",
+        "viem": "^2.58.1",
+      },
+      "devDependencies": {
+        "@evmb/contracts": "workspace:*",
+        "webevm": "0.9.1",
       },
     },
     "packages/swap": {
@@ -95,6 +118,8 @@
         "@evmb/assets": "workspace:*",
         "@evmb/contracts": "workspace:*",
         "@evmb/core": "workspace:*",
+        "@evmb/orderbook": "workspace:*",
+        "@evmb/pool": "workspace:*",
         "@evmb/swap": "workspace:*",
         "@lezer/highlight": "^1.2.1",
         "@openzeppelin/contracts": "5.6.1",
@@ -260,6 +285,10 @@
     "@evmb/contracts": ["@evmb/contracts@workspace:packages/contracts"],
 
     "@evmb/core": ["@evmb/core@workspace:packages/core"],
+
+    "@evmb/orderbook": ["@evmb/orderbook@workspace:packages/orderbook"],
+
+    "@evmb/pool": ["@evmb/pool@workspace:packages/pool"],
 
     "@evmb/swap": ["@evmb/swap@workspace:packages/swap"],
 
@@ -454,6 +483,8 @@
     "escalade": ["escalade@3.2.0", "", {}, "sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA=="],
 
     "eventemitter3": ["eventemitter3@5.0.1", "", {}, "sha512-GWkBvjiSZK87ELrYOSESUYeVIc9mvLLf/nXalMOS5dYrgZq9o5OVkbZAVM06CVxYsCwH9BDZFPlQTlPA1j4ahA=="],
+
+    "fake-indexeddb": ["fake-indexeddb@6.0.1", "", {}, "sha512-He2AjQGHe46svIFq5+L2Nx/eHDTI1oKgoevBP+TthnjymXiKkeJQ3+ITeWey99Y5+2OaPFbI1qEsx/5RsGtWnQ=="],
 
     "fdir": ["fdir@6.5.0", "", { "peerDependencies": { "picomatch": "^3 || ^4" }, "optionalPeers": ["picomatch"] }, "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="],
 

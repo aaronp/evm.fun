@@ -37,7 +37,7 @@ test('deriveAccounts is deterministic', () => {
   expect(deriveAccounts('s', 3).map((a) => a.address)).toEqual(deriveAccounts('s', 3).map((a) => a.address));
 });
 
-for (const id of ['erc20-disjoint', 'erc20-hot', 'atomic-swap', 'offer-fill'] as const) {
+for (const id of ['erc20-disjoint', 'erc20-hot', 'atomic-swap', 'offer-fill', 'amm-swap', 'book-match-onchain', 'book-match-offchain'] as const) {
   test(`${id}: verify fails when last tx missing`, async () => {
     const ap = create();
     const sc = scenarios[id]();
@@ -50,3 +50,16 @@ for (const id of ['erc20-disjoint', 'erc20-hot', 'atomic-swap', 'offer-fill'] as
     await ap.dispose();
   }, 60_000);
 }
+
+test('amm-swap: verify fails when last tx missing with >10 swaps per trader', async () => {
+  const big: ScenarioParams = {n: 60, senders: 3, seed: 'test'};
+  const ap = create();
+  const sc = scenarios['amm-swap']();
+  await ap.setup({prefund: sc.prefund(big)});
+  await sc.setup(ap, big);
+  const raws = (await sc.generate(big)).slice(0, -1);
+  await ap.submit(raws);
+  await ap.awaitSettled(raws.map((r) => keccak256(r)));
+  expect((await sc.verify(ap, big)).ok).toBe(false);
+  await ap.dispose();
+}, 60_000);

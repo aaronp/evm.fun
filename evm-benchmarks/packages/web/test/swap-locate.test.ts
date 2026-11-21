@@ -108,7 +108,7 @@ test('a short-allowance take on a playground chain: the report decodes the rever
     const { createElement: el } = await import('react')
     const { renderToString } = await import('react-dom/server')
     const { MemoryRouter } = await import('react-router-dom')
-    const { ReportView } = await import('../src/pages/SwapReport')
+    const { TakeReportView: ReportView } = await import('../src/pages/SwapReport')
     const assets = [gbp, usd].map((address, i) => ({ address, symbol: i ? 'USD' : 'GBP', decimals: 2 }))
     const html = renderToString(el(MemoryRouter, null, el(ReportView, { report, people: [me, tester], assets: assets as any })))
       .replace(/<!-- -->/g, '')

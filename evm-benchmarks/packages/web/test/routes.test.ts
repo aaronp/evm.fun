@@ -24,14 +24,14 @@ describe('pageOf', () => {
 })
 
 describe('/swap', () => {
-  test('Swap sits under Markets after Assets and its route renders the page', async () => {
+  test('Swap sits under Markets after Assets (then Pool, Trade) and its route renders the page', async () => {
     const { createElement: h } = await import('react')
     const { renderToString } = await import('react-dom/server')
     const { MemoryRouter } = await import('react-router-dom')
     const { groups, real } = await import('../src/App')
     const { AppState } = await import('../src/state')
     const { AppBarProvider } = await import('../src/state/appBar')
-    expect(groups.find(g => g.label === 'Markets')!.items.map(([n]) => n)).toEqual(['Assets', 'Swap'])
+    expect(groups.find(g => g.label === 'Markets')!.items.map(([n]) => n)).toEqual(['Assets', 'Swap', 'Pool', 'Trade'])
     const html = renderToString(h(MemoryRouter, { initialEntries: ['/swap'] }, h(AppState, null, h(AppBarProvider, null, real.Swap!))))
     expect(html).toContain('Select a chain first.')
   })
@@ -76,7 +76,7 @@ describe('/swap/report views', () => {
   }
 
   test('success layout of a bid offer: price is quote per base (USD per GBP), links carry the pair', async () => {
-    const { ReportView } = await import('../src/pages/SwapReport')
+    const { TakeReportView: ReportView } = await import('../src/pages/SwapReport')
     // maker bids 1,270.00 USD for 1,000.00 GBP; the taker sells GBP
     const offer = { id: 3n, maker: a(9), giveToken: USD.address, giveAmt: 1_270_000_000n, getToken: GBP.address, getAmt: 100_000n, status: 'filled', taker: a(8), closedBlock: 7n }
     const report = {

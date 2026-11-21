@@ -1,4 +1,4 @@
-import { encodeDeployData, type Address } from 'viem'
+import { encodeDeployData, type Abi, type Address, type Hex } from 'viem'
 import { Swap } from '@evmb/contracts'
 import { findSwap } from '@evmb/swap'
 import type { ChainHandle } from '../chain/handle'
@@ -14,20 +14,28 @@ async function position(chain: ChainHandle, r: DeployedContract): Promise<[bigin
   return rc ? [BigInt(rc.blockNumber), BigInt(rc.transactionIndex)] : [-1n, -1n]
 }
 
-/** This chain's Swap: the newest-deployed `Swap` record (records are listed by address, so order them by deploy receipt). */
+/** Records oldest-deployed first (records are listed by address, so order them by deploy receipt), each with its deploy block (-1 when unknown). */
+export async function inDeployOrder(chain: ChainHandle, records: DeployedContract[]): Promise<(DeployedContract & { block: bigint })[]> {
+  const pos = await Promise.all(records.map(r => position(chain, r)))
+  return records.map((r, i) => ({ r, p: pos[i]! }))
+    .sort((a, b) => (a.p[0] === b.p[0] ? (a.p[1] < b.p[1] ? -1 : a.p[1] > b.p[1] ? 1 : 0) : a.p[0] < b.p[0] ? -1 : 1))
+    .map(x => ({ ...x.r, block: x.p[0] }))
+}
+
+/** This chain's Swap: the newest-deployed `Swap` record. */
 export async function swapFor(chain: ChainHandle): Promise<Address | undefined> {
   const named = (await contractsRegistry.list(chain.info.id)).filter(r => r.name === 'Swap')
-  if (named.length < 2) return findSwap(named)
-  const pos = await Promise.all(named.map(r => position(chain, r)))
-  const order = named.map((r, i) => ({ r, p: pos[i]! })).sort((a, b) => (a.p[0] === b.p[0] ? (a.p[1] < b.p[1] ? -1 : a.p[1] > b.p[1] ? 1 : 0) : a.p[0] < b.p[0] ? -1 : 1))
-  return findSwap(order.map(x => x.r))
+  return findSwap(named.length < 2 ? named : await inDeployOrder(chain, named))
+}
+
+/** Deploy `contract` (with constructor `args`) from `from` and save its record under `name`. Refused on benchmark chains. */
+export async function deployContract(chain: ChainHandle, from: Account, name: string, contract: { abi: Abi; bytecode: Hex }, onSent?: () => void, args?: readonly unknown[]): Promise<Address> {
+  if (chain.info.ephemeral) throw new Error(NO_RECORDS)
+  const r = await signAndSend(chain, from, { data: encodeDeployData({ abi: contract.abi, bytecode: contract.bytecode, args } as Parameters<typeof encodeDeployData>[0]) }, onSent)
+  if (r.status !== 'success' || !r.contractAddress) throw new Error(`Deploy ${r.status}${r.error ? `: ${r.error}` : ''}`)
+  await contractsRegistry.add(chain.info.id, { address: r.contractAddress, name, abi: contract.abi as any[], deployer: from.address, txHash: r.hash })
+  return r.contractAddress
 }
 
 /** Deploy Swap.sol from `from` and save its contract record. Refused on benchmark chains. */
-export async function deploySwap(chain: ChainHandle, from: Account, onSent?: () => void): Promise<Address> {
-  if (chain.info.ephemeral) throw new Error(NO_RECORDS)
-  const r = await signAndSend(chain, from, { data: encodeDeployData({ abi: Swap.abi, bytecode: Swap.bytecode }) }, onSent)
-  if (r.status !== 'success' || !r.contractAddress) throw new Error(`Deploy ${r.status}${r.error ? `: ${r.error}` : ''}`)
-  await contractsRegistry.add(chain.info.id, { address: r.contractAddress, name: 'Swap', abi: Swap.abi as any[], deployer: from.address, txHash: r.hash })
-  return r.contractAddress
-}
+export const deploySwap = (chain: ChainHandle, from: Account, onSent?: () => void) => deployContract(chain, from, 'Swap', Swap, onSent)

@@ -26,6 +26,7 @@ export function AppBar() {
         )}
         {c.chip && <span className="self-center rounded-md border border-line-strong bg-surface px-2 py-[3px] font-mono text-xs">{c.chip}</span>}
       </div>
+      {c.aside && <div className="text-[13px] text-muted">{c.aside}</div>}
       {!!c.actions?.length && (
         <div className="flex flex-wrap items-center gap-2">
           {c.actions.map(a => a.kind === 'button' ? (

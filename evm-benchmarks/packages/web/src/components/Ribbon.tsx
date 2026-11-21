@@ -1,27 +1,35 @@
-import { useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
-import { Button } from '../ui/button'
-import { FuseNext } from './FuseNext'
+import { useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { Button, buttonClass } from '../ui/button'
+import { FuseNext, useAutoUrl } from './FuseNext'
 import { adoptAuto } from '../walkthrough/auto'
 import { Notice } from '../ui/notice'
+import { idText } from '../orderbook/ui'
+import { lpText } from '../pool/ui'
 import { checkTone, useWizard, type CheckResult } from '../walkthrough/wizard'
 import type { Check, Outputs, Step } from '../walkthrough/types'
 
 const TONE = { pass: 'text-success-text', fail: 'text-danger', differs: 'text-warn-text' }
 
-const describe = (c: Check) =>
+export const checkText = (c: Check) =>
   'balance' in c ? `${c.balance} has at least ${c.has}`
   : 'escrowed' in c ? `The swap holds ${c.escrowed}`
   : 'offer' in c ? `${c.offer} is ${c.status}`
+  : 'order' in c ? `${c.order} is ${c.status}${c.filled ? `, ${c.filled} filled` : ''}`
+  : 'trades' in c ? `${c.trades} has ${c.count} ${c.count === 1 ? 'trade' : 'trades'}`
+  : 'kGrew' in c ? `k of ${c.pool} grew since the first deposit`
   : `The take was ${c.outcome}${c.error ? ` (${c.error})` : ''}`
 
-/** One-line summary of what a done step made: the account, chain, token or offer. */
-function made(v: Outputs[keyof Outputs] | undefined) {
+/** One-line summary of what a done step made: the account, chain, token, offer, venue, resting order or LP shares. */
+export function made(v: Outputs[keyof Outputs] | undefined) {
   if (!v) return undefined
   if ('label' in v) return v.label
   if ('symbol' in v) return v.symbol
   if ('name' in v) return v.name
   if ('offerId' in v) return `offer #${v.offerId}`
+  if ('venue' in v) return v.venue === 'onchain' ? 'OrderBook' : 'Settlement'
+  if ('orderId' in v && v.orderId) return `order ${idText(v.orderId)}`
+  if ('shares' in v) return `${lpText(BigInt(v.shares))} LP shares`
   return undefined
 }
 
@@ -40,7 +48,10 @@ function download(json: string, name: string) {
 export function Ribbon() {
   const c = useWizard()
   const { search } = useLocation()
-  useEffect(() => adoptAuto(search, window.location.search), [search])
+  const [, bump] = useState(0)
+  const autoUrl = useAutoUrl()
+  // an edited `?auto=` takes effect at once: adopt it, then re-render so the fuse reads the new delay
+  useEffect(() => { adoptAuto(search, window.location.search); bump(n => n + 1) }, [search])
   if (c && !c.w && c.error) return <Notice tone="danger" onDismiss={c.exit}>{c.error}</Notice> // e.g. couldn't resume
   if (!c?.w || !c.run || !c.step) return null
   const { w, run, step, index } = c
@@ -48,7 +59,7 @@ export function Ribbon() {
   const label = (s: Step) => made(s.key ? run.values[s.key] : undefined)
   const sub = (s: Step) =>
     c.reused.has(s.id) ? `${label(s)} already exists — reused.`
-    : made(s.key ? run.values[s.key] : undefined) ?? (c.isDone(s) ? 'done' : 'not yet')
+    : made(s.key ? run.values[s.key] : run.steps[s.id]?.outputs) ?? (c.isDone(s) ? 'done' : 'not yet')
   const json = JSON.stringify(run.values, null, 2)
   const results: CheckResult[] = c.results[step.id] ?? []
 
@@ -88,13 +99,14 @@ export function Ribbon() {
         <p className="text-sm text-text-2">{step.text}</p>
         {c.reused.has(step.id) && <p className="text-sm text-muted">{label(step)} already exists — reused.</p>}
         {c.error && <p role="alert" className="rounded-lg border border-danger bg-danger-soft px-3 py-2 text-sm text-danger">{c.error}</p>}
+        {c.error && c.fix && <Link to={c.fix.href} className={buttonClass('outline', 'chip')}>{c.fix.label}</Link>}
         {results.length > 0 && (
           <ul className="space-y-1 text-sm">
             {results.map((r, i) => {
               const tone = checkTone(r.pass, run.edited)
               return (
                 <li key={i} className={TONE[tone]}>
-                  {tone === 'pass' ? '✓' : '✗'} {describe(r.check)} — found {r.actual}{tone === 'differs' && ' · Differs from the walkthrough'}
+                  {tone === 'pass' ? '✓' : '✗'} {checkText(r.check)} — found {r.actual}{tone === 'differs' && ' · Differs from the walkthrough'}
                 </li>
               )
             })}
@@ -106,7 +118,7 @@ export function Ribbon() {
         <Button variant="ghost" disabled={index === 0 || c.busy} onClick={c.back}>Back</Button>
         <Button variant="ghost" onClick={() => c.restart()}>Restart</Button>
         <Button variant="ghost" onClick={c.exit}>Exit</Button>
-        <FuseNext className="ml-auto" step={step.id} busy={c.busy} error={c.error} disabled={c.busy || (index === w.steps.length - 1 && c.isDone(step))} onNext={() => void c.next()} />
+        <FuseNext className="ml-auto" step={step.id} busy={c.busy} error={c.error} disabled={c.busy || (index === w.steps.length - 1 && c.isDone(step))} onNext={() => void c.next()} onPlay={autoUrl} />
       </div>
 
       <details className="text-sm">

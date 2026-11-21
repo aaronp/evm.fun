@@ -1,7 +1,7 @@
 import { test, expect, afterEach } from 'bun:test'
 import { createElement as h } from 'react'
 import { renderToString } from 'react-dom/server'
-import { adoptAuto, autoDelay, parseAuto, setAutoDelay } from '../src/walkthrough/auto'
+import { adoptAuto, autoDelay, autoText, parseAuto, sameRoute, setAutoDelay, withAuto } from '../src/walkthrough/auto'
 import { FuseNext } from '../src/components/FuseNext'
 
 const store = new Map<string, string>()
@@ -38,10 +38,31 @@ test('FuseNext: a plain, non-submitting Next without auto; ring and countdown wi
   const plain = fuse()
   expect(plain).toContain('type="button"')
   expect(plain).not.toContain('data-wz-fuse')
+  expect(plain).toContain('aria-label="Auto-advance"') // ▶ to start it
+  expect(fuse({ disabled: true })).not.toContain('aria-label="Auto-advance"') // not at the end
   setAutoDelay(5000)
   const on = fuse()
   expect(on).toContain('data-wz-fuse')
   expect(on).toContain('5s')
+  expect(on).not.toContain('aria-label="Auto-advance"') // already running: ⏸ instead
   expect(fuse({ error: 'nope' })).not.toContain('data-wz-fuse') // stops on an error
   expect(fuse({ disabled: true })).not.toContain('data-wz-fuse') // and at the end
+})
+
+test('withAuto writes the delay into an address, keeping other params; sameRoute ignores it', () => {
+  expect(autoText(5000)).toBe('5s')
+  expect(autoText(1500)).toBe('1500ms')
+  expect(withAuto('/pool?base=0xa&quote=0xb', 2000)).toBe('/pool?base=0xa&quote=0xb&auto=2s')
+  expect(withAuto('/pool?auto=5s&base=0xa', 3000)).toBe('/pool?auto=3s&base=0xa')
+  expect(withAuto('/pool?auto=5s', 0)).toBe('/pool')
+  expect(withAuto('/accounts', undefined)).toBe('/accounts') // no delay set: nothing added
+  setAutoDelay(4000)
+  expect(withAuto('/accounts')).toBe('/accounts?auto=4s') // defaults to the current delay
+  expect(sameRoute('/pool?base=0xa&auto=4s', '/pool?base=0xa')).toBe(true)
+  expect(sameRoute('/pool?base=0xa', '/pool?base=0xb')).toBe(false)
+})
+
+test('▶ hands the default delay to onPlay (the ribbon writes it into the URL)', () => {
+  const html = fuse({ onPlay: () => {} })
+  expect(html).toContain('aria-label="Auto-advance"')
 })

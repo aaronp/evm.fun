@@ -1,0 +1,53 @@
+import { getAddress, type Address, type Hex } from 'viem'
+import type { Store } from './store'
+import type { Wallet } from './types'
+
+/** One tx a venue sent (or tried to). `input` is whatever the venue needs to show it again (e.g. the OrderInput as
+ * sent, plus `need`: the give amount it checked). `pending` = written before sending, never ended (tab closed). */
+export type Attempt = {
+  scope: string; venue: Address; owner: Address; seq: number; time: string; input: any
+  status: 'pending' | 'success' | 'reverted' | 'error'; tx?: Hex; block?: bigint; error?: string
+}
+
+/** The `attempts` table for one venue deploy, keyed [scope, venue, owner, seq]; shared by both venues. `scope` is the
+ * app's id for the chain (unique per playground chain and fork), not the EVM chain id, which playground chains share. */
+export function journal(store: Store, ctx: { scope: string; venue: Address }) {
+  const venue = getAddress(ctx.venue)
+  const key = (seq: number) => `${ctx.scope}:${venue}:${seq}`
+  const counter = `attempts:${ctx.scope}:${venue}`
+  return {
+    /** writes the attempt before its tx is sent; returns its seq */
+    async begin(input: unknown, owner: Address): Promise<number> {
+      // ponytail: read-then-write counter, so two begins racing (two tabs) can share a seq and one row wins; make it an
+      // IndexedDB autoincrement or a per-tab prefix if parallel sends ever matter
+      const seq = ((await store.get<number>('meta', counter)) ?? 0) + 1
+      await store.put('meta', counter, seq)
+      const a: Attempt = { scope: ctx.scope, venue, owner: getAddress(owner), seq, time: new Date().toISOString(), input, status: 'pending' }
+      await store.put('attempts', key(seq), a)
+      return seq
+    },
+    async end(seq: number, out: { tx?: Hex; block?: bigint; status: Attempt['status']; error?: string }) {
+      const a = await store.get<Attempt>('attempts', key(seq))
+      if (!a) throw new Error(`No attempt ${seq}`)
+      await store.put('attempts', key(seq), { ...a, ...out })
+    },
+    /** the owner's reverted attempts, oldest first */
+    async failed(owner: Address): Promise<Attempt[]> {
+      const p = [ctx.scope, venue, getAddress(owner)]
+      return (await store.scan<Attempt>('attempts', 'owner', { from: p, to: p })).filter(a => a.status === 'reverted')
+    },
+  }
+}
+
+/** Journals one tx around its send: `begin` before, `end` with the receipt's outcome (or the send error, rethrown). */
+export async function sendAndJournal(attempts: ReturnType<typeof journal>, wallet: Pick<Wallet, 'address' | 'sendTransaction'>, input: unknown, call: { to: Address; data: Hex }) {
+  const seq = await attempts.begin(input, wallet.address)
+  try {
+    const rc = await wallet.sendTransaction(call)
+    await attempts.end(seq, { tx: rc.transactionHash, block: rc.blockNumber, status: rc.status === 'success' ? 'success' : 'reverted' })
+    return { rc, seq }
+  } catch (e) {
+    await attempts.end(seq, { status: 'error', error: String((e as Error)?.message ?? e) })
+    throw e
+  }
+}

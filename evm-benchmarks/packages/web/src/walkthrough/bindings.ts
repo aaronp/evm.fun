@@ -1,3 +1,5 @@
+import { assetId } from '@evmb/assets'
+import type { Address } from 'viem'
 import type { Outputs, Run, Step, Walkthrough } from './types'
 
 export type Binding = { path(run: Run): string; fields: string[]; actions: string[]; areas: string[]; report: string }
@@ -16,7 +18,14 @@ function pairKeys(step: Step | undefined, w: Walkthrough): (string | undefined)[
     case 'take': return pairKeys(find(s => s.do === 'makeOffer' && s.key === keyOf(a.offer)), w)
     case 'approve': return pairKeys(find(s => s.id === a.before), w)
     case 'deploySwap': return pairKeys(find(s => s.do === 'makeOffer'), w)
-    case 'view': return a.page === 'report' ? pairKeys(find(s => s.id === a.step), w) : [keyOf(a.base), keyOf(a.quote)]
+    case 'placeOrder': return [keyOf(a.amount), keyOf(a.quote)]
+    case 'cancelOrder': return pairKeys(find(s => s.do === 'placeOrder' && s.key === keyOf(a.order)), w)
+    case 'deployVenue': return pairKeys(find(s => s.do === 'placeOrder' && keyOf(s.args?.venue) === step.key), w)
+    case 'deployPool': return [keyOf(a.base), keyOf(a.quote)]
+    case 'addLiquidity': case 'removeLiquidity': case 'poolSwap': return pairKeys(find(s => s.do === 'deployPool' && s.key === keyOf(a.pool)), w)
+    case 'view':
+      if (a.page === 'pool') return pairKeys(find(s => s.do === 'deployPool' && s.key === keyOf(a.pool)), w)
+      return a.page === 'report' ? pairKeys(find(s => s.id === a.step), w) : [keyOf(a.base), keyOf(a.quote)]
     default: return []
   }
 }
@@ -27,8 +36,42 @@ function pair(step: Step, w: Walkthrough, run: Run) {
 }
 const at = (path: string) => () => path
 
+/** The order-book venue key a Trade step acts on: its own (deploy), its args' (order, view), its order's or before step's. */
+function venueKey(step: Step | undefined, w: Walkthrough): string | undefined {
+  const a = step?.args ?? {}
+  switch (step?.do) {
+    case 'deployVenue': return step.key
+    case 'placeOrder': case 'view': return keyOf(a.venue)
+    case 'cancelOrder': return venueKey(w.steps.find(s => s.do === 'placeOrder' && s.key === keyOf(a.order)), w)
+    case 'approve': return venueKey(w.steps.find(s => s.id === a.before), w)
+  }
+}
+/** `/trade?venue=<kind>&base=&quote=`: the kind as deployed, else the key's initial. */
+function tradePath(step: Step, w: Walkthrough) {
+  return (run: Run) => {
+    const k = venueKey(step, w)!
+    const kind = (run.values[k] as Outputs['deployVenue'] | undefined)?.venue ?? (w.keys[k] as { venue?: { venue: string } } | undefined)?.venue?.venue
+    const q = pair(step, w, run)
+    return `/trade?venue=${kind}${q && `&${q}`}`
+  }
+}
+
 const LAUNCH = ['launch.name', 'launch.symbol', 'launch.decimals', 'launch.supply', 'launch.issuer']
 const OFFER = ['offer.side', 'offer.amount', 'offer.price']
+const ORDER = ['order.side', 'order.type', 'order.price', 'order.amount']
+const POOL: Partial<Record<Step['do'], string[]>> = {
+  addLiquidity: ['pool.tab', 'add.base', 'add.quote'], removeLiquidity: ['pool.tab', 'remove.percent'],
+  poolSwap: ['pool.tab', 'swap.pay', 'swap.amount', 'swap.slippage'],
+}
+const ACT: Partial<Record<Step['do'], string>> = { addLiquidity: 'pool.add', removeLiquidity: 'pool.remove', poolSwap: 'pool.swap' }
+
+/** `/assets?asset=<id>` for a transfer's asset on the run's chain, once both exist. */
+const assetPath = (step: Step, w: Walkthrough) => (run: Run) => {
+  const chainKey = Object.keys(w.keys).find(k => 'chain' in w.keys[k]!)
+  const chain = chainKey && (run.values[chainKey] as Outputs['chain'] | undefined)?.id
+  const token = (run.values[keyOf(step.args?.amount) ?? ''] as { address?: Address } | undefined)?.address
+  return chain && token ? `/assets?asset=${encodeURIComponent(assetId(chain, token))}` : '/assets'
+}
 
 /**
  * How a step maps onto its page: the field ids it fills, the action ids Next may press (an opener first, the
@@ -38,15 +81,24 @@ export function binding(step: Step, w: Walkthrough): Binding {
   const swapPath = (run: Run) => (q => q ? `/swap?${q}` : '/swap')(pair(step, w, run))
   const b = (path: Binding['path'], fields: string[], actions: string[], card?: string): Binding =>
     ({ path, fields, actions, areas: [...(card ? [card] : []), ...fields, ...actions], report: actions.at(-1) ?? step.do })
+  const poolPath = (run: Run) => (q => q ? `/pool?${q}` : '/pool')(pair(step, w, run))
   switch (step.do) {
+    case 'transfer': return b(assetPath(step, w), ['send.to', 'send.amount'], ['assets.send', 'send.submit'])
+    case 'deployPool': return b(poolPath, [], ['pool.deploy'])
+    case 'addLiquidity': case 'removeLiquidity': case 'poolSwap': return b(poolPath, POOL[step.do]!, [ACT[step.do]!], 'pool.card')
     case 'account': return b(at('/accounts'), ['account.label'], ['account.create'], 'account.card')
     case 'chain': return b(at('/chains'), ['chain.name'], ['chains.new', 'chain.create'])
     case 'launchAsset': return b(at('/assets'), LAUNCH, ['assets.launch', 'launch.submit'])
     case 'deploySwap': return b(swapPath, [], ['swap.deploy'])
     case 'makeOffer': return b(swapPath, OFFER, ['offer.create'], 'offer.card')
     case 'take': return b(swapPath, ['take.offer'], ['take.submit'], 'take.card')
+    case 'deployVenue': return b(tradePath(step, w), [], ['trade.deploy'])
+    case 'placeOrder': return b(tradePath(step, w), ORDER, ['order.submit'], 'order.card')
+    case 'cancelOrder': return b(tradePath(step, w), ['cancel.order'], ['order.cancel'], 'orders.card')
     case 'approve': {
       const before = w.steps.find(s => s.id === step.args?.before)
+      if (before?.do === 'placeOrder') return b(tradePath(step, w), ORDER, ['order.approve'], 'order.card')
+      if (before?.do === 'addLiquidity' || before?.do === 'poolSwap') return b(poolPath, POOL[before.do]!, ['pool.approve'], 'pool.card')
       const side = before?.do === 'take' ? 'take' : 'offer'
       return b(swapPath, binding(before ?? { ...step, do: 'makeOffer' }, w).fields, [`${side}.approve`], `${side}.card`)
     }
@@ -58,7 +110,7 @@ export function binding(step: Step, w: Walkthrough): Binding {
           return `/swap/report?tx=${t}${(q => q && `&${q}`)(pair(step, w, run))}`
         }, [], [], 'view')
       }
-      return b(swapPath, [], [], 'view')
+      return b(args.page === 'trade' ? tradePath(step, w) : args.page === 'pool' ? poolPath : swapPath, [], [], 'view')
     }
   }
 }
