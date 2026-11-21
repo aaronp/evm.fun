@@ -84,6 +84,17 @@
         "webevm": "0.9.1",
       },
     },
+    "packages/pool": {
+      "name": "@evmb/pool",
+      "dependencies": {
+        "@evmb/assets": "workspace:*",
+        "viem": "^2.58.1",
+      },
+      "devDependencies": {
+        "@evmb/contracts": "workspace:*",
+        "webevm": "0.9.1",
+      },
+    },
     "packages/swap": {
       "name": "@evmb/swap",
       "dependencies": {
@@ -275,6 +286,8 @@
     "@evmb/core": ["@evmb/core@workspace:packages/core"],
 
     "@evmb/orderbook": ["@evmb/orderbook@workspace:packages/orderbook"],
+
+    "@evmb/pool": ["@evmb/pool@workspace:packages/pool"],
 
     "@evmb/swap": ["@evmb/swap@workspace:packages/swap"],
 
