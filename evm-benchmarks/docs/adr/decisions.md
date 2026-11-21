@@ -993,3 +993,10 @@ Claude's calls (spec "Settled after the builder check"): LP shares normalised to
 ## Consequences
 - Activity reads the pool's events from its deploy block (O(chain); risk to log).
 - No factory: pools are found from contract records plus on-chain base/quote reads.
+
+## Consequences
+- Prices display from an exact rational of the reserves (4 dp half-up); orderbook-style integer units collapse when the oriented quote token has few decimals (USD per GBP at 2 dp).
+- The unordered-pair lookup reads `base()`/`quote()` on every record; it skips only no-code and decode failures, so transport errors surface instead of letting the page offer a duplicate deploy.
+- The walkthrough needed a `transfer` step: a launched token's supply goes to its issuer, so Bob could not get GBP otherwise (closes part of t-77).
+- `amm-swap` gives each trader one direction so verify checks the paid token exactly; price impact is Uniswap's (fee excluded), not the pool-price move.
+- Activity reads events from the deploy block (O(chain)); there is no factory, so pools are found via contract records plus on-chain reads; dust-reserve price skew, a uint256 overflow ceiling and fee-on-transfer tokens are logged risks (R36-R40, t-87 to t-89).

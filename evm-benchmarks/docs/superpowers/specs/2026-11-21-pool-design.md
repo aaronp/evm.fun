@@ -149,3 +149,11 @@ flag O(n) reads (activity's log read) as risks with backlog cards.
    b)` reads them and matches either order (newest wins); deploying refuses when a pool for the pair exists in either
    order. The page and the Trade header show the price in the page's orientation (inverting when the pool's base is
    the page's quote), and Reserve x / y follow the page's base / quote.
+
+## Amendments (from the build)
+
+- Price impact is the execution price excluding the fee against the current price (Uniswap's definition; gives the screenshot's 0.99%), not the pool-price move (about 1.97% for the same trade).
+- The slippage revert is covered by the contract and page tests, not the walkthrough (the walkthrough has no failing step).
+- `amm-swap` gives each trader one direction, so verify checks the paid token exactly (every missing swap is detected without a price assumption) instead of a 90% output floor.
+- The walkthrough gained a `transfer` step (Alice sends Bob GBP): a launched token's supply goes to its issuer, so Bob had no way to get GBP.
+- The add's `k` is read at the add's block (capture at origin), so there is no latest-block caveat.

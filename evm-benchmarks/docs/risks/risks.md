@@ -649,6 +649,91 @@ ADR-0018. A restore keeps the chain's UUID scope, so the order-book store (attem
 | Store keys include the venue address, so a redeploy at a new address never mixes | Preventive | Partial |
 | Scope the store by snapshot generation, or clear it on restore | Corrective | Partial |
 
+## R36 · Pool activity reads every event since deploy
+- impact: 3
+- likelihood: 3
+- target: 3x2
+- appetite: 3
+- category: Performance
+- driver: Claude
+- approver: Aaron
+
+ADR-0019. `activity` calls eth_getLogs from the pool's deploy block on every refresh, so cost grows with the chain (O(chain)).
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Reads are limited to the pool's own address and three topics | Preventive | Partial |
+| Bounded window or incremental/indexed read (backlog t-87) | Corrective | Partial |
+
+## R37 · No factory: pools are found via contract records
+- impact: 2
+- likelihood: 2
+- target: 2x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0019. Without a factory a pool is discovered only through this app's contract records plus on-chain `base()`/`quote()` reads; a pool deployed elsewhere is invisible and duplicates are refused only for known records.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| findPool reads base/quote on chain, either order; deploy refuses an existing pair | Preventive | Partial |
+| Registry or factory contract (backlog t-88) | Corrective | Partial |
+
+## R38 · Price skew at dust reserves
+- impact: 2
+- likelihood: 2
+- target: 2x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0019. A pool with tiny reserves can be pushed to an arbitrary price by a small trade or first deposit; later depositors adding at the skewed ratio lose value.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| minShares on add protects depositors; first deposit locks 1,000 raw units | Preventive | Partial |
+| Warn or refuse adds below a minimum liquidity (backlog t-88) | Corrective | Partial |
+
+## R39 · Theoretical uint256 overflow in products for enormous supplies
+- impact: 1
+- likelihood: 1
+- target: 1x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0019. Swap and add multiply reserves by amounts and 10000 before dividing; with supplies near 2^256 / 1e4 the product overflows and the call reverts. Unreachable with playground tokens.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Solidity 0.8 checked arithmetic reverts instead of wrapping | Preventive | Effective |
+| Use mulDiv (full-precision) in the contract (backlog t-89) | Corrective | Strong |
+
+## R40 · Fee-on-transfer and rebasing tokens unsupported
+- impact: 2
+- likelihood: 1
+- target: 2x1
+- appetite: 3
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+ADR-0019. The pool tracks reserves in storage and assumes it receives exactly what is pulled; a token that skims on transfer or rebases makes storage and balances diverge and breaks the quote.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Documented limit; the playground's tokens are plain ERC-20 | Preventive | Partial |
+| Measure the received balance per pull, or reject such tokens (backlog t-89) | Corrective | Partial |
+
 ## Example design risk
 - impact: 5
 - likelihood: 3

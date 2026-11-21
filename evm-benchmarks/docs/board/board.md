@@ -128,7 +128,7 @@ ADR-0016: non-status failures are replayed with eth_call at the parent block, so
   - To Do @ 2026-11-20T15:00:00Z
 
 ```md
-ADR-0017: the first slice has only the steps the two bundled walkthroughs use. Add transfer, cancel, and snapshot / fork / restore so long scenarios can branch from a saved state.
+ADR-0017: the first slice has only the steps the two bundled walkthroughs use. `transfer` now exists (ADR-0019, gbp-usd-pool). Still to add: cancel, and snapshot / fork / restore so long scenarios can branch from a saved state.
 ```
 
 ### Walkthroughs: run on an existing chain
@@ -261,22 +261,52 @@ ADR-0018, R30: run the store conformance suite in a real browser; keep rows with
 ADR-0017, ADR-0018. Extend walkthroughs with personas: a setup that deploys assets, then market-maker and trader bots that place bids/asks on a venue according to a strategy (e.g. a spread around a reference price, random takers), so a book fills with realistic activity.
 ```
 
+### Pool: bound the activity read (R36)
+- id: t-87
+- tags: pool, backlog
+- history:
+  - To Do @ 2026-11-21T12:40:00Z
+
+```md
+ADR-0019, R36: `activity` reads every event from the deploy block on each call. Use a bounded window with "load more", or an incremental read that keeps the last block seen.
+```
+
+### Pool: discovery and dust-liquidity guards (R37, R38)
+- id: t-88
+- tags: pool, backlog
+- history:
+  - To Do @ 2026-11-21T12:40:00Z
+
+```md
+ADR-0019, R37, R38: no factory, so pools are found via contract records. Add a registry (or factory) so pools deployed elsewhere are found and duplicates refused chain-wide; warn on or refuse adds into dust reserves.
+```
+
+### Pool: mulDiv and non-standard tokens (R39, R40)
+- id: t-89
+- tags: pool, backlog
+- history:
+  - To Do @ 2026-11-21T12:40:00Z
+
+```md
+ADR-0019, R39, R40: use full-precision mulDiv in Pool.sol to remove the theoretical uint256 overflow ceiling; support or explicitly reject fee-on-transfer and rebasing tokens (measure received balances).
+```
+
 ## Doing
+
+## Done
 
 ### Liquidity pool (Uniswap v2-style, x·y = k)
 - id: t-63
 - history:
   - To Do @ 2026-11-20T08:47:49.803Z
   - Doing @ 2026-11-21T10:08:25Z
+  - Done @ 2026-11-21T12:32:06Z
 
 ```md
 ADR-0019. Taken next, before t-62. Spec: docs/superpowers/specs/2026-11-21-pool-design.md.
 
 Create a GBP/USD pool, add and remove liquidity, and swap with a quote and a slippage limit. It’s self-contained, with no matching and no counterparty online, and it gives every later step a reference price. I’d write a minimal pool yourself (about a page of Solidity) rather than vendoring Uniswap’s code. That’s easier to read in a playground and avoids licence questions. Benchmark scenario: amm-swap.
 ```
-
-
-## Done
 
 ### Order book: on-chain and off-chain venues, single chain
 - id: t-64
