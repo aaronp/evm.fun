@@ -22,6 +22,8 @@ import { PoolStats } from '../components/PoolStats'
 import { PoolCurve } from '../components/PoolCurve'
 import { PoolPosition } from '../components/PoolPosition'
 import { PoolActivity } from '../components/PoolActivity'
+import { poolOutputs } from '../walkthrough/run'
+import { orThrow, useWizardAction, useWizardMark, useWizardReport } from '../walkthrough/wizard'
 import { Button } from '../ui/button'
 import { Select } from '../ui/input'
 import { Notice } from '../ui/notice'
@@ -127,18 +129,28 @@ export function Pool() {
   })
 
   useEffect(() => { lockChain(deploying || busy); return () => lockChain(false) }, [deploying, busy, lockChain])
+  const wzReport = useWizardReport(), mark = useWizardMark()
+  useWizardAction('pool.deploy', chain && !chain.info.ephemeral && base && quote && pool.address === undefined && !pool.error && acting && !deploying ? () => orThrow(deploy()) : undefined)
 
   if (!chain) return <p className="text-sm text-muted">Select a chain first.</p>
 
+  /** returns the error message when it failed */
   async function deploy() {
     if (!chain || !acting || !base || !quote || deploying) return
     setDeploying(true); setErr(undefined)
-    try { await deployPool(chain, acting, base.address as Address, quote.address as Address, bumpBalance); setDeployed(n => n + 1) } catch (e) { setErr(e) } finally { setDeploying(false) }
+    try {
+      const address = await deployPool(chain, acting, base.address as Address, quote.address as Address, bumpBalance)
+      setDeployed(n => n + 1)
+      wzReport('pool.deploy', { address })
+    } catch (e) { setErr(e); return msg(e) } finally { setDeploying(false) }
   }
 
   type Tok = { symbol: string; decimals: number }
-  /** Send one pool/approve call; flashes the outcome with its tx and resolves to the page's error message when it failed. */
-  async function send(call: { to: Address; data: Hex }, unit: (out: bigint, min: bigint) => Tok, done: string): Promise<string | undefined> {
+  /**
+   * Send one pool/approve call; flashes the outcome with its tx and resolves to the page's error message when it failed.
+   * `ok(hash)` runs once it landed: it reports the step's outputs to a walkthrough, whoever pressed.
+   */
+  async function send(call: { to: Address; data: Hex }, unit: (out: bigint, min: bigint) => Tok, done: string, ok: (tx: Hex) => unknown): Promise<string | undefined> {
     if (!chain || !acting) return 'Create an account first.'
     if (busy) return 'Another transaction is still in flight.'
     setBusy(true); setErr(undefined); setFlash(undefined)
@@ -146,27 +158,29 @@ export function Pool() {
       const r = await poolTx(chain, acting, call, unit, bumpBalance)
       if (r.error && !r.hash) setErr(r.error)
       else setFlash({ text: r.error ?? done, tone: r.error ? 'danger' : 'success', tx: r.hash })
+      if (!r.error && r.hash) await ok(r.hash)
       return r.error
-    } finally { setBusy(false) }
+    } catch (e) { setErr(e); return msg(e) } finally { setBusy(false) }
   }
+  const reported = (id: string, kind: 'addLiquidity' | 'removeLiquidity' | 'poolSwap') => async (tx: Hex) => wzReport(id, await poolOutputs(chain!, kind, tx))
   const raw = pool.raw, LP: Tok = { symbol: 'LP', decimals: 18 }
   /** page (base, quote) amounts → the pool's on-chain order */
   const onChain = (b: bigint, q: bigint): [bigint, bigint] => (raw && base && same(raw.base, base.address) ? [b, q] : [q, b])
   const amt = (v: bigint, a: Tok) => `${amountText(v, a.decimals)} ${a.symbol}`
   async function approve(a: Asset, amount: bigint) {
     if (!pool.address) return 'No pool for this pair.'
-    return send(approveCall(a, pool.address, amount), () => a, `Approved Pool to spend ${amt(amount, a)}.`)
+    return send(approveCall(a, pool.address, amount), () => a, `Approved Pool to spend ${amt(amount, a)}.`, tx => wzReport('pool.approve', { tx }))
   }
   async function swap(tokenIn: Asset, amountIn: bigint, minOut: bigint) {
     if (!raw || !base || !quote) return 'No pool for this pair.'
     const t = tokenIn.address as Address
     if (!isAddressEqual(t, raw.base) && !isAddressEqual(t, raw.quote)) return `${tokenIn.symbol} is not one of this pool's tokens.`
     const out = same(t, base.address) ? quote : base
-    return send(swapCall(raw.address, t, amountIn, minOut), () => out, `Swapped ${amt(amountIn, tokenIn)} for at least ${amt(minOut, out)}.`)
+    return send(swapCall(raw.address, t, amountIn, minOut), () => out, `Swapped ${amt(amountIn, tokenIn)} for at least ${amt(minOut, out)}.`, reported('pool.swap', 'poolSwap'))
   }
   async function add(baseIn: bigint, quoteIn: bigint, minShares: bigint) {
     if (!raw || !base || !quote) return 'No pool for this pair.'
-    return send(addLiquidityCall(raw.address, ...onChain(baseIn, quoteIn), minShares), () => LP, `Added liquidity to the ${base.symbol}/${quote.symbol} pool.`)
+    return send(addLiquidityCall(raw.address, ...onChain(baseIn, quoteIn), minShares), () => LP, `Added liquidity to the ${base.symbol}/${quote.symbol} pool.`, reported('pool.add', 'addLiquidity'))
   }
   async function remove(shares: bigint, minBase: bigint, minQuote: bigint) {
     if (!raw || !base || !quote) return 'No pool for this pair.'
@@ -176,7 +190,7 @@ export function Pool() {
     const [t0, t1] = same(raw.base, base.address) ? [base, quote] : [quote, base]
     const pay = quoteRemove(raw, shares), dist = (x: bigint, y: bigint) => (x > y ? x - y : y - x)
     const side = (out: bigint, min: bigint) => (min !== m1 ? t0 : min !== m0 ? t1 : dist(out, pay.base) <= dist(out, pay.quote) ? t0 : t1)
-    return send(removeLiquidityCall(raw.address, shares, m0, m1), side, `Removed ${amt(shares, LP)} from the pool.`)
+    return send(removeLiquidityCall(raw.address, shares, m0, m1), side, `Removed ${amt(shares, LP)} from the pool.`, reported('pool.remove', 'removeLiquidity'))
   }
   const funds: Funds = a => (same(a.address, base?.address) ? { bal: wallet.base, alw: wallet.allowBase } : { bal: wallet.quote, alw: wallet.allowQuote })
 
@@ -208,7 +222,7 @@ export function Pool() {
         <section className={`${card} flex flex-wrap items-center gap-4 px-[22px] py-4`}>
           <p className="flex-1 text-sm text-text-2">{chain.info.name} has no {B}/{Q} pool yet.</p>
           <span title={acting ? undefined : 'Create an account first'} className="inline-flex">
-            <Button onClick={deploy} disabled={!acting || deploying}>{deploying ? 'Deploying…' : 'Deploy Pool.sol?'}</Button>
+            <Button {...mark('pool.deploy')} onClick={deploy} disabled={!acting || deploying}>{deploying ? 'Deploying…' : 'Deploy Pool.sol?'}</Button>
           </span>
         </section>
       )}

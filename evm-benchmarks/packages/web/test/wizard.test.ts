@@ -130,6 +130,8 @@ describe('Ribbon', () => {
     expect(made({ address: `0x${'1'.repeat(40)}`, venue: 'offchain' })).toBe('Settlement')
     expect(made({ orderId: '7', filled: '0' })).toBe('order #7')
     expect(made({ filled: '150000', tx: `0x${'ab'.repeat(32)}` })).toBeUndefined()
+    expect(checkText({ pool: '$pool', kGrew: true })).toBe('k of $pool grew since the first deposit')
+    expect(made({ tx: `0x${'ab'.repeat(32)}`, shares: '112694276695958814472445', k: '1' })).toBe('112,694.28 LP shares')
   })
   test('stepper, current step text and the ribbon buttons while a walkthrough is active', async () => {
     const { Ribbon } = await import('../src/components/Ribbon')

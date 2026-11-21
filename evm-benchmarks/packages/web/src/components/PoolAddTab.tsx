@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { formatUnits } from 'viem'
 import { quoteAdd } from '@evmb/pool'
-import { amountText } from '../swap/ui'
+import { amountText, same } from '../swap/ui'
+import { orThrow, useWizardAction, useWizardAmountAsset, useWizardField, useWizardMark } from '../walkthrough/wizard'
 import { approveFor, fillOther, minAt, newShareText } from '../pool/form'
 import { lpText, poolPriceText } from '../pool/ui'
 import { Button } from '../ui/button'
@@ -19,6 +20,9 @@ export function PoolAddTab({ s, base, quote, funds, busy, slip, setSlip, mine, o
   const [bt, setBt] = useState('')
   const [qt, setQt] = useState('')
   const [error, setError] = useState<string>()
+  useWizardField('add.base', bt, setBt)
+  useWizardField('add.quote', qt, setQt)
+  const mark = useWizardMark(), stepToken = useWizardAmountAsset()
   const empty = !s.totalShares
   const b = amountOf(bt, base.decimals), q = amountOf(qt, quote.decimals)
   const edit = (side: 'base' | 'quote', v: string) => {
@@ -48,6 +52,11 @@ export function PoolAddTab({ s, base, quote, funds, busy, slip, setSlip, mine, o
     if (!e) { setBt(''); setQt('') }
     return e
   }
+  // what Next's approve presses: the token the walkthrough's approve step names, else the first one still needed
+  const approving = stepToken ? (same(stepToken, base.address) ? ab && base : same(stepToken, quote.address) ? aq && quote : undefined) : (ab ? base : aq ? quote : undefined)
+  useWizardAction('pool.approve', !busy && approving ? () => orThrow(onApprove(approving, approving === base ? ab : aq)) : undefined)
+  useWizardAction('pool.add', !busy && !unread && !ab && !aq ? () => orThrow(add()) : undefined)
+  const approveMark = (t: typeof base) => (approving === t ? mark('pool.approve') : {})
   let n = 0
   const num = () => (ab || aq ? `${++n} · ` : '')
 
@@ -73,9 +82,9 @@ export function PoolAddTab({ s, base, quote, funds, busy, slip, setSlip, mine, o
       {empty && <p className="text-xs leading-normal text-muted">First deposit: the two amounts set the pool's price. 1,000 of the minted shares are locked forever.</p>}
       {(error ?? (bt && qt && why)) && <span role="alert" className="text-xs text-danger">{error ?? why}</span>}
       <div className="flex flex-col gap-2">
-        {ab > 0n && <Button className={step} disabled={busy} onClick={() => onApprove(base, ab)}>{num()}Approve {formatUnits(ab, base.decimals)} {base.symbol}</Button>}
-        {aq > 0n && <Button className={step} disabled={busy} onClick={() => onApprove(quote, aq)}>{num()}Approve {formatUnits(aq, quote.decimals)} {quote.symbol}</Button>}
-        <button className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={busy || unread || ab > 0n || aq > 0n || !ready} onClick={add}>{num()}Add liquidity</button>
+        {ab > 0n && <Button {...approveMark(base)} className={step} disabled={busy} onClick={() => onApprove(base, ab)}>{num()}Approve {formatUnits(ab, base.decimals)} {base.symbol}</Button>}
+        {aq > 0n && <Button {...approveMark(quote)} className={step} disabled={busy} onClick={() => onApprove(quote, aq)}>{num()}Approve {formatUnits(aq, quote.decimals)} {quote.symbol}</Button>}
+        <button {...mark('pool.add')} className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={busy || unread || ab > 0n || aq > 0n || !ready} onClick={add}>{num()}Add liquidity</button>
         {unread && <span className="text-xs text-muted">Pool may spend … {base.symbol} · … {quote.symbol}</span>}
         <span className="text-xs leading-normal text-subtle">Reverts if you would get fewer shares than the minimum.</span>
       </div>

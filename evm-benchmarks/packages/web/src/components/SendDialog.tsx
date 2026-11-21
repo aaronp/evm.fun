@@ -8,6 +8,8 @@ import { formatAmount, parseAmount, shortAddress } from '../assets/ui'
 import { Button } from '../ui/button'
 import { fieldLabel, Input, Select } from '../ui/input'
 import { Notice } from '../ui/notice'
+import { orThrow, useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
+import { WizardInline } from './WizardInline'
 
 const OTHER = 'other'
 
@@ -28,33 +30,41 @@ export function SendDialog({ dialogRef, chain, asset, from, balance, accounts, o
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
+  useWizardField('send.to', to, setTo)
+  useWizardField('send.amount', amount, setAmount)
+  const report = useWizardReport(), mark = useWizardMark()
 
+  /** returns the error message when it failed */
   async function send() {
+    const fail = (e: string) => (setErr(e), e)
     setErr(undefined)
     const dest = to === OTHER ? other.trim() : to
-    if (!isAddress(dest)) return setErr('Recipient is not a valid address (check the checksum).')
+    if (!isAddress(dest)) return fail('Recipient is not a valid address (check the checksum).')
     const amt = parseAmount(amount, asset.decimals)
-    if ('error' in amt) return setErr(amt.error)
-    if (amt.ok === 0n) return setErr('Amount must be more than 0')
-    if (balance !== undefined && amt.ok > balance) return setErr('More than the balance')
-    if (!from) return setErr('Select an account first.')
+    if ('error' in amt) return fail(amt.error)
+    if (amt.ok === 0n) return fail('Amount must be more than 0')
+    if (balance !== undefined && amt.ok > balance) return fail('More than the balance')
+    if (!from) return fail('Select an account first.')
     setBusy(true)
     try {
       const tx = asset.kind === 'native' ? { to: dest as Address, value: amt.ok } : transferCall(asset, dest as Address, amt.ok)
       const r = await signAndSend(chain, from, tx, onSent)
       if (r.status !== 'success') throw new Error(`Transfer ${r.status}${r.error ? `: ${r.error}` : ''}`)
+      report('send.submit', { tx: r.hash })
       dialogRef.current?.close()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
+      return fail(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(false)
     }
   }
+  useWizardAction('send.submit', busy ? undefined : () => orThrow(send()))
 
   return (
     <dialog ref={dialogRef} onClose={onClose} onCancel={e => busy && e.preventDefault()} aria-labelledby="send-title" className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-line bg-panel p-5 text-text backdrop:bg-bg/70">
       <form method="dialog" className="space-y-3" onSubmit={e => { e.preventDefault(); send() }}>
         <h2 id="send-title" className="font-display text-base font-semibold">Send {asset.symbol}</h2>
+        <WizardInline step="transfer" />
         <p className="text-sm text-muted">
           From <span className="font-semibold text-text">{from?.label}</span>
           {balance !== undefined && <> · <span className="font-mono">{formatAmount(balance, asset.decimals, asset.kind === 'native' ? 8 : undefined)} {asset.symbol}</span></>}
@@ -74,7 +84,7 @@ export function SendDialog({ dialogRef, chain, asset, from, balance, accounts, o
         </label>
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" disabled={busy} onClick={() => dialogRef.current?.close()}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send'}</Button>
+          <Button {...mark('send.submit')} type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send'}</Button>
         </div>
       </form>
     </dialog>

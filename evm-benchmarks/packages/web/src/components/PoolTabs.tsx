@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import type { Asset } from '@evmb/assets'
 import type { PoolState } from '@evmb/pool'
-import { DEFAULT_SLIPPAGE } from '../pool/form'
+import { DEFAULT_SLIPPAGE, SLIPPAGES } from '../pool/form'
+import { useWizardField, useWizardMark } from '../walkthrough/wizard'
 import { PoolAddTab } from './PoolAddTab'
 import { PoolRemoveTab } from './PoolRemoveTab'
 import { PoolSwapTab, type Outcome } from './PoolSwapTab'
@@ -24,9 +25,12 @@ export function PoolTabs({ s, base, quote, funds, busy, mine, onApprove, onSwap,
   const [slip, setSlip] = useState(DEFAULT_SLIPPAGE)
   const tabs: Tab[] = s.totalShares ? ['swap', 'add', 'remove'] : ['add']
   const tab = tabs.includes(picked) ? picked : tabs[0]!
+  useWizardField('pool.tab', tab, v => v in NAMES && setTab(v as Tab))
+  useWizardField('swap.slippage', String(slip), v => { if (SLIPPAGES.some(([b]) => String(b) === v)) setSlip(Number(v)) })
+  const mark = useWizardMark()
   const common = { s, base, quote, funds, busy, slip, setSlip, onApprove }
   return (
-    <section aria-label="Swap, add or remove liquidity" className={`${card} flex flex-col gap-4 p-[18px]`}>
+    <section {...mark('pool.card')} aria-label="Swap, add or remove liquidity" className={`${card} flex flex-col gap-4 p-[18px]`}>
       <div role="tablist" aria-label="Pool action" className={`grid gap-1 rounded-[10px] border border-line bg-panel p-1 ${tabs.length > 1 ? 'grid-cols-3' : 'grid-cols-1'}`}>
         {tabs.map(t => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}

@@ -1,0 +1,190 @@
+{
+  "id": "gbp-usd-pool",
+  "title": "Trade pounds with a liquidity pool",
+  "summary": "Alice deposits 100,000 GBP and 127,000 USD in a pool; Bob swaps 1,000 GBP for dollars at the pool's price, and the fee makes the pool grow.",
+  "keys": {
+    "alice": {
+      "account": {
+        "label": "alice"
+      }
+    },
+    "bob": {
+      "account": {
+        "label": "bob"
+      }
+    },
+    "chain": {
+      "chain": {
+        "name": "Example"
+      }
+    },
+    "GBP": {
+      "asset": {
+        "symbol": "GBP",
+        "name": "Pound",
+        "decimals": 2
+      }
+    },
+    "USD": {
+      "asset": {
+        "symbol": "USD",
+        "name": "Dollar",
+        "decimals": 6
+      }
+    },
+    "pool": {
+      "pool": {}
+    }
+  },
+  "steps": [
+    {
+      "id": "alice",
+      "do": "account",
+      "key": "alice",
+      "title": "Make Alice",
+      "text": "Every action on a blockchain is signed by a key. This step creates Alice's key, which is how she proves she is Alice."
+    },
+    {
+      "id": "bob",
+      "do": "account",
+      "key": "bob",
+      "title": "Make Bob",
+      "text": "Bob gets his own key too, so he can act separately from Alice."
+    },
+    {
+      "id": "chain",
+      "do": "chain",
+      "key": "chain",
+      "title": "Start a chain",
+      "text": "A chain is a private practice network, like a sandbox. This makes a fresh one and gives Alice and Bob some of its native coin to pay fees.",
+      "args": {
+        "prefund": [
+          "$alice",
+          "$bob"
+        ]
+      }
+    },
+    {
+      "id": "gbp",
+      "do": "launchAsset",
+      "key": "GBP",
+      "title": "Create the pound token",
+      "text": "A token is a made-up currency tracked by a program on the chain. Alice creates pounds (GBP, two decimal places) and receives all one million of them.",
+      "args": {
+        "supply": "1000000",
+        "issuer": "$alice"
+      }
+    },
+    {
+      "id": "usd",
+      "do": "launchAsset",
+      "key": "USD",
+      "title": "Create the dollar token",
+      "text": "Alice also creates dollars (USD, six decimal places) and receives all one million of them, so she holds both sides of the market.",
+      "args": {
+        "supply": "1000000",
+        "issuer": "$alice"
+      }
+    },
+    {
+      "id": "send",
+      "do": "transfer",
+      "title": "Alice sends Bob 1,000 pounds",
+      "text": "Sending tokens is the simplest transaction: Alice moves 1,000 of her pounds to Bob, so he has something to trade.",
+      "args": {
+        "from": "$alice",
+        "to": "$bob",
+        "amount": "1000 $GBP"
+      }
+    },
+    {
+      "id": "pool",
+      "do": "deployPool",
+      "key": "pool",
+      "title": "Put up a pool",
+      "text": "A pool is a program that holds two tokens and trades between them at a price set by how much of each it holds. Alice puts one on the chain for pounds and dollars.",
+      "args": {
+        "from": "$alice",
+        "base": "$GBP",
+        "quote": "$USD"
+      }
+    },
+    {
+      "id": "aliceGbp",
+      "do": "approve",
+      "title": "Alice allows the pool to move her pounds",
+      "text": "Before a program can move your tokens, you must say it may, and how many. Alice allows the pool to take the pounds her deposit needs.",
+      "args": {
+        "from": "$alice",
+        "amount": "100000 $GBP",
+        "before": "add"
+      }
+    },
+    {
+      "id": "aliceUsd",
+      "do": "approve",
+      "title": "Alice allows the pool to move her dollars",
+      "text": "The deposit needs dollars too, so Alice gives the same permission for what the add needs in dollars.",
+      "args": {
+        "from": "$alice",
+        "amount": "127000 $USD",
+        "before": "add"
+      }
+    },
+    {
+      "id": "add",
+      "do": "addLiquidity",
+      "title": "Alice fills the pool: 100,000 pounds and 127,000 dollars",
+      "text": "The first deposit sets the price: 127,000 dollars for 100,000 pounds is 1.27 dollars a pound. Alice gets shares in the pool in return, her claim on what it holds.",
+      "args": {
+        "from": "$alice",
+        "pool": "$pool",
+        "base": "100000 $GBP",
+        "quote": "127000 $USD"
+      }
+    },
+    {
+      "id": "bobOk",
+      "do": "approve",
+      "title": "Bob allows the pool to move his pounds",
+      "text": "Bob will pay the pool in pounds, so he allows it to take what the swap needs.",
+      "args": {
+        "from": "$bob",
+        "amount": "1000 $GBP",
+        "before": "swap"
+      }
+    },
+    {
+      "id": "swap",
+      "do": "poolSwap",
+      "title": "Bob swaps 1,000 pounds for dollars",
+      "text": "Bob pays 1,000 pounds and the pool pays dollars at its price, less a 0.3% fee that stays in the pool for Alice. He accepts at most 0.5% less than the quote; if someone traded first and moved the price further, the swap would refuse.",
+      "args": {
+        "from": "$bob",
+        "pool": "$pool",
+        "pay": "1000 $GBP",
+        "slippageBps": 50
+      },
+      "expect": [
+        {
+          "balance": "$bob",
+          "has": "1247.42 $USD"
+        },
+        {
+          "pool": "$pool",
+          "kGrew": true
+        }
+      ]
+    },
+    {
+      "id": "view",
+      "do": "view",
+      "title": "See the pool",
+      "text": "Here is the pool now: more pounds, fewer dollars, a slightly higher price for pounds, and Alice's deposit worth a little more thanks to the fee.",
+      "args": {
+        "page": "pool",
+        "pool": "$pool"
+      }
+    }
+  ]
+}

@@ -316,6 +316,13 @@ export function useWizardAction(id: string, fn: Press | undefined) {
   }, [on, id, actions, bump, press])
 }
 
+/** The actual address of the asset the current step's `amount` names ("1000 $GBP" → GBP's), e.g. which token an approve step is for. */
+export function useWizardAmountAsset(): string | undefined {
+  const c = useContext(Ctx)
+  const ref = /\$\w+/.exec(String(c?.step?.args?.amount ?? ''))?.[0]
+  return ref && c?.run ? addressOf(c.run, ref) : undefined
+}
+
 const noop = () => {}
 /** `report(id, outputs)` when the page's action completes; does nothing unless `id` is the current step's. */
 export const useWizardReport = (): ((id: string, outputs: Outputs[StepType]) => void) => useContext(Ctx)?.report ?? noop

@@ -1,5 +1,6 @@
-import { erc20Abi, formatUnits, parseEventLogs, type Address } from 'viem'
-import { approveCall, type Asset } from '@evmb/assets'
+import { erc20Abi, formatUnits, isAddressEqual, parseEventLogs, type Address, type Hex } from 'viem'
+import { approveCall, transferCall, type Asset } from '@evmb/assets'
+import { addLiquidityCall, orient, poolAbi, quoteAdd, quoteRemove, quoteSwap, readPool, removeLiquidityCall, swapCall } from '@evmb/pool'
 import { makeOfferCall, readOffer, swapAbi, takeCall, takeReport } from '@evmb/swap'
 import { parsePrice, type PlaceResult, type Store } from '@evmb/orderbook'
 import type { createChainRegistry } from '../chain/registry'
@@ -11,6 +12,8 @@ import { launchToken } from '../assets/launch'
 import { deploySwap } from '../swap/locate'
 import { readContract, signAndSend } from '../tx/send'
 import { deployVenue, venueAt } from '../orderbook/locate'
+import { deployPool } from '../pool/locate'
+import { DEFAULT_SLIPPAGE, minAt, percentOf } from '../pool/form'
 import { bookStore } from '../orderbook/store'
 import { walletOf } from '../orderbook/wallet'
 import { amount, ref, uniqueName } from './resolve'
@@ -67,10 +70,29 @@ export function initialInputs(w: Walkthrough, step: Step, run: Run, taken: strin
     }
     case 'cancelOrder': return { 'cancel.order': (ref(run, arg(step, 'order'), step.id) as Outputs['placeOrder']).orderId ?? '' }
     case 'approve': return initialInputs(w, w.steps.find(s => s.id === arg(step, 'before'))!, run, taken)
+    case 'transfer': {
+      const { asset, raw } = amount(run, arg(step, 'amount'), step.id)
+      return { 'send.to': addr(run, arg(step, 'to'), step.id), 'send.amount': formatUnits(raw, asset.decimals) }
+    }
+    case 'addLiquidity': {
+      // the page shows the pair as deployed: its base field takes the deploy's base asset
+      const [b, q] = [arg(step, 'base'), arg(step, 'quote')].map(t => amount(run, t, step.id))
+      const flip = keyName(arg(step, 'base')) !== keyName(arg(deployOf(w, arg(step, 'pool')), 'base'))
+      const [pb, pq] = flip ? [q!, b!] : [b!, q!]
+      return { 'pool.tab': 'add', 'add.base': formatUnits(pb.raw, pb.asset.decimals), 'add.quote': formatUnits(pq.raw, pq.asset.decimals) }
+    }
+    case 'removeLiquidity': return { 'pool.tab': 'remove', 'remove.percent': String(step.args?.percent) }
+    case 'poolSwap': {
+      const { asset, raw } = amount(run, arg(step, 'pay'), step.id)
+      return { 'pool.tab': 'swap', 'swap.pay': asset.address, 'swap.amount': formatUnits(raw, asset.decimals), 'swap.slippage': String(step.args?.slippageBps) }
+    }
     default: return {}
   }
 }
 
+const keyName = (ref: string) => /\$(\w+)/.exec(ref)?.[1]
+/** The deployPool step that filled `$pool`. */
+const deployOf = (w: Walkthrough, pool: string) => w.steps.find(s => s.do === 'deployPool' && s.key === keyName(pool))!
 const keyOfKind = (w: Walkthrough, kind: string) => Object.keys(w.keys).find(k => kind in w.keys[k]!)!
 const chainFor = (w: Walkthrough, env: Env, run: Run, stepId: string) =>
   env.registry.open((ref(run, keyOfKind(w, 'chain'), stepId) as Outputs['chain']).id)
@@ -113,11 +135,33 @@ async function orderNow(w: Walkthrough, env: Env, run: Run, place: Step, id: str
 /** `$key` of an order: its placeOrder step and recorded id. */
 const orderRef = (w: Walkthrough, run: Run, name: string, stepId: string) =>
   [placeStepOf(w, name), (ref(run, name, stepId) as Outputs['placeOrder']).orderId] as const
-/** Who an approve is for: the venue of a placeOrder it comes before, else the Swap. */
+/** Who an approve is for: the venue of a placeOrder it comes before, the pool of a pool step, else the Swap. */
 const spenderOf = (w: Walkthrough, run: Run, step: Step) => {
   const before = w.steps.find(s => s.id === arg(step, 'before'))
-  return before?.do === 'placeOrder' ? addr(run, arg(before, 'venue'), step.id) : swapOf(w, run, step.id)
+  return before?.do === 'placeOrder' ? addr(run, arg(before, 'venue'), step.id)
+    : before?.do === 'addLiquidity' || before?.do === 'poolSwap' ? addr(run, arg(before, 'pool'), step.id)
+    : swapOf(w, run, step.id)
 }
+
+type PoolStep = 'addLiquidity' | 'removeLiquidity' | 'poolSwap'
+/**
+ * What a pool step records, from its receipt's event (the Pool page reports the same): the add's shares and `k`, the
+ * reserves product read right after it (the kGrew baseline); the remove's payout (pool order); the swap's output.
+ */
+export async function poolOutputs<K extends PoolStep>(c: ChainHandle, kind: K, tx: Hex): Promise<Outputs[K]> {
+  const rc = (await c.request('eth_getTransactionReceipt', [tx])) as { logs: Parameters<typeof parseEventLogs>[0]['logs'] }
+  const name = ({ addLiquidity: 'LiquidityAdded', removeLiquidity: 'LiquidityRemoved', poolSwap: 'Swapped' } as const)[kind]
+  const ev = parseEventLogs({ abi: poolAbi, eventName: name, logs: rc.logs })[0]
+  if (!ev) throw new Error(`No ${name} event in ${tx}`)
+  const a = ev.args as unknown as Record<string, bigint>
+  if (kind === 'poolSwap') return { tx, out: String(a.amountOut) } as Outputs[K]
+  if (kind === 'removeLiquidity') return { tx, base: String(a.base), quote: String(a.quote) } as Outputs[K]
+  // ponytail: reads the reserves at latest right after the add; exact while nothing else sends in between (the page is busy-locked)
+  const p = await readPool(request(c), ev.address)
+  return { tx, shares: String(a.shares), k: String(p.reserveBase * p.reserveQuote) } as Outputs[K]
+}
+/** The pool a pool step names, read live. */
+const poolOf = async (c: ChainHandle, run: Run, step: Step) => readPool(request(c), addr(run, arg(step, 'pool'), step.id))
 const balanceOf = async (c: ChainHandle, tok: Address, holder: Address) => (await readContract(c, tok, erc20Abi, 'balanceOf', [holder])) as bigint
 
 /** Performs one step headless, with the same helpers the pages use. */
@@ -189,6 +233,34 @@ export async function perform(w: Walkthrough, step: Step, env: Env, run: Run): P
       await venue.cancel(walletOf(c, signer(env, run, arg(step, 'from'), id)), order)
       return {}
     }
+    case 'transfer': {
+      const { asset, raw } = amount(run, arg(step, 'amount'), id)
+      const c = await chainFor(w, env, run, id)
+      return { tx: await sent(c, signer(env, run, arg(step, 'from'), id), transferCall(token(asset.address), addr(run, arg(step, 'to'), id), raw)) }
+    }
+    case 'deployPool': {
+      const c = await chainFor(w, env, run, id)
+      return { address: await deployPool(c, signer(env, run, arg(step, 'from'), id), addr(run, arg(step, 'base'), id), addr(run, arg(step, 'quote'), id)) }
+    }
+    case 'addLiquidity': {
+      const c = await chainFor(w, env, run, id), raw = await poolOf(c, run, step)
+      const b = amount(run, arg(step, 'base'), id), q = amount(run, arg(step, 'quote'), id)
+      const minShares = minAt(quoteAdd(orient(raw, b.asset.address, q.asset.address), b.raw, q.raw).shares, DEFAULT_SLIPPAGE)
+      const [x, y] = isAddressEqual(raw.base, b.asset.address) ? [b.raw, q.raw] : [q.raw, b.raw] // calls take the pool's order
+      return poolOutputs(c, 'addLiquidity', await sent(c, signer(env, run, arg(step, 'from'), id), addLiquidityCall(raw.address, x, y, minShares)))
+    }
+    case 'removeLiquidity': {
+      const c = await chainFor(w, env, run, id), raw = await poolOf(c, run, step), from = signer(env, run, arg(step, 'from'), id)
+      const shares = percentOf(await balanceOf(c, raw.address, from.address), Number(step.args!.percent))
+      const out = quoteRemove(raw, shares)
+      return poolOutputs(c, 'removeLiquidity', await sent(c, from, removeLiquidityCall(raw.address, shares, minAt(out.base, DEFAULT_SLIPPAGE), minAt(out.quote, DEFAULT_SLIPPAGE))))
+    }
+    case 'poolSwap': {
+      const c = await chainFor(w, env, run, id), raw = await poolOf(c, run, step)
+      const pay = amount(run, arg(step, 'pay'), id)
+      const { minOut } = quoteSwap(raw, pay.asset.address, pay.raw, Number(step.args!.slippageBps))
+      return poolOutputs(c, 'poolSwap', await sent(c, signer(env, run, arg(step, 'from'), id), swapCall(raw.address, pay.asset.address, pay.raw, minOut)))
+    }
     case 'view': return {}
   }
 }
@@ -212,7 +284,9 @@ export async function done(w: Walkthrough, step: Step, env: Env, run: Run): Prom
   }
   const c = await chainFor(w, env, run, step.id)
   switch (step.do) {
-    case 'launchAsset': case 'deploySwap': case 'deployVenue': return !!val && hasCode(c, (val as { address: Address }).address)
+    case 'transfer': case 'addLiquidity': case 'removeLiquidity': case 'poolSwap':
+      return !!rec && landed(c, (rec.outputs as { tx: Hex }).tx)
+    case 'launchAsset': case 'deploySwap': case 'deployVenue': case 'deployPool': return !!val && hasCode(c, (val as { address: Address }).address)
     case 'approve': {
       // a spent approval (the offer or take used it) still counts once its tx landed
       if (rec && await landed(c, (rec.outputs as Outputs['approve']).tx)) return true
@@ -273,6 +347,15 @@ export async function checks(w: Walkthrough, step: Step, env: Env, run: Run): Pr
       const { venue, market } = await placed(w, env, run, place, c)
       const n = (await venue.trades(market, check.count + 1)).length
       return { check, pass: n === check.count, actual: `${n} ${n === 1 ? 'trade' : 'trades'}` }
+    }
+    if ('kGrew' in check) {
+      // the baseline: k right after the first recorded add on this pool
+      const first = w.steps.find(s => s.do === 'addLiquidity' && keyName(arg(s, 'pool')) === keyName(check.pool) && run.steps[s.id])
+      if (!first) return { check, pass: false, actual: 'no deposit recorded yet' }
+      const k0 = BigInt((run.steps[first.id]!.outputs as Outputs['addLiquidity']).k)
+      const p = await readPool(request(c), addr(run, check.pool, step.id))
+      const k = p.reserveBase * p.reserveQuote, n = (v: bigint) => v.toLocaleString('en-US')
+      return { check, pass: k > k0, actual: `k ${k > k0 ? 'grew' : 'did not grow'}: ${n(k0)} after the first deposit, ${n(k)} now` }
     }
     const out = run.steps[step.id]?.outputs as Outputs['take'] | undefined
     if (!out) return { check, pass: false, actual: 'not run yet' }

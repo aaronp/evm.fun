@@ -3,7 +3,8 @@ import { formatUnits } from 'viem'
 import type { Asset } from '@evmb/assets'
 import { quoteSwap, type PoolState } from '@evmb/pool'
 import { parseAmount } from '../assets/ui'
-import { amountText } from '../swap/ui'
+import { amountText, same } from '../swap/ui'
+import { orThrow, useWizardAction, useWizardField, useWizardMark } from '../walkthrough/wizard'
 import { approveFor, SLIPPAGES, swapAfter } from '../pool/form'
 import { poolPriceText } from '../pool/ui'
 import { Button } from '../ui/button'
@@ -64,6 +65,9 @@ export function PoolSwapTab({ s, base, quote, funds, busy, slip, setSlip, onAppr
   const [text, setText] = useState('')
   const [error, setError] = useState<string>()
   const [pay, get] = payBase ? [base, quote] : [quote, base]
+  useWizardField('swap.pay', pay.address!, v => { if (same(v, base.address)) setPayBase(true); else if (same(v, quote.address)) setPayBase(false) })
+  useWizardField('swap.amount', text, setText)
+  const mark = useWizardMark()
   const a = amountOf(text, pay.decimals)
   const amt = 'ok' in a ? a.ok : 0n
   const q = amt ? quoteSwap(s, pay.address as `0x${string}`, amt, slip) : undefined
@@ -85,6 +89,8 @@ export function PoolSwapTab({ s, base, quote, funds, busy, slip, setSlip, onAppr
     if (!e) setText('')
     return e
   }
+  useWizardAction('pool.approve', !busy && approve > 0n ? () => orThrow(onApprove(pay, approve)) : undefined)
+  useWizardAction('pool.swap', !busy && !unread && approve === 0n ? () => orThrow(swap()) : undefined)
   // your price in quote per base whichever side you pay: the exact rational of the two amounts
   const yourPrice = q?.out ? poolPriceText({ ...s, ...(payBase ? { reserveBase: amt, reserveQuote: q.out } : { reserveBase: q.out, reserveQuote: amt }) }) : '—'
   const payText = `${amountText(amt, pay.decimals)} ${pay.symbol}`
@@ -112,8 +118,8 @@ export function PoolSwapTab({ s, base, quote, funds, busy, slip, setSlip, onAppr
       </div>
       {(error ?? (text && why)) && <span role="alert" className="text-xs text-danger">{error ?? why}</span>}
       <div className="flex flex-col gap-2">
-        {approve > 0n && <Button className={step} disabled={busy} onClick={() => onApprove(pay, approve)}>1 · Approve {formatUnits(approve, pay.decimals)} {pay.symbol}</Button>}
-        <button className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={busy || unread || approve > 0n || why !== undefined} onClick={swap}>
+        {approve > 0n && <Button {...mark('pool.approve')} className={step} disabled={busy} onClick={() => onApprove(pay, approve)}>1 · Approve {formatUnits(approve, pay.decimals)} {pay.symbol}</Button>}
+        <button {...mark('pool.swap')} className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={busy || unread || approve > 0n || why !== undefined} onClick={swap}>
           {approve > 0n ? '2 · ' : ''}Swap {amt ? payText : pay.symbol}
         </button>
         {unread && <span className="text-xs text-muted">Pool may spend … {pay.symbol}</span>}

@@ -30,7 +30,7 @@ function Glyph({ a, size }: { a: Asset; size: number }) {
 }
 
 export function Assets() {
-  const { chain, balanceTick, bumpBalance } = useApp()
+  const { chain, account, balanceTick, bumpBalance } = useApp()
   const [params, setParams] = useSearchParams()
   const [assets, setAssets] = useState<Asset[]>([])
   const [listErr, setListErr] = useState<string>()
@@ -77,6 +77,9 @@ export function Assets() {
   const mine = assets.filter(a => a.chainId === chainId)
   const cur = mine.find(a => a.id === params.get('asset')) ?? mine[0]
   const addrKey = people.map(p => p.address).join()
+  const acting = people.find(p => p.address.toLowerCase() === account?.toLowerCase())
+  // a walkthrough's transfer: Send from the acting account (the ribbon selected the step's `from`)
+  useWizardAction('assets.send', chain && cur && acting && !sender ? () => setSender(acting) : undefined)
 
   useEffect(() => { setSupply(undefined); setBals(undefined) }, [chainId, cur?.id]) // a tick refresh keeps the old values until the new ones land
 

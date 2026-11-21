@@ -10,7 +10,7 @@ const errs = (j: unknown) => ('errors' in validate(j) ? (validate(j) as any).err
 const has = (j: unknown, field: string, re: RegExp) => errs(j).some((e: any) => e.field === field && re.test(e.message))
 
 test('bundled files validate', () => {
-  expect(bundled.length).toBe(4)
+  expect(bundled.length).toBe(5)
   for (const w of bundled) expect(validate(w)).toEqual({ ok: w })
 })
 
@@ -152,4 +152,52 @@ test('order and trades checks', () => {
   expect(has(n, 'expect', /count must be/)).toBe(true)
   const o = bookClone(); step(o, 'view').args.venue = '$ask1'
   expect(has(o, 'venue', /not a venue/)).toBe(true)
+})
+
+const poolW = (): any => structuredClone(bundled.find(w => w.id === 'gbp-usd-pool')!)
+test('gbp-usd-pool: Alice issues both, sends Bob 1,000 GBP, and the swap checks Bob\'s USD and k', () => {
+  const j = poolW()
+  expect(validate(j)).toHaveProperty('ok')
+  expect(step(j, 'send')).toMatchObject({ do: 'transfer', args: { from: '$alice', to: '$bob', amount: '1000 $GBP' } })
+  expect(step(j, 'swap').expect).toEqual([{ balance: '$bob', has: '1247.42 $USD' }, { pool: '$pool', kGrew: true }])
+  expect(j.steps.at(-1)).toMatchObject({ do: 'view', args: { page: 'pool', pool: '$pool' } })
+  for (const id of ['aliceGbp', 'aliceUsd', 'bobOk']) expect(step(j, id).text).not.toMatch(/\d/) // approve text names no amounts
+})
+test('pool step args', () => {
+  const a = poolW(); step(a, 'pool').key = 'GBP'
+  expect(has(a, 'key', /must be kind pool/)).toBe(true)
+  const b = poolW(); step(b, 'pool').args.quote = '$GBP'
+  expect(has(b, 'quote', /differ/)).toBe(true)
+  const c = poolW(); step(c, 'add').args.pool = '$GBP'
+  expect(has(c, 'pool', /not a pool/)).toBe(true)
+  const d = poolW(); step(d, 'add').args.base = '100000 $USD'
+  expect(has(d, 'base', /the pool's tokens/)).toBe(true)
+  const e = poolW(); step(e, 'swap').args.slippageBps = 30
+  expect(has(e, 'slippageBps', /10, 50 or 100/)).toBe(true)
+  const f = poolW(); step(f, 'swap').args.pay = '1000 $ETH'
+  expect(has(f, 'pay', /not a declared key/)).toBe(true)
+  const g = poolW(); g.steps.push({ id: 'rm', do: 'removeLiquidity', title: 'x', text: 'x', args: { from: '$alice', pool: '$pool', percent: 50 } })
+  expect(validate(g)).toHaveProperty('ok')
+  g.steps.at(-1).args.percent = 0
+  expect(has(g, 'percent', /1 to 100/)).toBe(true)
+  const h = poolW(); step(h, 'add').key = 'pool'
+  expect(has(h, 'key', /take no key/)).toBe(true)
+})
+test('approve before a pool step: spender is the pool, amount in what the step pays', () => {
+  const a = poolW(); step(a, 'bobOk').args.amount = '1000 $USD'
+  expect(has(a, 'amount', /must be in \$GBP/)).toBe(true)
+  const b = poolW(); step(b, 'aliceUsd').args.amount = '1 $GBP'
+  expect(validate(b)).toHaveProperty('ok') // either of the add's tokens
+})
+test('transfer and kGrew checks', () => {
+  const a = poolW(); step(a, 'send').args.to = '$GBP'
+  expect(has(a, 'to', /not an account/)).toBe(true)
+  const b = poolW(); step(b, 'send').key = 'bob'
+  expect(has(b, 'key', /take no key/)).toBe(true)
+  const c = poolW(); step(c, 'swap').expect[1].pool = '$GBP'
+  expect(has(c, 'expect', /not a pool/)).toBe(true)
+  const d = poolW(); step(d, 'swap').expect[1].kGrew = false
+  expect(has(d, 'expect', /kGrew must be true/)).toBe(true)
+  const e = poolW(); step(e, 'view').args.pool = '$GBP'
+  expect(has(e, 'pool', /not a pool/)).toBe(true)
 })

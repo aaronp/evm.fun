@@ -14,6 +14,9 @@ import { MakeOfferCard } from '../src/components/MakeOfferCard'
 import { OrderForm } from '../src/components/OrderForm'
 import { MyOrders } from '../src/components/MyOrders'
 import { Trade } from '../src/pages/Trade'
+import { Pool } from '../src/pages/Pool'
+import { PoolTabs } from '../src/components/PoolTabs'
+import { SendDialog } from '../src/components/SendDialog'
 import { binding } from '../src/walkthrough/bindings'
 import type { Order } from '@evmb/orderbook'
 import type { Outputs, Run } from '../src/walkthrough/types'
@@ -152,5 +155,88 @@ describe('Trade in an order-book walkthrough', () => {
     for (const el of [h(Trade), form(0n), h(MyOrders, { orders: [order('1', 'open')], base: asset(GBP), quote: asset(USD), venue: 'onchain', busy: false, onCancel: async () => undefined })])
       expect(wzAttrs(render(el))).toEqual([])
     expect(render(form(0n))).toContain('data-wizard="order.submit"')
+  })
+})
+
+describe('Pool and Assets in the pool walkthrough', () => {
+  const pw = bundled.find(x => x.id === 'gbp-usd-pool')!
+  const pat = (id: string) => pw.steps.findIndex(s => s.id === id)
+  const POOL = a(10)
+  const values = () => ({ ...beforeOffer().values, swap: undefined as any, pool: { address: POOL } })
+  const pr = (): Run => ({ ...newRun(pw), values: values() })
+  const state = (rb: bigint, rq: bigint, S: bigint) => ({ address: POOL, base: GBP.address, quote: USD.address, baseDecimals: 2, quoteDecimals: 6, reserveBase: rb, reserveQuote: rq, totalShares: S })
+  const tabs = (s: ReturnType<typeof state>, alw: bigint, calls: unknown[] = []) => h(PoolTabs, {
+    s, base: asset(GBP), quote: asset(USD), funds: () => ({ bal: 10n ** 15n, alw }), busy: false, mine: 10n ** 20n,
+    onApprove: async (t: Asset, n: bigint) => { calls.push(['approve', t.symbol, n]); return undefined },
+    onSwap: async (t: Asset, n: bigint, min: bigint) => { calls.push(['swap', t.symbol, n, min]); return undefined },
+    onAdd: async (b: bigint, q: bigint) => { calls.push(['add', b, q]); return undefined },
+    onRemove: async (sh: bigint) => { calls.push(['remove', sh]); return undefined }, onAfter() {},
+  })
+  const full = state(10_000_000n, 127_000_000_000n, 10n ** 23n)
+  const probe = () => { let c: Wizard | null = null; const Probe = () => { c = useWizard(); return null }; return { el: h(Probe), get: () => c! } }
+
+  test('paths from the actual pair, fields and actions per step', () => {
+    const q = `base=${GBP.address}&quote=${USD.address}`
+    for (const id of ['pool', 'aliceGbp', 'aliceUsd', 'add', 'bobOk', 'swap', 'view']) expect(binding(pw.steps[pat(id)]!, pw).path(pr())).toBe(`/pool?${q}`)
+    expect(binding(pw.steps[pat('pool')]!, pw)).toMatchObject({ fields: [], actions: ['pool.deploy'], report: 'pool.deploy' })
+    expect(binding(pw.steps[pat('add')]!, pw)).toMatchObject({ fields: ['pool.tab', 'add.base', 'add.quote'], actions: ['pool.add'] })
+    expect(binding(pw.steps[pat('aliceUsd')]!, pw)).toMatchObject({ fields: ['pool.tab', 'add.base', 'add.quote'], actions: ['pool.approve'], report: 'pool.approve' })
+    expect(binding(pw.steps[pat('swap')]!, pw)).toMatchObject({ fields: ['pool.tab', 'swap.pay', 'swap.amount', 'swap.slippage'], actions: ['pool.swap'] })
+    const rm = { id: 'rm', do: 'removeLiquidity' as const, title: 'x', text: 'x', args: { from: '$alice', pool: '$pool', percent: 50 } }
+    expect(binding(rm, pw)).toMatchObject({ fields: ['pool.tab', 'remove.percent'], actions: ['pool.remove'] })
+    expect(binding(rm, pw).path(pr())).toBe(`/pool?${q}`)
+    const send = binding(pw.steps[pat('send')]!, pw)
+    expect(send).toMatchObject({ fields: ['send.to', 'send.amount'], actions: ['assets.send', 'send.submit'], report: 'send.submit' })
+    expect(send.path(pr())).toBe(`/assets?asset=${encodeURIComponent(`c1:${GBP.address}`)}`)
+  })
+  test("PoolTabs at Bob's swap: the Swap tab, 1,000 GBP at 0.5% filled, Swap pulses and presses with the quoted minimum", async () => {
+    const calls: unknown[] = [], p = probe()
+    const html = render(h('div', null, tabs(full, 10n ** 15n, calls), p.el), { run: pr(), index: pat('swap') }, pw)
+    expect(html).toMatch(/<section[^>]*data-wizard="pool.card"[^>]*data-wz-on=""/)
+    expect(html).toMatch(/<input[^>]*id="pl-pay"[^>]*value="1000"/)
+    expect(html).toMatch(/aria-pressed="true"[^>]*>0.5%/)
+    expect(html).toMatch(/<button[^>]*data-wizard="pool.swap"[^>]*data-wz-pulse=""/)
+    await p.get().actions.get('pool.swap')!()
+    expect(calls).toEqual([['swap', 'GBP', 100000n, 1247422249n]])
+  })
+  test('PoolTabs at the add\'s approves: an empty pool shows Add liquidity filled; each approve step approves its own token', async () => {
+    const empty = state(0n, 0n, 0n)
+    for (const [id, want] of [['aliceGbp', ['approve', 'GBP', 10_000_000n]], ['aliceUsd', ['approve', 'USD', 127_000_000_000n]]] as const) {
+      const calls: unknown[] = [], p = probe()
+      const html = render(h('div', null, tabs(empty, 0n, calls), p.el), { run: pr(), index: pat(id) }, pw)
+      expect(html).toMatch(/<input[^>]*id="pl-add-b"[^>]*value="100000"/)
+      expect(html).toMatch(/<input[^>]*id="pl-add-q"[^>]*value="127000"/)
+      expect(html.match(/data-wz-pulse=""/g)).toHaveLength(1)
+      expect(html).toMatch(new RegExp(`data-wizard="pool.approve"[^>]*data-wz-pulse=""[^>]*>\\d · Approve [\\d.]+ ${want[1]}<`))
+      await p.get().actions.get('pool.approve')!()
+      expect(calls).toEqual([want])
+    }
+    const p = probe(), calls: unknown[] = []
+    const ok = render(h('div', null, tabs(empty, 10n ** 15n, calls), p.el), { run: pr(), index: pat('add') }, pw)
+    expect(ok).toMatch(/<button[^>]*data-wizard="pool.add"[^>]*data-wz-pulse=""[^>]*>Add liquidity/)
+    await p.get().actions.get('pool.add')!()
+    expect(calls).toEqual([['add', 10_000_000n, 127_000_000_000n]])
+  })
+  test('pool.tab switches to Remove and remove.percent fills the shares', () => {
+    const rw = structuredClone(pw) as typeof pw
+    rw.steps.splice(rw.steps.length - 1, 0, { id: 'rm', do: 'removeLiquidity', title: 'x', text: 'x', args: { from: '$alice', pool: '$pool', percent: 50 } })
+    const html = render(tabs(full, 10n ** 15n), { run: pr(), index: rw.steps.length - 2 }, rw)
+    expect(html).toMatch(/aria-selected="true"[^>]*>Remove</)
+    expect(html).toMatch(/aria-pressed="true"[^>]*>50%/)
+  })
+  test('SendDialog at the transfer: Bob and 1,000 filled, Send pulses; a failure rejects with the dialog\'s message', async () => {
+    const people = [{ label: 'alice', address: a(7) }, { label: 'bob', address: a(8) }] as any
+    const p = probe()
+    const el = h(SendDialog, { dialogRef: { current: null }, chain: {} as any, asset: asset(GBP), from: people[0], balance: 0n, accounts: people, onSent() {}, onClose() {} })
+    const html = render(h('div', null, el, p.el), { run: pr(), index: pat('send') }, pw)
+    expect(html).toMatch(new RegExp(`<option value="${a(8)}" selected=""`))
+    expect(html).toMatch(/aria-label="Amount"[^>]*value="1000"/)
+    expect(html).toMatch(/<button[^>]*data-wizard="send.submit"[^>]*data-wz-pulse=""/)
+    await expect(Promise.resolve(p.get().actions.get('send.submit')!())).rejects.toThrow('More than the balance')
+  })
+  test('outside a walkthrough Pool, PoolTabs and SendDialog carry no data-wz-* attributes', () => {
+    const people = [{ label: 'alice', address: a(7) }] as any
+    for (const el of [h(Pool), tabs(full, 0n), h(SendDialog, { dialogRef: { current: null }, chain: {} as any, asset: asset(GBP), from: people[0], accounts: people, onSent() {}, onClose() {} })])
+      expect(wzAttrs(render(el))).toEqual([])
   })
 })

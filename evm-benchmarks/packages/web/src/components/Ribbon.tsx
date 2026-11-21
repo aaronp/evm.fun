@@ -5,6 +5,7 @@ import { FuseNext } from './FuseNext'
 import { adoptAuto } from '../walkthrough/auto'
 import { Notice } from '../ui/notice'
 import { idText } from '../orderbook/ui'
+import { lpText } from '../pool/ui'
 import { checkTone, useWizard, type CheckResult } from '../walkthrough/wizard'
 import type { Check, Outputs, Step } from '../walkthrough/types'
 
@@ -16,9 +17,10 @@ export const checkText = (c: Check) =>
   : 'offer' in c ? `${c.offer} is ${c.status}`
   : 'order' in c ? `${c.order} is ${c.status}${c.filled ? `, ${c.filled} filled` : ''}`
   : 'trades' in c ? `${c.trades} has ${c.count} ${c.count === 1 ? 'trade' : 'trades'}`
+  : 'kGrew' in c ? `k of ${c.pool} grew since the first deposit`
   : `The take was ${c.outcome}${c.error ? ` (${c.error})` : ''}`
 
-/** One-line summary of what a done step made: the account, chain, token, offer, venue or resting order. */
+/** One-line summary of what a done step made: the account, chain, token, offer, venue, resting order or LP shares. */
 export function made(v: Outputs[keyof Outputs] | undefined) {
   if (!v) return undefined
   if ('label' in v) return v.label
@@ -27,6 +29,7 @@ export function made(v: Outputs[keyof Outputs] | undefined) {
   if ('offerId' in v) return `offer #${v.offerId}`
   if ('venue' in v) return v.venue === 'onchain' ? 'OrderBook' : 'Settlement'
   if ('orderId' in v && v.orderId) return `order ${idText(v.orderId)}`
+  if ('shares' in v) return `${lpText(BigInt(v.shares))} LP shares`
   return undefined
 }
 
@@ -53,7 +56,7 @@ export function Ribbon() {
   const label = (s: Step) => made(s.key ? run.values[s.key] : undefined)
   const sub = (s: Step) =>
     c.reused.has(s.id) ? `${label(s)} already exists — reused.`
-    : made(s.key ? run.values[s.key] : undefined) ?? (c.isDone(s) ? 'done' : 'not yet')
+    : made(s.key ? run.values[s.key] : run.steps[s.id]?.outputs) ?? (c.isDone(s) ? 'done' : 'not yet')
   const json = JSON.stringify(run.values, null, 2)
   const results: CheckResult[] = c.results[step.id] ?? []
 

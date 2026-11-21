@@ -3,9 +3,9 @@ import { parseAmount } from '../assets/ui'
 import type { Walkthrough } from './types'
 
 type Err = { step?: string; field: string; message: string }
-const TYPES = ['account', 'chain', 'launchAsset', 'deploySwap', 'approve', 'makeOffer', 'take', 'view', 'deployVenue', 'placeOrder', 'cancelOrder']
+const TYPES = ['account', 'chain', 'launchAsset', 'deploySwap', 'approve', 'makeOffer', 'take', 'view', 'deployVenue', 'placeOrder', 'cancelOrder', 'transfer', 'deployPool', 'addLiquidity', 'removeLiquidity', 'poolSwap']
 const STATUSES = ['open', 'partial', 'filled', 'cancelled', 'failed', 'unfunded']
-const KIND_OF: Record<string, string | undefined> = { account: 'account', chain: 'chain', launchAsset: 'asset', deploySwap: 'swap', makeOffer: 'offer', deployVenue: 'venue', placeOrder: 'order' }
+const KIND_OF: Record<string, string | undefined> = { account: 'account', chain: 'chain', launchAsset: 'asset', deploySwap: 'swap', makeOffer: 'offer', deployVenue: 'venue', placeOrder: 'order', deployPool: 'pool' }
 const isObj = (x: unknown): x is Record<string, any> => typeof x === 'object' && x !== null && !Array.isArray(x)
 const kindOf = (def: unknown) => (isObj(def) ? Object.keys(def)[0] : undefined)
 const names = (s: string) => [...s.matchAll(/\$(\w+)/g)].map(m => m[1])
@@ -48,7 +48,7 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
       use(field, args[field])
       const n = /^\$(\w+)$/.exec(args[field])?.[1]
       if (!n) e(field, `${field} must be a single $key`)
-      else if (n in keys && kindOf(keys[n]) !== kind) e(field, `$${n} is not ${kind === 'asset' || kind === 'order' ? `an ${kind}` : `a ${kind}`}`)
+      else if (n in keys && kindOf(keys[n]) !== kind) e(field, `$${n} is not ${/^[aeiou]/.test(kind) ? `an ${kind}` : `a ${kind}`}`)
       return n
     }
     const amountArg = (field: string, text: unknown) => {
@@ -64,7 +64,7 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
     switch (s.do) {
       case 'placeOrder': if (s.key === undefined) break // a taker filled in full rests nothing, so may have no key
       // falls through
-      case 'account': case 'deploySwap': case 'chain': case 'launchAsset': case 'makeOffer': case 'deployVenue':
+      case 'account': case 'deploySwap': case 'chain': case 'launchAsset': case 'makeOffer': case 'deployVenue': case 'deployPool':
         if (typeof s.key !== 'string' || !(s.key in keys)) e('key', 'Needs a declared key')
         else if (kindOf(keys[s.key]) !== KIND_OF[s.do]) e('key', `Key ${s.key} must be kind ${KIND_OF[s.do]}`)
         break
@@ -77,18 +77,24 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
       if (typeof args.supply !== 'string' || !/^\d+(\.\d+)?$/.test(args.supply)) e('args.supply', 'supply must be a number')
       kindArg('issuer', 'account')
     }
-    if (['deploySwap', 'approve', 'makeOffer', 'take', 'deployVenue', 'placeOrder', 'cancelOrder'].includes(s.do)) kindArg('from', 'account')
+    if (['deploySwap', 'approve', 'makeOffer', 'take', 'deployVenue', 'placeOrder', 'cancelOrder', 'transfer', 'deployPool', 'addLiquidity', 'removeLiquidity', 'poolSwap'].includes(s.do)) kindArg('from', 'account')
     if (s.do === 'approve') {
       amountArg('amount', args.amount)
       const j = index.get(args.before)
       if (j === undefined || j <= i) e('before', 'before must be the id of a later step')
-      else if (!['makeOffer', 'take', 'placeOrder'].includes(steps[j].do)) e('before', 'before must be a makeOffer, take or placeOrder step')
+      else if (!['makeOffer', 'take', 'placeOrder', 'addLiquidity', 'poolSwap'].includes(steps[j].do)) e('before', 'before must be a makeOffer, take, placeOrder, addLiquidity or poolSwap step')
       else if (steps[j].do === 'placeOrder') {
         // what the order gives: the base for a sell, the quote for a buy
         const o = isObj(steps[j].args) ? steps[j].args : {}
         const give = o.side === 'buy' ? names(String(o.quote ?? ''))[0] : names(String(o.amount ?? ''))[0]
         const got = typeof args.amount === 'string' ? names(args.amount)[0] : undefined
         if (give && got && give !== got) e('amount', `amount must be in $${give}, what the order gives`)
+      } else if (steps[j].do !== 'makeOffer' && steps[j].do !== 'take') {
+        // the pool spends what the step pays: the swap's pay asset, either of the add's two
+        const o = isObj(steps[j].args) ? steps[j].args : {}
+        const pays = (steps[j].do === 'poolSwap' ? [o.pay] : [o.base, o.quote]).map(t => names(String(t ?? ''))[0])
+        const got = typeof args.amount === 'string' ? names(args.amount)[0] : undefined
+        if (got && pays[0] && !pays.includes(got)) e('amount', `amount must be in ${pays.map(p => `$${p}`).join(' or ')}, what the step pays`)
       }
     }
     if (s.do === 'makeOffer') {
@@ -118,13 +124,42 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
       else e('type', 'type must be limit or market')
     }
     if (s.do === 'cancelOrder') kindArg('order', 'order')
+    if (s.do === 'transfer') { kindArg('to', 'account'); amountArg('amount', args.amount) }
+    if (s.do === 'deployPool') {
+      const b = kindArg('base', 'asset'), q = kindArg('quote', 'asset')
+      if (b && b === q) e('quote', 'quote must differ from base')
+    }
+    // the pool's two asset keys, from the deployPool that filled it
+    const poolTokens = () => {
+      const n = kindArg('pool', 'pool')
+      const d = n && steps.find(x => x?.do === 'deployPool' && x.key === n)
+      return d && isObj(d.args) ? [names(String(d.args.base ?? ''))[0], names(String(d.args.quote ?? ''))[0]] : undefined
+    }
+    if (s.do === 'addLiquidity') {
+      const t = poolTokens()
+      amountArg('base', args.base); amountArg('quote', args.quote)
+      const b = names(String(args.base ?? ''))[0], q = names(String(args.quote ?? ''))[0]
+      if (t && b && q && (b === q || !t.includes(b) || !t.includes(q))) e('base', "base and quote must be the pool's tokens, one each")
+    }
+    if (s.do === 'removeLiquidity') {
+      poolTokens()
+      if (!Number.isInteger(args.percent) || args.percent < 1 || args.percent > 100) e('percent', 'percent must be a whole number from 1 to 100')
+    }
+    if (s.do === 'poolSwap') {
+      const t = poolTokens()
+      amountArg('pay', args.pay)
+      const p = names(String(args.pay ?? ''))[0]
+      if (t && p && p in keys && !t.includes(p)) e('pay', "pay must be one of the pool's tokens")
+      if (![10, 50, 100].includes(args.slippageBps)) e('slippageBps', 'slippageBps must be 10, 50 or 100 (the page offers 0.1%, 0.5%, 1%)')
+    }
     if (s.do === 'view') {
       if (args.page === 'swap') { kindArg('base', 'asset'); kindArg('quote', 'asset') }
       else if (args.page === 'trade') { kindArg('venue', 'venue'); kindArg('base', 'asset'); kindArg('quote', 'asset') }
+      else if (args.page === 'pool') kindArg('pool', 'pool')
       else if (args.page === 'report') {
         const j = index.get(args.step)
         if (j === undefined || steps[j].do !== 'take') e('step', 'step must be the id of a take step')
-      } else e('page', 'page must be swap, trade or report')
+      } else e('page', 'page must be swap, trade, pool or report')
     }
     if (s.expect !== undefined && !Array.isArray(s.expect)) e('expect', 'expect must be a list')
     for (const c of Array.isArray(s.expect) ? s.expect : []) {
@@ -147,12 +182,15 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
       } else if ('trades' in c) {
         keyOf(c.trades, 'venue')
         if (!Number.isInteger(c.count) || c.count < 0) e('expect', 'count must be a whole number')
+      } else if ('kGrew' in c) {
+        keyOf(c.pool, 'pool')
+        if (c.kGrew !== true) e('expect', 'kGrew must be true')
       } else if ('outcome' in c) {
         if (!['taken', 'reverted'].includes(c.outcome)) e('expect', `Unknown outcome ${String(c.outcome)}`)
         if (c.error !== undefined && typeof c.error !== 'string') e('expect', 'error must be a string')
       } else e('expect', 'Unknown check')
     }
-    if (['approve', 'take', 'view', 'cancelOrder'].includes(s.do) && s.key !== undefined) e('key', `${s.do} steps create nothing, so take no key`)
+    if (['approve', 'take', 'view', 'cancelOrder', 'transfer', 'addLiquidity', 'removeLiquidity', 'poolSwap'].includes(s.do) && s.key !== undefined) e('key', `${s.do} steps create nothing, so take no key`)
     if (typeof s.key === 'string') {
       if (filled.has(s.key)) e('key', `Key ${s.key} is filled twice`)
       filled.add(s.key)

@@ -8,10 +8,11 @@ export type KeyDef =
   | { offer: Record<string, never> }
   | { venue: { venue: 'onchain' | 'offchain' } }
   | { order: Record<string, never> }
+  | { pool: Record<string, never> }
 
 export type StepType =
   | 'account' | 'chain' | 'launchAsset' | 'deploySwap' | 'approve' | 'makeOffer' | 'take' | 'view'
-  | 'deployVenue' | 'placeOrder' | 'cancelOrder'
+  | 'deployVenue' | 'placeOrder' | 'cancelOrder' | 'transfer' | 'deployPool' | 'addLiquidity' | 'removeLiquidity' | 'poolSwap'
 
 export type OrderStatus = 'open' | 'partial' | 'filled' | 'cancelled' | 'failed' | 'unfunded'
 
@@ -22,6 +23,7 @@ export type Check =
   | { outcome: 'taken' | 'reverted'; error?: string }
   | { order: string; status: OrderStatus; filled?: string }
   | { trades: string; count: number }
+  | { pool: string; kGrew: true }
 
 export type Step = {
   id: string
@@ -49,6 +51,13 @@ export type Outputs = {
   /** `orderId`: absent when nothing rests (a taker filled in full off-chain); `filled`: base raw units, decimal */
   placeOrder: { orderId?: string; tx?: Hex; filled: string }
   cancelOrder: { tx?: Hex }
+  transfer: { tx: Hex }
+  deployPool: { address: Address }
+  /** raw amounts as decimal strings; `k` = reserves product right after this add */
+  addLiquidity: { tx: Hex; shares: string; k: string }
+  /** paid out in the pool's (deploy) order */
+  removeLiquidity: { tx: Hex; base: string; quote: string }
+  poolSwap: { tx: Hex; out: string }
 }
 
 export type StepRecord = { inputs: Record<string, string>; outputs: Outputs[StepType]; at: string }

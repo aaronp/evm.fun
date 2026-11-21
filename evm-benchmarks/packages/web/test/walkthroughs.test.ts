@@ -230,3 +230,60 @@ describe('order-book walkthroughs', () => {
     } finally { await disposeAll(e) }
   }, 60_000)
 })
+
+describe('pool walkthrough', () => {
+  const w = byId('gbp-usd-pool')
+  const at = (id: string) => w.steps.findIndex(s => s.id === id)
+  const bal = async (e: Env, run: Run, token: string, who: string) => readContract(await chainOf(e, run), amount(run, `1 $${token}`).asset.address, erc20Abi, 'balanceOf', [(run.values[who] as Outputs['account']).address]) as Promise<bigint>
+
+  test('outputs: transfer tx, pool address, add shares and k, swap out at the quote; reloaded after the add, finishes without re-adding', async () => {
+    const e = env()
+    try {
+      let run = await runSteps(w, e, newRun(w), at('add') + 1)
+      expect(await bal(e, run, 'GBP', 'bob')).toBe(100000n)
+      expect((run.steps.send!.outputs as Outputs['transfer']).tx).toMatch(/^0x/) // (toMatchObject with a matcher would write the matcher into the run)
+      expect((run.values.pool as Outputs['deployPool']).address).toMatch(/^0x/)
+      const add = run.steps.add!.outputs as Outputs['addLiquidity']
+      expect(add.k).toBe(String(10_000_000n * 127_000_000_000n)) // reserves right after the first deposit
+      expect(BigInt(add.shares)).toBeGreaterThan(0n)
+      await saveRun(run)
+      const h0 = await height(e, run)
+      run = (await loadRun(w.id))!
+      expect(await done(w, w.steps[at('add')]!, e, run)).toBe(true)
+      run = await runSteps(w, e, run)
+      expect(await height(e, run) - h0).toBe(2) // bobOk, swap: no second add
+      expect(run.steps.swap!.outputs).toMatchObject({ out: '1253690703' })
+      expect(await bal(e, run, 'USD', 'bob')).toBe(1253690703n)
+      const [, k] = await checks(w, w.steps[at('swap')]!, e, run)
+      expect(k).toMatchObject({ pass: true, actual: expect.stringContaining('grew') })
+      await clearRun(w.id)
+    } finally { await disposeAll(e) }
+  }, 60_000)
+
+  test("removeLiquidity: half of Alice's shares come back as both tokens", async () => {
+    const pw = structuredClone(w) as Walkthrough
+    pw.steps.push({ id: 'rm', do: 'removeLiquidity', title: 'x', text: 'x', args: { from: '$alice', pool: '$pool', percent: 50 } })
+    const e = env()
+    try {
+      const run = await runSteps(pw, e, newRun(pw))
+      const out = run.steps.rm!.outputs as Outputs['removeLiquidity']
+      expect(BigInt(out.base)).toBeGreaterThan(5_000_000n) // reserves 10,100,000 / 125,746,309,297 after the swap
+      expect(BigInt(out.quote)).toBeGreaterThan(62_800_000_000n)
+      expect(initialInputs(pw, pw.steps.at(-1)!, run)).toEqual({ 'pool.tab': 'remove', 'remove.percent': '50' })
+    } finally { await disposeAll(e) }
+  }, 60_000)
+
+  test('initialInputs: the add, its approves, the swap and the transfer', async () => {
+    const e = env()
+    try {
+      const run = await runSteps(w, e, newRun(w), at('pool') + 1)
+      const add = { 'pool.tab': 'add', 'add.base': '100000', 'add.quote': '127000' }
+      expect(initialInputs(w, w.steps[at('add')]!, run)).toEqual(add)
+      expect(initialInputs(w, w.steps[at('aliceUsd')]!, run)).toEqual(add)
+      const gbp = amount(run, '1 $GBP').asset.address
+      expect(initialInputs(w, w.steps[at('swap')]!, run)).toEqual({ 'pool.tab': 'swap', 'swap.pay': gbp, 'swap.amount': '1000', 'swap.slippage': '50' })
+      expect(initialInputs(w, w.steps[at('send')]!, run)).toEqual({ 'send.to': (run.values.bob as Outputs['account']).address, 'send.amount': '1000' })
+      expect(await done(w, w.steps[at('aliceGbp')]!, e, run)).toBe(false)
+    } finally { await disposeAll(e) }
+  }, 60_000)
+})
