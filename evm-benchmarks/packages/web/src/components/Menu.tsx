@@ -1,12 +1,13 @@
 import { Fragment, useEffect, useReducer, useRef, type KeyboardEvent, type ReactNode } from 'react'
 
 export type MenuState = { open: boolean; /** focused item, -1 = none (focus stays on the trigger) */ active: number }
-export type MenuAction = { type: 'key'; key: string; count: number } | { type: 'toggle' } | { type: 'close' }
+export type MenuAction = { type: 'key'; key: string; count: number } | { type: 'toggle' } | { type: 'openFirst' } | { type: 'close' }
 const CLOSED: MenuState = { open: false, active: -1 }
 
 /** Pure keyboard/open logic: arrows open and move (wrapping), Home/End jump, Escape/Tab close. */
 export function menuReducer(s: MenuState, a: MenuAction): MenuState {
   if (a.type === 'toggle') return s.open ? CLOSED : { open: true, active: -1 }
+  if (a.type === 'openFirst') return s.open ? CLOSED : { open: true, active: 0 } // Enter/Space on the trigger
   if (a.type === 'close') return s.open ? CLOSED : s
   const n = a.count, at = s.open ? s.active : -1
   switch (a.key) {
@@ -32,9 +33,11 @@ export type MenuItem = {
 }
 
 /** Accessible menu button: aria-haspopup/expanded trigger, role=menu items, keyboard per `menuReducer`, click outside closes. */
-export function Menu({ label, trigger, items, align = 'left', triggerClassName = '', defaultOpen = false }: {
-  /** accessible name of the trigger (and the menu) */
+export function Menu({ label, name, trigger, items, align = 'left', triggerClassName = '', defaultOpen = false }: {
+  /** accessible name of the menu */
   label: string
+  /** accessible name of the trigger when it differs from its text; must start with the visible text (label-in-name) */
+  name?: string
   trigger: ReactNode
   items: MenuItem[]
   align?: 'left' | 'right'
@@ -54,6 +57,11 @@ export function Menu({ label, trigger, items, align = 'left', triggerClassName =
   }, [s.open])
 
   const onKey = (e: KeyboardEvent) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target === btn.current) {
+      e.preventDefault() // no click: Enter/Space open on the first item (menu-button pattern)
+      dispatch({ type: 'openFirst' })
+      return
+    }
     const next = menuReducer(s, { type: 'key', key: e.key, count: items.length })
     if (next === s) return
     if (e.key !== 'Tab') e.preventDefault()
@@ -69,7 +77,7 @@ export function Menu({ label, trigger, items, align = 'left', triggerClassName =
 
   return (
     <div ref={root} className="relative" onKeyDown={onKey}>
-      <button ref={btn} type="button" aria-haspopup="menu" aria-expanded={s.open} aria-label={typeof trigger === 'string' ? undefined : label}
+      <button ref={btn} type="button" aria-haspopup="menu" aria-expanded={s.open} aria-label={name}
         onClick={() => dispatch({ type: 'toggle' })}
         className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium text-text hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-accent ${s.open ? 'bg-surface-hover' : ''} ${triggerClassName}`}>
         {trigger}<span aria-hidden="true" className="text-muted">▾</span>

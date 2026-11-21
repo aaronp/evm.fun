@@ -10,6 +10,9 @@ import { menuReducer, type MenuState } from '../src/components/Menu'
 import { ProfileMenu } from '../src/components/ProfileMenu'
 import { FileMenu, TopBar } from '../src/components/TopBar'
 import { accounts } from '../src/store/accounts'
+import { readFileSync } from 'node:fs'
+import { bundled } from '../walkthroughs'
+import { newRun } from '../src/walkthrough/run'
 
 const html = (el: ReactElement) => renderToString(el).replaceAll('<!-- -->', '')
 const at = (path: string, el: ReactElement, initial?: AppBarConfig) =>
@@ -37,6 +40,10 @@ describe('menuReducer (keyboard)', () => {
     expect(menuReducer({ open: true, active: 0 }, { type: 'toggle' })).toEqual(closed)
     expect(menuReducer({ open: true, active: 0 }, { type: 'close' })).toEqual(closed)
   })
+  test('Enter/Space on the trigger (openFirst) open on the first item, or close an open menu', () => {
+    expect(menuReducer(closed, { type: 'openFirst' })).toEqual({ open: true, active: 0 })
+    expect(menuReducer({ open: true, active: 1 }, { type: 'openFirst' })).toEqual(closed)
+  })
   test('other keys change nothing', () => {
     const s = { open: true, active: 1 }
     expect(key(s, 'x')).toBe(s)
@@ -58,7 +65,7 @@ describe('top bar', () => {
     expect(out).toContain('>Swap</h1>')
     expect(out).toContain('aria-label="Chain"')
     expect(out).toContain('Select a chain')
-    expect(out).toContain('aria-label="Account menu"')
+    expect(out).toContain('– account menu"')
     expect(out).not.toContain('Active context')
     expect(out).toContain('aria-label="Theme"') // still reachable
   })
@@ -106,11 +113,11 @@ describe('profile menu', () => {
     const a = accounts.create('alice'), b = accounts.create('bob')
     try {
       const closed = at('/accounts', h(ProfileMenu))
-      expect(closed).toContain('aria-label="Account menu"')
+      expect(closed).toContain(`aria-label="${accounts.list()[0]!.label} – account menu"`) // label-in-name
       expect(closed).toContain('aria-expanded="false"')
       const first = accounts.list()[0]!
       expect(closed).toContain(`>${first.label[0]!.toUpperCase()}</span>`)
-      expect(closed).toContain(`>${first.label}</span>`)
+      expect(closed).toContain(`<span class="sr-only max-w-32 truncate sm:not-sr-only">${first.label}</span>`) // exposed at phone width too
       const open = at('/accounts', h(ProfileMenu, { defaultOpen: true }))
       expect(open).toContain('aria-expanded="true"')
       expect(open).toContain('>alice<'); expect(open).toContain('>bob<')
@@ -120,4 +127,23 @@ describe('profile menu', () => {
       expect(open).toContain('—') // balances: none without a chain
     } finally { accounts.remove(a.address); accounts.remove(b.address) }
   })
+})
+
+describe('walkthrough focus mode', () => {
+  test('the bar carries data-wz-focus while a walkthrough runs in focus mode (sticky, so it stays on phone)', () => {
+    const w = bundled[0]!
+    const out = html(h(MemoryRouter, null, h(AppState, null, h(AppBarProvider, { children: h(WizardProvider, { seed: { w, run: newRun(w) } }, h(TopBar)) }))))
+    expect(out).toMatch(/^<header data-wz-focus="" class="sticky top-0 /)
+    expect(at('/accounts', h(TopBar))).not.toContain('data-wz-focus')
+  })
+  test('index.css dims the bar like main: outermost unmarked children only, marked ones stay bright', () => {
+    const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8')
+    expect(css).toContain(':is(main, header)[data-wz-focus] > :not(:has([data-wz-on])):not([data-wz-on])')
+    expect(css).toContain(':is(main, header)[data-wz-focus] :has([data-wz-on]) > :not([data-wz-on]):not(:has([data-wz-on]))')
+  })
+})
+
+test('no-account trigger names itself "No account – account menu"', () => {
+  for (const a of accounts.list()) accounts.remove(a.address) // memory store in tests
+  expect(at('/accounts', h(ProfileMenu))).toContain('aria-label="No account – account menu"')
 })

@@ -39,9 +39,9 @@ export function ProfileMenu({ defaultOpen }: { defaultOpen?: boolean }) {
 
   return (
     <>
-      <Menu label="Account menu" align="right" defaultOpen={defaultOpen}
+      <Menu label="Account menu" name={`${me?.label ?? 'No account'} – account menu`} align="right" defaultOpen={defaultOpen}
         trigger={me
-          ? <><Avatar label={me.label} index={i} /><span className="hidden max-w-32 truncate sm:inline">{me.label}</span></>
+          ? <><Avatar label={me.label} index={i} /><span className="sr-only max-w-32 truncate sm:not-sr-only">{me.label}</span></>
           : <span className="text-muted">No account</span>}
         items={[
           ...people.map((p, n) => ({
