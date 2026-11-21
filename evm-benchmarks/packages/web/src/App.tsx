@@ -5,6 +5,7 @@ import { ShellNotice, UrlSync } from './components/UrlSync'
 import { AppState } from './state'
 import { AppBarProvider } from './state/appBar'
 import { TopBar } from './components/TopBar'
+import { useWorkspaceDialogs } from './components/WorkspaceDialogs'
 import { Accounts } from './pages/Accounts'
 import { Chains } from './pages/ChainsPage'
 import { legacyRoute } from './routes'
@@ -51,9 +52,11 @@ function Main({ children }: { children: ReactNode }) {
 
 /** The bar on top; below it the navigation sidebar and the page. From `sm` the shell fills the screen and the page scrolls in place, so the bar stays. */
 export function Shell() {
+  const ws = useWorkspaceDialogs()
   return (
     <div className="flex min-h-dvh flex-col bg-bg text-text sm:h-dvh">
-      <TopBar />
+      <TopBar file={ws.actions} />
+      {ws.dialogs}
       <div className="flex flex-1 flex-col sm:min-h-0 sm:flex-row">
         <aside className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-panel p-3 sm:w-60 sm:flex-col sm:flex-nowrap sm:items-stretch sm:gap-5 sm:overflow-y-auto sm:border-r sm:border-b-0 sm:p-4">
           <nav className="flex flex-wrap items-center gap-1 sm:flex-col sm:items-stretch sm:gap-5">

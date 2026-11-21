@@ -105,6 +105,14 @@ describe('top bar', () => {
     const on = at('/accounts', h(FileMenu, { defaultOpen: true, actions: { new: noop, open: noop, save: noop, importChain: noop, exportChain: noop } }))
     for (const i of items) expect(on).toMatch(new RegExp(`role="menuitem"[^>]*>${i}<`))
     expect(on).not.toContain('aria-disabled="true"')
+    const why = at('/accounts', h(FileMenu, { defaultOpen: true, actions: { new: noop, exportReason: 'Select a chain first' } }))
+    expect(why).toMatch(/aria-disabled="true"[^>]*>Export chain<span[^>]*>Select a chain first</)
+  })
+
+  test('the shell renders the workspace Open and Import chain file inputs', () => {
+    const out = at('/accounts', h(Shell))
+    expect(out).toContain('aria-label="Open workspace file"')
+    expect(out).toContain('aria-label="Import chain file"')
   })
 })
 

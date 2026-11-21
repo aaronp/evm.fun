@@ -69,13 +69,13 @@ export function createChainRegistry(deps: {
     /**
      * Open `dump` as a new saved chain. Atomic: on any failure no kv row, contracts, persisted db or live handle remains.
      * `source` is trusted as given, so an import caller must build it from the real file name and height,
-     * never from a `source` inside the file.
+     * never from a `source` inside the file. (Opening a workspace keeps the file's provenance, rebuilt field by field: workspace/load.ts.)
      */
-    async createFrom(dump: unknown, o: { name: string; type: ChainType; contracts: ContractRecord[]; assets?: Asset[]; source: ChainSource; /** keep this id (opening a workspace); refused if it exists */ id?: string }): Promise<ChainHandle> {
+    async createFrom(dump: unknown, o: { name: string; type: ChainType; contracts: ContractRecord[]; assets?: Asset[]; source?: ChainSource; /** keep this id (opening a workspace); refused if it exists */ id?: string }): Promise<ChainHandle> {
       assertRoom()
       // an existing id must be refused up front: the failure cleanup below would delete that chain's data
       if (o.id !== undefined && (live.has(o.id) || opening.has(o.id) || transient.has(o.id) || await deps.kv.get(STORE, o.id))) throw new Error(`A chain with id ${o.id} already exists`)
-      const info: ChainInfo = { id: o.id ?? crypto.randomUUID(), name: o.name, type: o.type, createdAt: new Date().toISOString(), source: o.source }
+      const info: ChainInfo = { id: o.id ?? crypto.randomUUID(), name: o.name, type: o.type, createdAt: new Date().toISOString(), ...(o.source && { source: o.source }) }
       const h = build(info)
       try {
         await h.approach.setup({ prefund: {}, dump })

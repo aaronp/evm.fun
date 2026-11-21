@@ -1,12 +1,18 @@
 import { describe, test, expect } from 'bun:test'
-import { privateKeyToAccount } from 'viem/accounts'
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { bookSchema, memoryStore, priceKey } from '@evmb/orderbook'
-import { createKv } from '../src/store/kv'
+import { createKv, kv as appKv, type Kv } from '../src/store/kv'
+import { ACCOUNTS_KEY, type Account } from '../src/store/accounts'
 import { createChainRegistry, LIVE_MAX } from '../src/chain/registry'
 import { createSnapshotStore } from '../src/chain/snapshots'
 import { createContractsRegistry } from '../src/contracts/registry'
 import { createWebAssets } from '../src/assets/registry'
-import { buildWorkspace, encodeWorkspace } from '../src/workspace/build'
+import { ACTIVE_WALKTHROUGH, RUNS, SELECTED_CHAIN, buildWorkspace, encodeWorkspace, saveWorkspace } from '../src/workspace/build'
+import { clearWorkspace } from '../src/workspace/clear'
+import { loadWorkspace, newWorkspace, openWorkspace, selectionHash } from '../src/workspace/load'
+import { syncDecision } from '../src/links'
+import { checks, done, newRun, perform, record } from '../src/walkthrough/run'
+import type { Run } from '../src/walkthrough/types'
 import { validateWorkspace } from '../src/workspace/validate'
 import type { WorkspaceFile } from '../src/workspace/types'
 import { bundled } from '../walkthroughs'
@@ -20,9 +26,8 @@ const sign = (nonce: number) => privateKeyToAccount(KEY).signTransaction({
 })
 const rec = { address: `0x${'12'.repeat(20)}` as const, name: 'Swap', abi: [], deployer: acct.address, txHash: `0x${'34'.repeat(32)}` as const }
 
-function env() {
+function env(kv: Kv = createKv()) {
   const stores = new Map<string, any>()
-  const kv = createKv()
   const registry = createChainRegistry({
     kv,
     host: (id: string) => ({ persistence: { load: async () => stores.get(id) ?? null, save: async (s: any) => void stores.set(id, structuredClone(s)) } }),
@@ -30,8 +35,10 @@ function env() {
   })
   const local = new Map<string, string>()
   const book = memoryStore(bookSchema)
-  const storage = { getItem: (k: string) => local.get(k) ?? null }
-  const ws = { registry, kv, accounts: [acct], book, storage, engine: ENGINE }
+  local.set(ACCOUNTS_KEY, JSON.stringify([acct]))
+  const storage = { getItem: (k: string) => local.get(k) ?? null, setItem: (k: string, v: string) => void local.set(k, v), removeItem: (k: string) => void local.delete(k) }
+  // accounts as the app keeps them: in storage (the app reloads after New/Open, and the accounts module re-reads it)
+  const ws = { registry, kv, get accounts(): Account[] { return JSON.parse(local.get(ACCOUNTS_KEY) ?? '[]') }, book, storage, engine: ENGINE }
   const disposeAll = async () => { for (const c of await registry.list()) await registry.peek(c.id)?.dispose() }
   return { kv, registry, local, book, ws, disposeAll }
 }
@@ -307,5 +314,230 @@ describe('validateWorkspace', () => {
     const h = await good()
     h.walkthroughs.edits = [{ ...bundled[0]!, steps: 'x' } as any]
     expect(errs(h)[0]).toMatch(/walkthroughs\.edits\[0\]/)
+  })
+})
+
+/** A file compared as data: the save/export times differ by design. */
+const same = (f: WorkspaceFile) => JSON.parse(encodeWorkspace({ ...f, savedAt: '', chains: f.chains.map(c => ({ ...c, exportedAt: '' })) }))
+const PER_BROWSER = { 'evmb.theme': 'dark', 'evmb.explorerView': 'list', 'evmb.fisheye': '{"on":true}', 'evmb.walkthrough.layout': 'vertical', 'evmb.walkthrough.focus': '1', 'evmb.notice.workspaceKeys': '1' }
+const valid = (text: string) => {
+  const r = validateWorkspace(text, { engine: ENGINE, crossEngineOk: false })
+  if (!('ok' in r)) throw new Error(r.errors.join('\n'))
+  return r.ok
+}
+/** Every workspace part is empty (per-browser keys are not part of it). */
+async function expectEmpty(e: ReturnType<typeof env>) {
+  expect(await e.registry.list()).toEqual([])
+  expect(e.registry.liveCount()).toBe(0)
+  expect(await e.kv.list('snapshots')).toEqual([])
+  expect(await e.kv.list('walkthroughEdits')).toEqual([])
+  expect(await e.kv.list(RUNS)).toEqual([])
+  for (const t of Object.keys(bookSchema)) expect(await e.book.entries(t)).toEqual([])
+  for (const k of [ACCOUNTS_KEY, SELECTED_CHAIN, ACTIVE_WALKTHROUGH]) expect(e.local.get(k)).toBeUndefined()
+}
+/** Two saved chains with a tx, records, a snapshot, an edit, a run, a book row; the second selected. */
+async function populated(e: ReturnType<typeof env>, names = ['x', 'y']) {
+  const hs = []
+  for (const n of names) hs.push(await e.registry.create(n, 'plain', [acct.address]))
+  await hs[0]!.send(await sign(0))
+  await createContractsRegistry(e.kv).add(hs[0]!.info.id, rec)
+  await createSnapshotStore(e.kv).take(hs[0]!, 'snap')
+  await e.kv.set('walkthroughEdits', bundled[0]!.id, { ...bundled[0]!, title: 'Mine' })
+  await e.kv.set(RUNS, bundled[0]!.id, { walkthrough: bundled[0]!.id, started: 'now', edited: true, values: {}, steps: {} })
+  e.local.set(ACTIVE_WALKTHROUGH, bundled[0]!.id)
+  e.local.set(SELECTED_CHAIN, hs.at(-1)!.info.id)
+  await e.book.put('meta', 'seq', 3)
+  return hs
+}
+
+describe('New / Open / Save', () => {
+  test('Review Focus 1: save → clear → load restores everything with ids; the walkthrough resumes and a ?chain= link resolves', async () => {
+    const e = env(appKv) // the walkthrough runner keeps contract records in the app's kv
+    const w = bundled.find(x => x.id === 'gbp-usd-book-offchain')!
+    const people = {
+      list: () => e.ws.accounts,
+      create(label: string) {
+        const k = generatePrivateKey(), a = { label, address: privateKeyToAccount(k).address, privateKey: k }
+        e.local.set(ACCOUNTS_KEY, JSON.stringify([...e.ws.accounts, a]))
+        return a
+      },
+    }
+    const wenv = { accounts: people, registry: e.registry, book: e.book }
+    const upto = w.steps.findIndex(s => s.id === 'ask2') + 1
+    let run: Run = newRun(w)
+    for (const step of w.steps.slice(0, upto)) if (!await done(w, step, wenv, run)) run = record(w, run, step, await perform(w, step, wenv, run))
+    const chainId = (run.values.chain as { id: string }).id
+    await e.kv.set(RUNS, w.id, run)
+    e.local.set(ACTIVE_WALKTHROUGH, w.id)
+    e.local.set(SELECTED_CHAIN, chainId)
+    const snap = await createSnapshotStore(e.kv).take(e.registry.peek(chainId)!, 'mid-walkthrough')
+    const before = await buildWorkspace({ ...e.ws, account: e.ws.accounts.at(-1)!.address })
+    expect(before.orderbook.filter(r => r.table === 'orders').length).toBe(2)
+
+    await clearWorkspace(e.ws)
+    await expectEmpty(e)
+
+    await loadWorkspace(valid(encodeWorkspace(before)), e.ws)
+    expect((await e.registry.list()).map(c => c.id)).toEqual(before.chains.map(c => c.id))
+    expect(same(await buildWorkspace({ ...e.ws, account: before.selection?.account }))).toEqual(same(before))
+    expect((await createSnapshotStore(e.kv).list(chainId)).map(s => s.id)).toEqual([snap.id])
+    expect(e.registry.peek(chainId)).toBeDefined() // the selection stays open
+    // a link to the chain resolves
+    const d = syncDecision({ chain: chainId }, { loading: false }, {}, { chains: (await e.registry.list()).map(c => c.id), accounts: e.ws.accounts })
+    expect([d.chain, d.notices]).toEqual([chainId, []])
+    // the walkthrough resumes: same active id and run, finished steps still done, and the rest runs to the end
+    expect(e.local.get(ACTIVE_WALKTHROUGH)).toBe(w.id)
+    let resumed = (await e.kv.get<Run>(RUNS, w.id))!
+    expect(resumed).toEqual(run)
+    for (const step of w.steps.slice(0, upto)) expect([step.id, await done(w, step, wenv, resumed)]).toEqual([step.id, true])
+    for (const step of w.steps.slice(upto)) {
+      resumed = record(w, resumed, step, await perform(w, step, wenv, resumed))
+      for (const c of await checks(w, step, wenv, resumed)) expect({ step: step.id, ...c }).toMatchObject({ pass: true })
+    }
+    await clearWorkspace(e.ws)
+  }, 60_000)
+
+  test('Review Focus 2: a file whose third chain fails to load leaves the previous workspace exactly as it was', async () => {
+    const src = env()
+    const made = []
+    for (const n of ['a', 'b', 'c', 'd']) made.push(await src.registry.create(n, 'plain', []))
+    const bad = await buildWorkspace(src.ws)
+    ;(bad.chains[2]!.dump as any).blocks = [{}] // passes the validator, fails in the engine
+    const text = encodeWorkspace(bad)
+    valid(text)
+    await src.disposeAll()
+
+    const e = env()
+    await populated(e)
+    for (const [k, v] of Object.entries(PER_BROWSER)) e.local.set(k, v)
+    const before = await buildWorkspace({ ...e.ws, account: acct.address })
+    const r = await openWorkspace(text, { ...e.ws, account: acct.address })
+    if (!('error' in r)) throw new Error('expected a failure')
+    expect(r.error).toMatch(/"c"/)
+    expect(r.failedText).toBe(text)
+    expect(r.restoreError).toBeUndefined()
+    expect(same(valid(r.previousText!))).toEqual(same(before))
+    expect((await e.registry.list()).map(c => c.name)).toEqual(['x', 'y'])
+    expect(same(await buildWorkspace({ ...e.ws, account: acct.address }))).toEqual(same(before))
+    for (const [k, v] of Object.entries(PER_BROWSER)) expect(e.local.get(k)).toBe(v)
+    await e.disposeAll()
+  })
+
+  test('a restore that fails too is reported, never thrown', async () => {
+    const e = env()
+    await populated(e)
+    const other = env()
+    await other.registry.create('z', 'plain', [])
+    const text = encodeWorkspace(await buildWorkspace(other.ws))
+    await other.disposeAll()
+    e.registry.createFrom = async () => { throw new Error('disk full') }
+    const r = await openWorkspace(text, e.ws)
+    expect(r).toMatchObject({ error: expect.stringMatching(/disk full/), restoreError: expect.stringMatching(/disk full/), failedText: text })
+    await e.disposeAll()
+  })
+
+  test('an invalid file is refused before anything changes', async () => {
+    const e = env()
+    await populated(e)
+    const before = await buildWorkspace(e.ws)
+    const r = await openWorkspace('{"format":"nope"}', e.ws)
+    expect('errors' in r && r.errors.length > 0).toBe(true)
+    expect(same(await buildWorkspace(e.ws))).toEqual(same(before))
+    await e.disposeAll()
+  })
+
+  test(`Review Focus 3: a file with ${LIVE_MAX + 1} chains opens one at a time; only the selection stays live`, async () => {
+    const src = env()
+    for (let i = 0; i <= LIVE_MAX; i++) await src.registry.close((await src.registry.create('c' + i, 'plain', [])).info.id)
+    const ids = (await src.registry.list()).map(c => c.id)
+    src.local.set(SELECTED_CHAIN, ids[4]!)
+    const f = await buildWorkspace(src.ws)
+    await src.disposeAll()
+
+    const e = env()
+    await populated(e)
+    const r = await openWorkspace(encodeWorkspace(f), e.ws)
+    expect(r).toEqual({ ok: true })
+    expect((await e.registry.list()).map(c => c.id)).toEqual(ids)
+    expect(e.registry.liveCount()).toBe(1)
+    expect(e.registry.peek(ids[4]!)).toBeDefined()
+    expect(e.local.get(SELECTED_CHAIN)).toBe(ids[4])
+    expect(same(await buildWorkspace(e.ws))).toEqual(same(f))
+    await e.disposeAll()
+  })
+
+  test('Review Focus 5: per-browser keys are untouched by New and Open', async () => {
+    const e = env()
+    await populated(e)
+    for (const [k, v] of Object.entries(PER_BROWSER)) e.local.set(k, v)
+    const f = await buildWorkspace(e.ws)
+    for (const k of Object.keys(PER_BROWSER)) expect(encodeWorkspace(f)).not.toContain(k)
+    expect(await newWorkspace(e.ws)).toEqual({ ok: true })
+    await expectEmpty(e)
+    for (const [k, v] of Object.entries(PER_BROWSER)) expect(e.local.get(k)).toBe(v)
+    expect(await openWorkspace(encodeWorkspace(f), e.ws)).toEqual({ ok: true })
+    for (const [k, v] of Object.entries(PER_BROWSER)) expect(e.local.get(k)).toBe(v)
+    await e.disposeAll()
+  })
+
+  test('benchmark chains are cleared too', async () => {
+    const e = env()
+    const bench = await e.registry.create('bench', 'plain', [])
+    await e.kv.del('chains', bench.info.id)
+    bench.info.ephemeral = true
+    await createSnapshotStore(e.kv).take(bench)
+    await clearWorkspace(e.ws)
+    await expectEmpty(e)
+    expect(await bench.request('eth_blockNumber').then(() => 'alive', () => 'disposed')).toBe('disposed')
+  })
+
+  test('"Save first" downloads the same file Save does, then New clears / Open replaces', async () => {
+    const e = env()
+    await populated(e)
+    const saved = await saveWorkspace(e.ws)
+    expect(saved.name).toMatch(/^workspace-\d{4}-\d{2}-\d{2}\.json$/)
+    const got: { name: string; text: string }[] = []
+    expect(await newWorkspace(e.ws, { download: x => void got.push(x) })).toEqual({ ok: true })
+    expect(got.map(g => g.name)).toEqual([saved.name])
+    expect(same(valid(got[0]!.text))).toEqual(same(valid(saved.text)))
+    await expectEmpty(e)
+
+    expect(await openWorkspace(saved.text, e.ws)).toEqual({ ok: true }) // back to the saved one
+    const other = env()
+    await other.registry.create('z', 'plain', [])
+    const text = encodeWorkspace(await buildWorkspace(other.ws))
+    await other.disposeAll()
+    expect(await openWorkspace(text, e.ws, { download: x => void got.push(x) })).toEqual({ ok: true })
+    expect(same(valid(got[1]!.text))).toEqual(same(valid(saved.text)))
+    expect((await e.registry.list()).map(c => c.name)).toEqual(['z'])
+    await e.disposeAll()
+  })
+
+  test('a failure while saving reads as a Save error', async () => {
+    const e = env()
+    const h = await e.registry.create('x', 'plain', [])
+    await e.registry.close(h.info.id)
+    e.registry.withChain = async () => { throw new Error('8 chains are already running') }
+    await expect(saveWorkspace(e.ws)).rejects.toThrow("Couldn't save: 8 chains are already running")
+    await e.disposeAll()
+  })
+
+  test("a chain's source from the file is rebuilt with only its known fields", async () => {
+    const src = env()
+    await src.registry.create('x', 'plain', [])
+    const f = await buildWorkspace(src.ws)
+    await src.disposeAll()
+    f.chains[0]!.source = { kind: 'import', fileName: 'x.json', height: 0, extra: '<b>' } as any
+    const e = env()
+    expect(await openWorkspace(encodeWorkspace(f), e.ws)).toEqual({ ok: true })
+    expect((await e.registry.list())[0]!.source).toEqual({ kind: 'import', fileName: 'x.json', height: 0 })
+    await e.disposeAll()
+  })
+
+  test('after Open the address carries the loaded selection, not a stale ?chain=', () => {
+    const accounts = [acct]
+    expect(selectionHash('#/swap?chain=old&as=bob&x=1', { chain: 'new', account: acct.address }, accounts)).toBe('#/swap?chain=new&as=alice&x=1')
+    expect(selectionHash('#/swap?chain=old&as=bob', undefined, accounts)).toBe('#/swap')
+    expect(selectionHash('', { chain: 'c' }, accounts)).toBe('#/?chain=c')
   })
 })

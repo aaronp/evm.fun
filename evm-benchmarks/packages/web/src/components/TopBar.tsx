@@ -5,8 +5,8 @@ import { ChainPicker } from './ChainPicker'
 import { Menu } from './Menu'
 import { ProfileMenu } from './ProfileMenu'
 
-/** File menu handlers; an item without one shows disabled (Task 3 wires them). */
-export type FileActions = Partial<Record<'new' | 'open' | 'save' | 'importChain' | 'exportChain', () => void>>
+/** File menu handlers; an item without one shows disabled. `exportReason`: why Export chain is disabled, shown beside it. */
+export type FileActions = Partial<Record<'new' | 'open' | 'save' | 'importChain' | 'exportChain', () => void>> & { exportReason?: string }
 
 export function FileMenu({ actions = {}, defaultOpen }: { actions?: FileActions; defaultOpen?: boolean }) {
   return (
@@ -15,7 +15,7 @@ export function FileMenu({ actions = {}, defaultOpen }: { actions?: FileActions;
       { key: 'open', label: 'Open…', onSelect: actions.open },
       { key: 'save', label: 'Save', onSelect: actions.save },
       { key: 'import', label: 'Import chain…', onSelect: actions.importChain, separated: true },
-      { key: 'export', label: 'Export chain', onSelect: actions.exportChain },
+      { key: 'export', label: actions.exportReason ? <>Export chain<span className="ml-auto pl-3 text-[11px] text-muted">{actions.exportReason}</span></> : 'Export chain', onSelect: actions.exportChain },
     ]} />
   )
 }

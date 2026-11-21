@@ -72,3 +72,16 @@ export async function buildWorkspace(env: WorkspaceEnv): Promise<WorkspaceFile> 
 
 /** JSON with chain-file bigint encoding (`{ $bigint }`). */
 export const encodeWorkspace = (f: WorkspaceFile): string => encodeJson(f)
+
+/** `workspace-YYYY-MM-DD.json` (local date). */
+export const workspaceFileName = (d = new Date()) =>
+  `workspace-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.json`
+
+/** The Save file. Any failure while building (e.g. a chain that won't open) reads as a Save error. */
+export async function saveWorkspace(env: WorkspaceEnv): Promise<{ name: string; text: string }> {
+  try {
+    return { name: workspaceFileName(), text: encodeWorkspace(await buildWorkspace(env)) }
+  } catch (e) {
+    throw new Error(`Couldn't save: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}

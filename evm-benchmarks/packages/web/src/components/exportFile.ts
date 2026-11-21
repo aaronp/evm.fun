@@ -17,10 +17,15 @@ export async function exportChain(chain: ChainHandle, snap?: Snapshot) {
     format: 'evm.fun/chain', version: 1, exportedAt: new Date().toISOString(), chainId: 31337, engine: ENGINE,
     chain: { name: chain.info.name, type: chain.info.type }, dump, contracts, assets, ...(chain.info.source && { source: chain.info.source }),
   }
-  const url = URL.createObjectURL(new Blob([encodeChainFile(file)], { type: 'application/json' }))
+  downloadText(fileNameFor(chain.info.name, height), encodeChainFile(file))
+}
+
+/** Save `text` as a downloaded JSON file called `name`. */
+export function downloadText(name: string, text: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
   const a = document.createElement('a')
   a.href = url
-  a.download = fileNameFor(chain.info.name, height)
+  a.download = name
   document.body.append(a)
   a.click()
   a.remove()

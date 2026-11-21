@@ -2,7 +2,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 
 export type Account = { label: string; address: `0x${string}`; privateKey: `0x${string}` }
 
-const KEY = 'evmb.accounts'
+export const ACCOUNTS_KEY = 'evmb.accounts'
 
 // Plaintext keys in localStorage (playground only), memory when storage is blocked.
 export function createAccounts() {
@@ -10,7 +10,7 @@ export function createAccounts() {
   let persistent = false
   const subs = new Set<() => void>()
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(ACCOUNTS_KEY)
     items = raw ? JSON.parse(raw) : []
     persistent = true
   } catch {
@@ -18,7 +18,7 @@ export function createAccounts() {
   }
   const save = () => {
     if (!persistent) return
-    try { localStorage.setItem(KEY, JSON.stringify(items)) } catch {
+    try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(items)) } catch {
       persistent = false
       subs.forEach(cb => cb())
     }
