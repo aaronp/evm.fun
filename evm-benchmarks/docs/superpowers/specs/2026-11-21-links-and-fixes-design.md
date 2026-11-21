@@ -34,7 +34,7 @@ persona, and comes back when done.
 
 ## Non-goals
 
-- Requesting ETH for gas (no form detects an ETH shortfall today; follow-up card).
+- Requesting ETH for gas: done in Task 4 (`signAndSend` pre-checks the balance and throws a typed shortfall; the fix is "Request {amount} ETH from {account}").
 - Minting new supply (only transfers from the issuer's balance).
 - History/back-button semantics beyond `back=`.
 

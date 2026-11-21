@@ -765,3 +765,20 @@ We gave it 3/5 stars in confidence.
 | Title | Description | Resources |
 |---|---|---|
 | Risk Evidence | anything we've observed | some resource |
+
+## R41 · A sender that can't pay gas×fee+value stops an approach-02 executor for good
+- impact: 3
+- likelihood: 3
+- target: 3x1
+- appetite: 3
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+On an approach-02-seq-memory (sequencer) chain, a tx whose sender can't afford gas × fee + value makes webevm's `mine()` throw, and approach-02 treats that as fatal: the executor stops permanently. The web app's `signAndSend` refuses such a send up front, but only reads the latest balance and ignores the sender's pending txs, so concurrent sends from one account can each pass and together overspend. Non-web clients (raw JSON-RPC, scripts) are not covered at all.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| `signAndSend` balance pre-check in the web app | Preventive | Partial |
+| Reject at admission in approach-02, counting pending txs (backlog t-91) | Preventive | Partial |

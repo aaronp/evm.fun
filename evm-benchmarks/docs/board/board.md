@@ -51,6 +51,17 @@ Later: netting, auctions, the vault, and the full market wizard. By then each is
 Why this order: steps 2 and 3 are the same feature, first on one chain and then across two. That gets you cross-chain settlement by step 3 without first building an order book. The pool is independent, so you could swap it with step 5 if order books matter more to you.
 ```
 
+### Approach 02: a tx whose sender can't pay gas×fee+value stops the executor for good; reject at admission
+- id: t-91
+- owner: Claude
+- tags: approach
+- history:
+  - To Do @ 2026-11-21T16:19:09.000Z
+
+```md
+On an approach-02-seq-memory chain, a tx whose sender can't pay gas × fee + value makes webevm's mine() throw, and approach-02 marks that fatal: the chain's executor stops permanently. The web app's signAndSend pre-checks the balance (partial control, see R41); fix it where all clients meet: reject such a tx at admission in approach-02 so it never reaches the executor.
+```
+
 ### Approach 03: seq-stateroot
 - id: t-09
 - tags: approach
