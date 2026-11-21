@@ -304,6 +304,16 @@ ADR-0019, R39, R40: use full-precision mulDiv in Pool.sol to remove the theoreti
 
 ## Doing
 
+### Top app bar, profile menu and workspace files (File: New / Open / Save)
+- id: t-92
+- tags: web
+- history:
+  - Doing @ 2026-11-21T18:27:03Z
+
+```md
+ADR-0020. One permanent top bar (File menu, breadcrumb, page actions, chain picker, profile menu); a workspace file holds every account, chain, snapshot, record, walkthrough and order-book row. Spec: docs/superpowers/specs/2026-11-21-workspace-appbar-design.md.
+```
+
 ## Done
 
 ### Links and fix-it actions
