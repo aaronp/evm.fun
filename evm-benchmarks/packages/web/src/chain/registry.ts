@@ -74,7 +74,7 @@ export function createChainRegistry(deps: {
     async createFrom(dump: unknown, o: { name: string; type: ChainType; contracts: ContractRecord[]; assets?: Asset[]; source: ChainSource; /** keep this id (opening a workspace); refused if it exists */ id?: string }): Promise<ChainHandle> {
       assertRoom()
       // an existing id must be refused up front: the failure cleanup below would delete that chain's data
-      if (o.id !== undefined && (live.has(o.id) || opening.has(o.id) || await deps.kv.get(STORE, o.id))) throw new Error(`A chain with id ${o.id} already exists`)
+      if (o.id !== undefined && (live.has(o.id) || opening.has(o.id) || transient.has(o.id) || await deps.kv.get(STORE, o.id))) throw new Error(`A chain with id ${o.id} already exists`)
       const info: ChainInfo = { id: o.id ?? crypto.randomUUID(), name: o.name, type: o.type, createdAt: new Date().toISOString(), source: o.source }
       const h = build(info)
       try {
@@ -132,32 +132,37 @@ export function createChainRegistry(deps: {
     /**
      * Run `fn` on chain `id` for the workspace save/load path. A live or opening chain is used as is and stays live.
      * Otherwise a transient node is built outside the cap (one at a time, so never more than LIVE_MAX + 1 engines)
-     * and disposed as soon as `fn` settles. Normal opens keep the cap.
+     * and disposed as soon as `fn` settles; an open(id) meanwhile waits for it. Normal opens keep the cap.
+     * `fn` must not open or withChain the same chain (it would wait on itself), nor withChain another (queue deadlock).
      */
     async withChain<T>(id: string, fn: (h: ChainHandle) => Promise<T>): Promise<T> {
-      const shared = live.get(id) ?? await opening.get(id)
-      if (shared) return fn(shared)
+      const shared = live.get(id) ?? opening.get(id)
+      if (shared) return fn(await shared)
       const prev = transientQueue
       let release!: () => void
       transientQueue = new Promise(r => (release = r))
       await prev
-      let done!: () => void
       try {
-        const again = live.get(id) ?? await opening.get(id) // opened while we queued
-        if (again) return await fn(again)
-        const info = await deps.kv.get<ChainInfo>(STORE, id)
-        if (!info) throw new Error(`unknown chain ${id}`)
+        // checked and claimed with no await in between, so an open(id) is either seen here or waits for the claim
+        const again = live.get(id) ?? opening.get(id)
+        if (again) return await fn(await again)
+        let done!: () => void
         transient.set(id, new Promise(r => (done = r)))
-        const h = build(info)
         try {
-          await h.approach.open!()
-          return await fn(h)
+          const info = await deps.kv.get<ChainInfo>(STORE, id)
+          if (!info) throw new Error(`unknown chain ${id}`)
+          const h = build(info)
+          try {
+            await h.approach.open!()
+            return await fn(h)
+          } finally {
+            await h.dispose().catch(() => {})
+          }
         } finally {
-          await h.dispose().catch(() => {})
+          transient.delete(id)
+          done()
         }
       } finally {
-        transient.delete(id)
-        done?.()
         release()
       }
     },

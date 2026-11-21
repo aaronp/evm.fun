@@ -57,9 +57,13 @@ describe('buildWorkspace', () => {
     e.local.set('evmb.walkthrough.active', edit.id)
     e.local.set('evmb.selectedChain', b.info.id)
     e.local.set('evmb.theme', 'dark') // per-browser: never in the file
-    const order = { id: 'o1', scope: a.info.id, venue: '0xv', base: '0xb', quote: '0xq', side: 'sell', price: 5n, owner: '0xa', seq: 1, priceKey: priceKey('sell', 5n) }
+    const order = {
+      id: `0x${'01'.repeat(32)}`, scope: a.info.id, venue: rec.address, owner: acct.address, base: B, quote: rec.address, side: 'sell',
+      priceKey: priceKey('sell', 5n), seq: 1, price: 5n, amount: 7n, sig: '0x12', time: 'now',
+      order: { maker: acct.address, base: B, quote: rec.address, side: 1, price: 5n, amount: 7n, nonce: 1n, expiry: 9n },
+    }
     await e.book.put('orders', 'o1', order)
-    await e.book.put('meta', 'seq', { n: 1 })
+    await e.book.put('meta', 'seq', 1)
 
     const f = await buildWorkspace({ ...e.ws, account: acct.address })
     expect(f.format).toBe('evm.fun/workspace')
@@ -77,7 +81,7 @@ describe('buildWorkspace', () => {
     expect(f.activeWalkthrough).toBe(edit.id)
     expect(f.selection).toEqual({ chain: b.info.id, account: acct.address })
     expect(f.orderbook).toContainEqual({ table: 'orders', key: 'o1', value: order })
-    expect(f.orderbook).toContainEqual({ table: 'meta', key: 'seq', value: { n: 1 } })
+    expect(f.orderbook).toContainEqual({ table: 'meta', key: 'seq', value: 1 })
     expect(JSON.stringify(f, (_k, v) => typeof v === 'bigint' ? String(v) : v)).not.toContain('evmb.theme')
 
     // the encoded file validates and the chain's state survives (1 block, bigint price kept)
@@ -134,6 +138,27 @@ describe('buildWorkspace at the cap and during an open', () => {
     expect(f.chains.map(c => c.id)).toEqual([h.info.id])
     expect(e.registry.peek(h.info.id)).toBe(opened)
     expect(Number(BigInt(await opened.request('eth_blockNumber') as string))).toBe(0) // not disposed
+    await e.disposeAll()
+  })
+
+  test('an app open a few microtasks after withChain starts never runs a second node beside fn', async () => {
+    const e = env()
+    const h = await e.registry.create('c', 'plain', [])
+    await e.registry.close(h.info.id)
+    const id = h.info.id
+    for (let ticks = 0; ticks < 12; ticks++) {
+      let seen: unknown = 'unset', node: unknown
+      const w = e.registry.withChain(id, async t => {
+        node = t
+        await new Promise(r => setTimeout(r, 5)) // long enough for a racing open to finish building
+        seen = e.registry.peek(id)
+      })
+      for (let i = 0; i < ticks; i++) await Promise.resolve()
+      const o = e.registry.open(id)
+      await Promise.all([w, o])
+      expect([ticks, seen === undefined || seen === node]).toEqual([ticks, true])
+      await e.registry.close(id)
+    }
     await e.disposeAll()
   })
 
@@ -241,6 +266,35 @@ describe('validateWorkspace', () => {
     k.engine = 'other'
     k.chains[0]!.engine = 'other'
     expect(errs(k).join()).toMatch(/Engine mismatch/)
+  })
+
+  test('refuses runs the wizard could not read', async () => {
+    const run = { walkthrough: 'w', started: 'now', edited: false, values: { k: { address: B } }, steps: { s1: { inputs: {}, outputs: {}, at: 'now' } } }
+    const f = await good()
+    expect(errs({ ...f, walkthroughs: { edits: [], runs: [run] } })).toEqual([])
+    for (const bad of [{ steps: undefined }, { values: [] }, { started: 1 }, { edited: 'no' }, { steps: { s1: null } }, { steps: { s1: { at: 'x' } } }])
+      expect(errs({ ...f, walkthroughs: { edits: [], runs: [{ ...run, ...bad }] } })[0]).toMatch(/walkthroughs\.runs\[0\]/)
+  })
+
+  test('order-book rows: real orders/attempts/meta pass; rows missing what the indexes and UI read are refused', async () => {
+    const A = acct.address, V = `0x${'ab'.repeat(20)}`
+    const order = {
+      id: `0x${'01'.repeat(32)}`, scope: 'chain-1', venue: V, owner: A, base: B, quote: V, side: 'sell', priceKey: priceKey('sell', 5n),
+      seq: 1, price: 5n, amount: 10n, order: { maker: A, base: B, quote: V, side: 1, price: 5n, amount: 10n, nonce: 1n, expiry: 9n },
+      sig: '0x1234', time: 'now',
+    }
+    const attempt = { scope: 'chain-1', venue: V, owner: A, seq: 1, time: 'now', input: {}, status: 'success', tx: `0x${'02'.repeat(32)}`, block: 3n }
+    const rows = (o: unknown, a: unknown = attempt, m: unknown = 1) =>
+      [{ table: 'orders', key: 'k', value: o }, { table: 'attempts', key: 'a', value: a }, { table: 'meta', key: 'orders:x', value: m }]
+    const f = await good()
+    expect(errs({ ...f, orderbook: rows(order) })).toEqual([])
+    expect(errs({ ...f, orderbook: rows({ ...order, closed: { filled: 2n, cancelled: true } }) })).toEqual([])
+    for (const bad of [{ scope: 1 }, { venue: 'x' }, { side: 'up' }, { priceKey: priceKey('sell', 6n) }, { price: 5 }, { amount: '10' }, { seq: 1.5 },
+      { order: { ...order.order, nonce: 1 } }, { closed: { filled: 1 } }, { base: undefined }])
+      expect(errs({ ...f, orderbook: rows({ ...order, ...bad }) })[0]).toMatch(/orderbook\[0\]/)
+    for (const bad of [{ status: 'odd' }, { owner: 'x' }, { block: 3 }, { seq: -1 }, { scope: undefined }])
+      expect(errs({ ...f, orderbook: rows(order, { ...attempt, ...bad }) })[0]).toMatch(/orderbook\[1\]/)
+    expect(errs({ ...f, orderbook: rows(order, attempt, 'x') })[0]).toMatch(/orderbook\[2\]/)
   })
 
   test('refuses snapshots of chains not in the file, bad snapshot dumps, and invalid walkthrough edits', async () => {

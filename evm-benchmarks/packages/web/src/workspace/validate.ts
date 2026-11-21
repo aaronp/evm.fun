@@ -1,5 +1,5 @@
 import { privateKeyToAccount } from 'viem/accounts'
-import { bookSchema } from '@evmb/orderbook'
+import { bookSchema, priceKey } from '@evmb/orderbook'
 import { decodeChainFile, encodeJson, MAX_NAME, parseJson } from '../chain/chainFile'
 import { validate as validateWalkthrough } from '../walkthrough/validate'
 import type { WorkspaceFile } from './types'
@@ -83,11 +83,12 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
     if ('errors' in r) bad(`walkthroughs.edits[${i}]: ${r.errors.map(e => `${e.step ? `${e.step} · ` : ''}${e.field} — ${e.message}`).join('; ')}`)
   })
   f.walkthroughs.runs.forEach((r: any, i: number) => {
-    if (!isObj(r) || !str(r.walkthrough)) bad(`walkthroughs.runs[${i}] is not a run (an object with a walkthrough id)`)
+    const e = runError(r)
+    if (e) bad(`walkthroughs.runs[${i}]: ${e}`)
   })
   f.orderbook.forEach((r: any, i: number) => {
-    if (!isObj(r) || !isStr(r.table) || !Object.hasOwn(bookSchema, r.table) || !isStr(r.key) || !isObj(r.value))
-      bad(`orderbook[${i}] is not a row (table one of ${Object.keys(bookSchema).join(', ')}, a string key and an object value)`)
+    const e = rowError(r)
+    if (e) bad(`orderbook[${i}]: ${e}`)
   })
 
   if (f.selection !== undefined) {
@@ -99,4 +100,48 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
 
   if (errors.length) return { errors }
   return { ok: { ...f, chains: f.chains.map((c: any) => chains.get(c.id)) } as WorkspaceFile }
+}
+
+/** What the wizard and ribbon dereference: run.values[k], run.steps[id].outputs/inputs. */
+function runError(r: any): string | null {
+  if (!isObj(r) || !str(r.walkthrough)) return 'not a run (an object with a walkthrough id)'
+  if (!isStr(r.started) || typeof r.edited !== 'boolean') return 'needs started (string) and edited (boolean)'
+  if (!isObj(r.values) || !Object.values(r.values).every(isObj)) return 'values must be an object of objects'
+  if (!isObj(r.steps) || !Object.values(r.steps).every(s => isObj(s) && isObj(s.inputs) && isStr(s.at)))
+    return 'steps must be an object of step records (inputs, outputs, at)'
+  return null
+}
+
+const isBig = (v: unknown) => typeof v === 'bigint'
+const isUint = (v: unknown) => Number.isInteger(v) && (v as number) >= 0
+const isHex = (v: unknown) => isStr(v) && /^0x[0-9a-fA-F]*$/.test(v)
+const STATUSES = ['pending', 'success', 'reverted', 'error']
+
+/** Per table, the fields the store's indexes and the venues read (bigints where they do arithmetic). */
+function rowError(r: any): string | null {
+  if (!isObj(r) || !isStr(r.key) || !isStr(r.table) || !Object.hasOwn(bookSchema, r.table))
+    return `not a row (table one of ${Object.keys(bookSchema).join(', ')} and a string key)`
+  const v = r.value
+  if (r.table === 'meta') return isUint(v) ? null : 'a meta value must be a non-negative integer'
+  if (!isObj(v) || !str(v.scope) || !isAddr(v.venue) || !isAddr(v.owner) || !isUint(v.seq) || !isStr(v.time))
+    return `${r.table} rows need scope, venue, owner, seq and time`
+  if (r.table === 'attempts') {
+    if (!STATUSES.includes(v.status)) return `status must be one of ${STATUSES.join(', ')}`
+    if ((v.tx !== undefined && !hex(64)(v.tx)) || (v.block !== undefined && !isBig(v.block)) || (v.error !== undefined && !isStr(v.error)))
+      return 'invalid tx, block or error'
+    return null
+  }
+  // orders
+  if (!hex(64)(v.id) || !isAddr(v.base) || !isAddr(v.quote) || (v.side !== 'buy' && v.side !== 'sell') || !isHex(v.sig))
+    return 'orders need id, base, quote, side (buy|sell) and sig'
+  if (!isBig(v.price) || !isBig(v.amount)) return 'price and amount must be bigints'
+  let pk: string | undefined
+  try { pk = priceKey(v.side, v.price) } catch { /* out of range */ }
+  if (v.priceKey !== pk) return 'priceKey does not match side and price'
+  const o = v.order
+  if (!isObj(o) || !isAddr(o.maker) || !isAddr(o.base) || !isAddr(o.quote) || (o.side !== 0 && o.side !== 1)
+    || !['price', 'amount', 'nonce', 'expiry'].every(k => isBig(o[k]))) return 'order must be a signed order (bigint price, amount, nonce, expiry)'
+  if (v.closed !== undefined && !(isObj(v.closed) && isBig(v.closed.filled) && typeof v.closed.cancelled === 'boolean'))
+    return 'closed must be { filled: bigint, cancelled: boolean }'
+  return null
 }
