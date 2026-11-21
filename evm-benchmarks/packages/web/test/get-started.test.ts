@@ -15,6 +15,7 @@ test('lists both bundled walkthroughs with step counts', () => {
   const out = html(h(Walkthroughs, { entries: bundled.map(w => ({ w, edited: false, done: 0 })) }))
   for (const b of bundled) { expect(out).toContain(b.title); expect(out).toContain(`${b.steps.length} steps`) }
   expect(out).toContain('>Start<')
+  expect(out.match(/>Install</g)?.length).toBe(bundled.length) // one per walkthrough
 })
 
 test('a run in progress shows "n of m" and Resume / Restart', () => {

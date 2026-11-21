@@ -98,7 +98,15 @@ Add `?auto=5s` to the address (`#/get-started?auto=5s`, or `/?auto=5s#/…`) and
 drains around the Next button and presses it when empty. Accepts `5s`, `3` (seconds), `1500ms`, `0.5m`; `?auto=off`
 or Exit turns it off. It is kept for the browser tab's session, restarts on every step and after every press, waits
 while a press is in flight and while a dialog's own Next is showing, restarts whenever you type in a field (so an edit
-is never cut off), and stops on an error or at the end. The countdown beside Next pauses and resumes it. Reduced motion: no ring, the
+is never cut off), and stops on an error or at the end. The countdown beside Next pauses and resumes it. The ▶ beside Next (shown when auto-advance is off) starts it at 5s and writes `?auto=5s` into the address; the ribbon keeps `?auto=` on every address it navigates to, so you can change the speed by editing it in the URL (e.g. `?auto=2s`), which takes effect at once. Reduced motion: no ring, the
 countdown remains.
 
 In the app, an approve step approves what the form asks for (what the order needs, including the maker's other open orders; on the Pool page what the swap or add needs, in the token the step's `amount` names), not the JSON `amount`; headless runs use the JSON amount, so leftover allowances can differ.
+
+## Install
+
+"Install" on the Get started page performs every step of a walkthrough from its JSON inputs, at once and without the
+ribbon, on a fresh run (a new chain), as the `bun test` runner does (`src/walkthrough/install.ts`). Each step's checks
+are evaluated right after it; failures are listed. The run is saved after every step, so if a step fails, the steps
+before it are kept and Resume continues from there in the ribbon. When it finishes, the new chain is selected and
+"Open →" goes to the walkthrough's last page. An edited copy installs as edited.

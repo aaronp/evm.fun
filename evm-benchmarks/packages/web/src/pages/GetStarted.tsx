@@ -1,4 +1,12 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useApp } from '../state'
+import { accounts } from '../store/accounts'
+import { registry } from '../chain/revm'
+import { install } from '../walkthrough/install'
+import { binding } from '../walkthrough/bindings'
+import { checkText } from '../components/Ribbon'
+import type { Outputs } from '../walkthrough/types'
 import { bundled } from '../../walkthroughs'
 import { kv } from '../store/kv'
 import { useAppBar } from '../state/appBar'
@@ -57,6 +65,25 @@ export function Editor({ id, initial, onSave, onCancel }: { id: string; initial:
 
 export function Walkthroughs({ entries, onChange }: { entries: Entry[]; onChange?: () => void }) {
   const wz = useWizard()
+  const app = useApp()
+  /** per walkthrough: installing (step n), or the outcome of the last install */
+  const [inst, setInst] = useState<Record<string, { at?: number; ok?: { chain: string; path: string; failed: string[] }; error?: string }>>({})
+  const set = (id: string, v: (typeof inst)[string]) => setInst(m => ({ ...m, [id]: v }))
+  /** Install: perform every step from the JSON on a fresh chain (no ribbon), then select that chain. */
+  const doInstall = async (w: Walkthrough) => {
+    if (wz?.w?.id === w.id) wz.exit() // the ribbon would hold the old run
+    set(w.id, { at: 0 })
+    try {
+      const { run, failed } = await install(w, { accounts, registry }, i => set(w.id, { at: i }))
+      const chain = run.values[Object.keys(w.keys).find(k => 'chain' in w.keys[k]!)!] as Outputs['chain'] | undefined
+      await app.refresh()
+      if (chain) await app.selectChain(chain.id)
+      set(w.id, { ok: { chain: chain?.name ?? '', path: binding(w.steps.at(-1)!, w).path(run), failed: failed.map(f => `${f.step}: ${checkText(f.check)} — found ${f.actual}`) } })
+    } catch (e) {
+      set(w.id, { error: e instanceof Error ? e.message : String(e) })
+    }
+    onChange?.()
+  }
   const [open, setOpen] = useState<{ id: string; mode: 'view' | 'edit' }>()
   const [err, setErr] = useState<string>()
   /** runs a storage action; a failure is shown, success refreshes the list */
@@ -80,11 +107,20 @@ export function Walkthroughs({ entries, onChange }: { entries: Entry[]; onChange
             </div>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={begin(wz, w).start}>{done > 0 ? 'Resume' : 'Start'}</Button>
+              <Button size="sm" variant="ghost" disabled={inst[w.id]?.at !== undefined} title="Run every step from the JSON now, on a new chain, without the walkthrough"
+                onClick={() => void doInstall(w)}>{inst[w.id]?.at !== undefined ? `Installing… ${inst[w.id]!.at! + 1} of ${w.steps.length}` : 'Install'}</Button>
               {done > 0 && <Button size="sm" variant="ghost" onClick={() => attempt(begin(wz, w).restart)}>Restart</Button>}
               <Button size="sm" variant="ghost" onClick={() => toggle('view')}>View JSON</Button>
               <Button size="sm" variant="ghost" onClick={() => toggle('edit')}>Edit JSON</Button>
               {edited && <Button size="sm" variant="ghost" onClick={() => attempt(async () => { await resetEdit(w.id); setOpen(undefined) })}>Reset to original</Button>}
             </div>
+            {inst[w.id]?.ok && (
+              <div className="space-y-1 text-sm">
+                <p className="text-success-text">Installed on {inst[w.id]!.ok!.chain}. <Link className="text-accent hover:underline" to={inst[w.id]!.ok!.path}>Open →</Link></p>
+                {inst[w.id]!.ok!.failed.map((f, i) => <p key={i} className="text-warn-text">✗ {f}</p>)}
+              </div>
+            )}
+            {inst[w.id]?.error && <p role="alert" className="text-sm text-danger">Install stopped at {inst[w.id]!.error} The steps before it are saved: Resume continues from there.</p>}
             {shown === 'view' && <pre className="max-h-96 overflow-auto rounded-lg border border-line bg-bg p-2 font-mono text-xs">{json}</pre>}
             {shown === 'edit' && <Editor id={w.id} initial={json} onCancel={() => setOpen(undefined)} onSave={nw => attempt(async () => { await saveEdit(nw); setOpen(undefined) })} />}
           </Card>
