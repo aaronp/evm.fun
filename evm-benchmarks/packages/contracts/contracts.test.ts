@@ -1,8 +1,8 @@
 import {expect, test} from 'bun:test'
 import {createNode} from 'webevm'
-import {createPublicClient, createWalletClient, custom, getAddress, parseEventLogs, type Address} from 'viem'
+import {createPublicClient, createWalletClient, custom, decodeErrorResult, encodeDeployData, getAddress, parseEventLogs, type Address} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
-import {AssetToken, AtomicSwap, MintableToken, OrderBook, Settlement, Swap, type Contract} from './index.ts'
+import {AssetToken, AtomicSwap, MintableToken, OrderBook, Pool, Settlement, Swap, type Contract} from './index.ts'
 
 const fnNames = (abi: readonly {type: string; name?: string}[]) =>
   abi.filter((x) => x.type === 'function').map((x) => x.name)
@@ -651,4 +651,236 @@ test('Settlement: a self-match (taker is the maker) settles and nets to zero', (
     const before = [await bal(usd, maker.address), await bal(gbp, maker.address)]
     expect((await call(maker, book, Settlement.abi, 'settle', [[o], [await sign(maker, o, book)], [100n]])).status).toBe('success')
     expect([await bal(usd, maker.address), await bal(gbp, maker.address)]).toEqual(before)
+  }), 60_000)
+
+// ---- Pool ----
+const DEAD = '0x000000000000000000000000000000000000dEaD'
+const isqrt = (n: bigint) => {
+  if (n < 2n) return n
+  let x = n, y = (n + 1n) / 2n
+  while (y < x) [x, y] = [y, (y + n / y) / 2n]
+  return x
+}
+const outFor = (amountIn: bigint, rIn: bigint, rOut: bigint) => (amountIn * 9970n * rOut) / (rIn * 10000n + amountIn * 9970n)
+const ceilDiv = (a: bigint, b: bigint) => (a + b - 1n) / b
+/** 18-dp raw → string rounded half-up to 2 dp, with thousands separators */
+const lp2dp = (raw: bigint) => {
+  const c = (raw + 5n * 10n ** 15n) / 10n ** 16n
+  return `${(c / 100n).toLocaleString('en-US')}.${String(c % 100n).padStart(2, '0')}`
+}
+
+async function withPool(
+  fn: (c: {
+    pool: Address
+    gbp: Address
+    usd: Address
+    a18: Address
+    b18: Address
+    lp: Account
+    trader: Account
+    deploy: (c: Contract, args: unknown[]) => Promise<Address>
+    deployPool: (base: Address, quote: Address) => Promise<Address>
+    deployRevert: (args: unknown[]) => Promise<{errorName: string; args?: readonly unknown[]}>
+    read: (address: Address, functionName: string, args?: unknown[]) => Promise<any>
+    bal: (token: Address, who: Address) => Promise<bigint>
+    call: (from: Account, address: Address, functionName: string, args: unknown[]) => Promise<any>
+    revertOf: (from: Account, address: Address, functionName: string, args: unknown[]) => Promise<{errorName: string; args?: readonly unknown[]}>
+  }) => Promise<void>,
+) {
+  const node = await createNode({
+    chainId: 31337,
+    miningConfig: {type: 'auto'},
+    initialBalances: {[issuer.address]: 10n ** 21n, [other.address]: 10n ** 21n},
+  })
+  try {
+    const transport = custom({request: ({method, params}: any) => node.request({method, params}) as any})
+    const pub = createPublicClient({transport})
+    const wallet = (account: Account) => createWalletClient({account, transport})
+    const abi = [...Pool.abi, ...AssetToken.abi]
+    const deploy = async (c: {abi: any; bytecode: `0x${string}`}, args: unknown[]) => {
+      const hash = await wallet(issuer).deployContract({abi: c.abi, bytecode: c.bytecode, args, chain: null} as any)
+      return getAddress((await pub.waitForTransactionReceipt({hash})).contractAddress!)
+    }
+    const decodeRevert = (e: any) => {
+      const data = e.walk?.((x: any) => typeof x?.data === 'string' && x.data.startsWith('0x'))?.data
+      if (data) return decodeErrorResult({abi, data}) as any
+      const err = e.walk?.((x: any) => x?.data?.errorName)
+      if (err) return err.data
+      throw e
+    }
+    const gbp = await deploy(AssetToken, ['British Pound', 'GBP', 2, 100_000_000n, issuer.address])
+    const usd = await deploy(AssetToken, ['US Dollar', 'USD', 6, 1_000_000_000_000n, issuer.address])
+    const a18 = await deploy(AssetToken, ['Token A', 'TKA', 18, 10n ** 30n, issuer.address])
+    const b18 = await deploy(AssetToken, ['Token B', 'TKB', 18, 10n ** 30n, issuer.address])
+    const deployPool = (base: Address, quote: Address) => deploy(Pool, [base, quote])
+    const pool = await deployPool(gbp, usd)
+    const call = async (from: Account, address: Address, functionName: string, args: unknown[]) => {
+      const h = await wallet(from).writeContract({address, abi, functionName, args, chain: null, gas: 1_000_000n} as any)
+      return pub.waitForTransactionReceipt({hash: h})
+    }
+    await call(issuer, gbp, 'transfer', [other.address, 10_000_000n]) // 100,000 GBP
+    await call(issuer, usd, 'transfer', [other.address, 100_000_000_000n]) // 100,000 USD
+    for (const a of [issuer, other]) for (const t of [gbp, usd]) await call(a, t, 'approve', [pool, 2n ** 255n])
+    const read = (address: Address, functionName: string, args: unknown[] = []) =>
+      pub.readContract({address, abi, functionName, args} as any) as Promise<any>
+    const bal = (token: Address, who: Address) => read(token, 'balanceOf', [who]) as Promise<bigint>
+    const revertOf = async (from: Account, address: Address, functionName: string, args: unknown[]) => {
+      try {
+        await pub.simulateContract({account: from, address, abi, functionName, args} as any)
+      } catch (e: any) {
+        return decodeRevert(e)
+      }
+      throw new Error('did not revert')
+    }
+    const deployRevert = async (args: unknown[]) => {
+      try {
+        await pub.call({account: issuer.address, data: encodeDeployData({abi: Pool.abi, bytecode: Pool.bytecode, args})})
+      } catch (e: any) {
+        return decodeRevert(e)
+      }
+      throw new Error('did not revert')
+    }
+    await fn({pool, gbp, usd, a18, b18, lp: issuer, trader: other, deploy, deployPool, deployRevert, read, bal, call, revertOf})
+  } finally {
+    await node.dispose()
+  }
+}
+
+const poolEvents = (r: any, eventName: string) => parseEventLogs({abi: Pool.abi, logs: r.logs, eventName} as any).map((l: any) => l.args)
+
+test('Pool: metadata, then the screenshot first deposit 50,000 GBP + 63,500 USD → 56,347.14 LP, 1000 raw locked at dEaD', () =>
+  withPool(async ({pool, gbp, usd, lp, read, bal, call}) => {
+    expect([await read(pool, 'name'), await read(pool, 'symbol'), await read(pool, 'decimals')]).toEqual(['Pool LP GBP/USD', 'PLP', 18])
+    expect([await read(pool, 'base'), await read(pool, 'quote')]).toEqual([gbp, usd])
+    expect(await read(pool, 'reserves')).toEqual([0n, 0n])
+    const gIn = 5_000_000n, uIn = 63_500_000_000n // 50,000.00 GBP (2 dp), 63,500.000000 USD (6 dp)
+    const want = isqrt(gIn * 10n ** 16n * uIn * 10n ** 12n) - 1000n
+    expect(lp2dp(want)).toBe('56,347.14')
+    const r = await call(lp, pool, 'addLiquidity', [gIn, uIn, want])
+    expect(r.status).toBe('success')
+    expect(await bal(pool, lp.address)).toBe(want)
+    expect(await bal(pool, DEAD)).toBe(1000n)
+    expect(await read(pool, 'totalSupply')).toBe(want + 1000n)
+    expect(await read(pool, 'reserves')).toEqual([gIn, uIn])
+    expect([await bal(gbp, pool), await bal(usd, pool)]).toEqual([gIn, uIn])
+    expect(poolEvents(r, 'LiquidityAdded')).toEqual([{provider: lp.address, base: gIn, quote: uIn, shares: want}])
+  }), 60_000)
+
+test('Pool: 18/18 pair first deposit is √(a·b) − 1000; too small a first deposit is BadAmount', () =>
+  withPool(async ({a18, b18, lp, deployPool, read, bal, call, revertOf}) => {
+    const p = await deployPool(a18, b18)
+    for (const t of [a18, b18]) await call(lp, t, 'approve', [p, 2n ** 255n])
+    expect(await read(p, 'name')).toBe('Pool LP TKA/TKB')
+    expect(await revertOf(lp, p, 'addLiquidity', [1000n, 1000n, 0n])).toMatchObject({errorName: 'BadAmount'})
+    const a = 3n * 10n ** 18n + 7n, b = 12n * 10n ** 18n + 5n
+    await call(lp, p, 'addLiquidity', [a, b, 0n])
+    expect(await bal(p, lp.address)).toBe(isqrt(a * b) - 1000n)
+  }), 60_000)
+
+test('Pool: later deposits mint min(baseIn·S/Rb, quoteIn·S/Rq), pull ceil amounts, leave the surplus; minShares enforced', () =>
+  withPool(async ({pool, gbp, usd, lp, trader, read, bal, call, revertOf}) => {
+    await call(lp, pool, 'addLiquidity', [5_000_000n, 63_500_000_000n, 0n])
+    // at the pool ratio
+    let [rb, rq] = await read(pool, 'reserves')
+    let S: bigint = await read(pool, 'totalSupply')
+    let shares = (100_000n * S) / rb
+    expect(shares).toBe((1_270_000_000n * S) / rq)
+    let r = await call(trader, pool, 'addLiquidity', [100_000n, 1_270_000_000n, shares])
+    expect(await bal(pool, trader.address)).toBe(shares)
+    expect(poolEvents(r, 'LiquidityAdded')).toEqual([{provider: trader.address, base: 100_000n, quote: 1_270_000_000n, shares}])
+    // unbalanced: far too much USD; only the proportional (rounded up) USD is pulled
+    ;[rb, rq] = await read(pool, 'reserves')
+    S = await read(pool, 'totalSupply')
+    const bIn = 12_345n, qIn = 999_999_999n
+    shares = (bIn * S) / rb
+    expect(shares).toBeLessThan((qIn * S) / rq)
+    const bUsed = ceilDiv(shares * rb, S), qUsed = ceilDiv(shares * rq, S)
+    expect(bUsed).toBe(bIn)
+    expect(qUsed).toBeLessThan(qIn)
+    const before = [await bal(gbp, trader.address), await bal(usd, trader.address), await bal(pool, trader.address)]
+    expect(await revertOf(trader, pool, 'addLiquidity', [bIn, qIn, shares + 1n])).toMatchObject({errorName: 'Slippage', args: [shares, shares + 1n]})
+    r = await call(trader, pool, 'addLiquidity', [bIn, qIn, shares])
+    expect(r.status).toBe('success')
+    expect([await bal(gbp, trader.address), await bal(usd, trader.address), await bal(pool, trader.address)]).toEqual([
+      before[0]! - bUsed, before[1]! - qUsed, before[2]! + shares,
+    ])
+    expect(await read(pool, 'reserves')).toEqual([rb + bUsed, rq + qUsed])
+    expect(poolEvents(r, 'LiquidityAdded')).toEqual([{provider: trader.address, base: bUsed, quote: qUsed, shares}])
+    // the other side short: base surplus
+    ;[rb, rq] = await read(pool, 'reserves')
+    S = await read(pool, 'totalSupply')
+    shares = (1_000_001n * S) / rq
+    expect(shares).toBeLessThan((50_000n * S) / rb)
+    const b0 = await bal(gbp, trader.address)
+    await call(trader, pool, 'addLiquidity', [50_000n, 1_000_001n, 0n])
+    expect(b0 - (await bal(gbp, trader.address))).toBe(ceilDiv(shares * rb, S))
+    expect(await revertOf(trader, pool, 'addLiquidity', [0n, 1_000_000n, 0n])).toMatchObject({errorName: 'BadAmount'})
+  }), 60_000)
+
+test('Pool: swap both directions matches the formula exactly; k never decreases; Swapped carries post-swap reserves', () =>
+  withPool(async ({pool, gbp, usd, lp, trader, read, bal, call}) => {
+    await call(lp, pool, 'addLiquidity', [5_000_000n, 63_500_000_000n, 0n])
+    let k = 5_000_000n * 63_500_000_000n
+    for (const [tIn, tOut, amt] of [[gbp, usd, 12_345n], [usd, gbp, 777_777_777n], [usd, gbp, 1n * 10n ** 6n], [gbp, usd, 1n]] as const) {
+      const [rb, rq] = await read(pool, 'reserves')
+      const [rIn, rOut] = tIn === gbp ? [rb, rq] : [rq, rb]
+      const out = outFor(amt, rIn, rOut)
+      const before = [await bal(tIn, trader.address), await bal(tOut, trader.address)]
+      const r = await call(trader, pool, 'swap', [tIn, amt, out])
+      expect(r.status).toBe('success')
+      expect([await bal(tIn, trader.address), await bal(tOut, trader.address)]).toEqual([before[0]! - amt, before[1]! + out])
+      const after: [bigint, bigint] = tIn === gbp ? [rb + amt, rq - out] : [rb - out, rq + amt]
+      expect(await read(pool, 'reserves')).toEqual(after)
+      expect([await bal(gbp, pool), await bal(usd, pool)]).toEqual(after)
+      expect(poolEvents(r, 'Swapped')).toEqual([{trader: trader.address, tokenIn: tIn, amountIn: amt, amountOut: out, reserveBase: after[0], reserveQuote: after[1]}])
+      const k2 = after[0] * after[1]
+      expect(k2).toBeGreaterThan(k)
+      k = k2
+    }
+  }), 60_000)
+
+test('Pool: swap Slippage reverts and moves nothing; BadToken, BadAmount, NoLiquidity', () =>
+  withPool(async ({pool, gbp, usd, a18, lp, trader, read, bal, call, revertOf}) => {
+    expect(await revertOf(trader, pool, 'swap', [gbp, 100n, 0n])).toMatchObject({errorName: 'NoLiquidity'})
+    expect(await revertOf(lp, pool, 'removeLiquidity', [1n, 0n, 0n])).toMatchObject({errorName: 'NoLiquidity'})
+    await call(lp, pool, 'addLiquidity', [5_000_000n, 63_500_000_000n, 0n])
+    const out = outFor(10_000n, 5_000_000n, 63_500_000_000n)
+    expect(await revertOf(trader, pool, 'swap', [gbp, 10_000n, out + 1n])).toMatchObject({errorName: 'Slippage', args: [out, out + 1n]})
+    const snap = () => Promise.all([bal(gbp, trader.address), bal(usd, trader.address), bal(gbp, pool), bal(usd, pool), read(pool, 'reserves')])
+    const before = await snap()
+    expect((await call(trader, pool, 'swap', [gbp, 10_000n, out + 1n])).status).toBe('reverted')
+    expect(await snap()).toEqual(before)
+    expect(await revertOf(trader, pool, 'swap', [a18, 100n, 0n])).toMatchObject({errorName: 'BadToken'})
+    expect(await revertOf(trader, pool, 'swap', [zero, 100n, 0n])).toMatchObject({errorName: 'BadToken'})
+    expect(await revertOf(trader, pool, 'swap', [gbp, 0n, 0n])).toMatchObject({errorName: 'BadAmount'})
+    expect(await revertOf(trader, pool, 'swap', [usd, 1n, 0n])).toMatchObject({errorName: 'BadAmount'}) // rounds to 0 GBP
+  }), 60_000)
+
+test('Pool: remove returns floor(shares·R/S), burns, emits; minBase/minQuote enforced; BadAmount for 0 shares', () =>
+  withPool(async ({pool, gbp, usd, lp, trader, read, bal, call, revertOf}) => {
+    await call(lp, pool, 'addLiquidity', [5_000_000n, 63_500_000_000n, 0n])
+    await call(trader, pool, 'swap', [gbp, 12_345n, 0n])
+    const [rb, rq] = await read(pool, 'reserves')
+    const S: bigint = await read(pool, 'totalSupply')
+    const shares = (await bal(pool, lp.address)) / 3n
+    const bOut = (shares * rb) / S, qOut = (shares * rq) / S
+    expect(await revertOf(lp, pool, 'removeLiquidity', [shares, bOut + 1n, 0n])).toMatchObject({errorName: 'Slippage', args: [bOut, bOut + 1n]})
+    expect(await revertOf(lp, pool, 'removeLiquidity', [shares, 0n, qOut + 1n])).toMatchObject({errorName: 'Slippage', args: [qOut, qOut + 1n]})
+    expect(await revertOf(lp, pool, 'removeLiquidity', [0n, 0n, 0n])).toMatchObject({errorName: 'BadAmount'})
+    const before = [await bal(gbp, lp.address), await bal(usd, lp.address), await bal(pool, lp.address)]
+    const r = await call(lp, pool, 'removeLiquidity', [shares, bOut, qOut])
+    expect(r.status).toBe('success')
+    expect([await bal(gbp, lp.address), await bal(usd, lp.address), await bal(pool, lp.address)]).toEqual([
+      before[0]! + bOut, before[1]! + qOut, before[2]! - shares,
+    ])
+    expect(await read(pool, 'reserves')).toEqual([rb - bOut, rq - qOut])
+    expect(await read(pool, 'totalSupply')).toBe(S - shares)
+    expect(poolEvents(r, 'LiquidityRemoved')).toEqual([{provider: lp.address, base: bOut, quote: qOut, shares}])
+  }), 60_000)
+
+test('Pool: constructor refuses the same token twice, the zero address and decimals > 18 with BadToken', () =>
+  withPool(async ({gbp, deploy, deployRevert}) => {
+    const t19 = await deploy(AssetToken, ['Nineteen', 'T19', 19, 1n, issuer.address])
+    for (const args of [[gbp, gbp], [zero, gbp], [gbp, zero], [t19, gbp], [gbp, t19]])
+      expect(await deployRevert(args)).toMatchObject({errorName: 'BadToken'})
   }), 60_000)
