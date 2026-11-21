@@ -28,6 +28,9 @@ export function createChainRegistry(deps: {
 }) {
   const live = new Map<string, ChainHandle>()
   const opening = new Map<string, Promise<ChainHandle>>() // concurrent open(id) shares one node
+  // withChain's short-lived node (at most one, outside `live`): open(id) waits for it so one chain never has two nodes
+  const transient = new Map<string, Promise<void>>()
+  let transientQueue: Promise<void> = Promise.resolve()
   const build = (info: ChainInfo) => makeHandle(info, factories[info.type]({}, { ...deps.host(info.id), stateHistory: STATE_HISTORY }))
   const assertRoom = () => {
     if (live.size >= LIVE_MAX) throw new Error(`${LIVE_MAX} chains are already running in this tab — delete one or reload the page`)
@@ -110,6 +113,7 @@ export function createChainRegistry(deps: {
       if (!p) {
         try { assertRoom() } catch (e) { return Promise.reject(e) }
         p = (async () => {
+          await transient.get(id)
           const info = await deps.kv.get<ChainInfo>(STORE, id)
           if (!info) throw new Error(`unknown chain ${id}`)
           const h = build(info)
@@ -124,6 +128,38 @@ export function createChainRegistry(deps: {
         opening.set(id, p)
       }
       return p
+    },
+    /**
+     * Run `fn` on chain `id` for the workspace save/load path. A live or opening chain is used as is and stays live.
+     * Otherwise a transient node is built outside the cap (one at a time, so never more than LIVE_MAX + 1 engines)
+     * and disposed as soon as `fn` settles. Normal opens keep the cap.
+     */
+    async withChain<T>(id: string, fn: (h: ChainHandle) => Promise<T>): Promise<T> {
+      const shared = live.get(id) ?? await opening.get(id)
+      if (shared) return fn(shared)
+      const prev = transientQueue
+      let release!: () => void
+      transientQueue = new Promise(r => (release = r))
+      await prev
+      let done!: () => void
+      try {
+        const again = live.get(id) ?? await opening.get(id) // opened while we queued
+        if (again) return await fn(again)
+        const info = await deps.kv.get<ChainInfo>(STORE, id)
+        if (!info) throw new Error(`unknown chain ${id}`)
+        transient.set(id, new Promise(r => (done = r)))
+        const h = build(info)
+        try {
+          await h.approach.open!()
+          return await fn(h)
+        } finally {
+          await h.dispose().catch(() => {})
+        }
+      } finally {
+        transient.delete(id)
+        done?.()
+        release()
+      }
     },
     /** Dispose a live chain's engine, keeping everything saved; it can be opened again. No-op if not live. */
     async close(id: string) {

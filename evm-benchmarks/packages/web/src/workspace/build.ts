@@ -31,27 +31,23 @@ export const RUNS = 'walkthroughRuns'
 
 const get = (s: WorkspaceEnv['storage'], k: string) => { try { return s.getItem(k) ?? undefined } catch { return undefined } }
 
-/** The whole workspace as plain data. Saved chains only (benchmark chains are skipped), one at a time so more than LIVE_MAX work. */
+/** The whole workspace as plain data. Saved chains only (benchmark chains are skipped), one at a time via registry.withChain so more than LIVE_MAX work (and Save works at the cap). */
 export async function buildWorkspace(env: WorkspaceEnv): Promise<WorkspaceFile> {
   const { registry, kv } = env
   const contracts = createContractsRegistry(kv), assets = createWebAssets(kv)
   const saved = (await registry.list()).filter(c => !c.ephemeral)
   const chains: WorkspaceFile['chains'] = []
   for (const info of saved) {
-    const wasLive = registry.peek(info.id)
-    const h = wasLive ?? await registry.open(info.id)
-    try {
+    const file = await registry.withChain(info.id, async (h): Promise<ChainFile> => {
       if (!h.approach.snapshot) throw new Error(NO_SNAPSHOT)
-      const file: ChainFile = {
+      return {
         format: 'evm.fun/chain', version: 1, exportedAt: new Date().toISOString(), chainId: 31337, engine: env.engine,
         chain: { name: info.name, type: info.type }, dump: await h.approach.snapshot(),
         contracts: await contracts.list(info.id), assets: (await assets.list(info.id)).filter(a => a.kind === 'erc20'),
         ...(info.source && { source: info.source }),
       }
-      chains.push({ ...file, id: info.id })
-    } finally {
-      if (!wasLive) await registry.close(info.id)
-    }
+    })
+    chains.push({ ...file, id: info.id })
   }
   const ids = new Set(saved.map(c => c.id))
   const snaps = createSnapshotStore(kv), snapshots: Snapshot[] = []

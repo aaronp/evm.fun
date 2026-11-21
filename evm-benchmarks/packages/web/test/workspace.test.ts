@@ -107,6 +107,53 @@ describe('buildWorkspace', () => {
   })
 })
 
+describe('buildWorkspace at the cap and during an open', () => {
+  test(`${LIVE_MAX} live chains + a saved one: build succeeds and exactly the original ${LIVE_MAX} stay live`, async () => {
+    const e = env()
+    const closed = await e.registry.create('closed', 'plain', [acct.address])
+    await closed.send(await sign(0))
+    await e.registry.close(closed.info.id)
+    const liveIds: string[] = []
+    for (let i = 0; i < LIVE_MAX; i++) liveIds.push((await e.registry.create('c' + i, 'plain', [])).info.id)
+    const f = await buildWorkspace(e.ws)
+    expect(f.chains.map(c => c.id)).toEqual([closed.info.id, ...liveIds])
+    expect((f.chains[0]!.dump as any).blocks.length).toBeGreaterThan(1) // the closed chain's real state
+    expect(e.registry.liveCount()).toBe(LIVE_MAX)
+    expect(liveIds.every(id => e.registry.peek(id))).toBe(true)
+    expect(e.registry.peek(closed.info.id)).toBeUndefined()
+    await expect(e.registry.open(closed.info.id)).rejects.toThrow(/already running/) // normal opens keep the cap
+    await e.disposeAll()
+  })
+
+  test('a chain the app is opening while build runs stays live', async () => {
+    const e = env()
+    const h = await e.registry.create('c', 'plain', [])
+    await e.registry.close(h.info.id)
+    const opening = e.registry.open(h.info.id) // app-style open, not awaited
+    const [f, opened] = await Promise.all([buildWorkspace(e.ws), opening])
+    expect(f.chains.map(c => c.id)).toEqual([h.info.id])
+    expect(e.registry.peek(h.info.id)).toBe(opened)
+    expect(Number(BigInt(await opened.request('eth_blockNumber') as string))).toBe(0) // not disposed
+    await e.disposeAll()
+  })
+
+  test('an open that starts during a transient dump waits for it and gets its own live node', async () => {
+    const e = env()
+    const h = await e.registry.create('c', 'plain', [])
+    await e.registry.close(h.info.id)
+    let during: Promise<unknown> | undefined
+    await e.registry.withChain(h.info.id, async t => {
+      during = e.registry.open(h.info.id)
+      await new Promise(r => setTimeout(r, 5))
+      expect(e.registry.peek(h.info.id)).toBeUndefined() // still waiting for the transient
+      return t.approach.snapshot!()
+    })
+    const opened = await during
+    expect(e.registry.peek(h.info.id)).toBe(opened as any)
+    await e.disposeAll()
+  })
+})
+
 describe('registry', () => {
   test('close disposes a live chain without deleting it; it opens again with its state', async () => {
     const e = env()
