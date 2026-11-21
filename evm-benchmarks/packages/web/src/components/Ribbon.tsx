@@ -1,7 +1,7 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Button } from '../ui/button'
-import { FuseNext } from './FuseNext'
+import { FuseNext, useAutoUrl } from './FuseNext'
 import { adoptAuto } from '../walkthrough/auto'
 import { Notice } from '../ui/notice'
 import { idText } from '../orderbook/ui'
@@ -48,7 +48,10 @@ function download(json: string, name: string) {
 export function Ribbon() {
   const c = useWizard()
   const { search } = useLocation()
-  useEffect(() => adoptAuto(search, window.location.search), [search])
+  const [, bump] = useState(0)
+  const autoUrl = useAutoUrl()
+  // an edited `?auto=` takes effect at once: adopt it, then re-render so the fuse reads the new delay
+  useEffect(() => { adoptAuto(search, window.location.search); bump(n => n + 1) }, [search])
   if (c && !c.w && c.error) return <Notice tone="danger" onDismiss={c.exit}>{c.error}</Notice> // e.g. couldn't resume
   if (!c?.w || !c.run || !c.step) return null
   const { w, run, step, index } = c
@@ -114,7 +117,7 @@ export function Ribbon() {
         <Button variant="ghost" disabled={index === 0 || c.busy} onClick={c.back}>Back</Button>
         <Button variant="ghost" onClick={() => c.restart()}>Restart</Button>
         <Button variant="ghost" onClick={c.exit}>Exit</Button>
-        <FuseNext className="ml-auto" step={step.id} busy={c.busy} error={c.error} disabled={c.busy || (index === w.steps.length - 1 && c.isDone(step))} onNext={() => void c.next()} />
+        <FuseNext className="ml-auto" step={step.id} busy={c.busy} error={c.error} disabled={c.busy || (index === w.steps.length - 1 && c.isDone(step))} onNext={() => void c.next()} onPlay={autoUrl} />
       </div>
 
       <details className="text-sm">

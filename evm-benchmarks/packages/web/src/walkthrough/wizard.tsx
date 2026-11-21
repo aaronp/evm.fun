@@ -7,7 +7,7 @@ import { kv } from '../store/kv'
 import { bundled } from '../../walkthroughs'
 import { binding, lastRegistered, type Binding } from './bindings'
 import { checks, done, initialInputs, newRun, record, type Env } from './run'
-import { setAutoDelay } from './auto'
+import { sameRoute, setAutoDelay, withAuto } from './auto'
 import { activeId, loadRun, saveRun, setActiveId } from './runs'
 import type { Outputs, Run, Step, StepType, Walkthrough } from './types'
 
@@ -71,7 +71,9 @@ type Status = { run?: Run; done: Record<string, boolean>; results: Record<string
 
 export function WizardProvider({ children, seed, env = defaultEnv }: { children?: ReactNode; seed?: { w: Walkthrough; run: Run; index?: number }; env?: Env }) {
   const app = useApp() as ReturnType<typeof useApp> | undefined
-  const navigate = useNavigate()
+  const goTo = useNavigate()
+  /** every walkthrough navigation carries the current `?auto=` so the speed stays in the address */
+  const navigate = useCallback((path: string) => goTo(withAuto(path)), [goTo])
   const location = useLocation()
   const [active, setActive] = useState<Active | undefined>(seed && { ...seed, index: seed.index ?? firstOpen(seed.w, seed.run) })
   const [status, setStatus] = useState<Status>({ done: {}, results: {}, errors: {} })
@@ -209,7 +211,7 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
         }
       }
       if (step.do === 'view') {
-        if (location.pathname + location.search !== path) navigate(path)
+        if (!sameRoute(location.pathname + location.search, path)) navigate(path)
         setRun(record(w, run, step, {})); return
       }
       // chain and acting account first, and wait until the app (and so the page) has them: an action already
@@ -228,7 +230,7 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
         await tick() // the page's effects for the switch (e.g. Swap clearing its selection) run first
         setRefill(n => n + 1)
       }
-      if (location.pathname + location.search !== path) navigate(path)
+      if (!sameRoute(location.pathname + location.search, path)) navigate(path)
       await tick() // the page re-renders (or mounts) before its actions are looked up
       // ponytail: polls for the page to mount and register; 5 s ceiling, an event per registration if it's ever too slow
       let id: string | undefined

@@ -1,20 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '../ui/button'
-import { autoDelay, DEFAULT_AUTO, setAutoDelay } from '../walkthrough/auto'
+import { autoDelay, DEFAULT_AUTO, setAutoDelay, withAuto } from '../walkthrough/auto'
 
 const typing = (el: Element | null) => !!el && (el.matches('input, textarea, select, [contenteditable=""], [contenteditable="true"]'))
 
 /** The walkthrough's Next. With `?auto=…` a ring drains around it and presses it when empty.
  *  Waits while busy and while a modal dialog that doesn't hold this button is open (its own Next runs instead);
  *  typing in a field restarts it. Restarts per step and after each press; stops on an error. */
-export function FuseNext({ step, busy, disabled, error, onNext, size, className = '' }: {
-  step: string; busy: boolean; disabled: boolean; error?: string; onNext(): void; size?: 'sm'; className?: string
+/** ▶ writes `?auto=` into the current address (so the speed can be edited in the URL), for FuseNext's `onPlay`. */
+export function useAutoUrl() {
+  const navigate = useNavigate()
+  const { pathname, search } = useLocation()
+  return (ms: number) => navigate(withAuto(pathname + search, ms), { replace: true })
+}
+
+export function FuseNext({ step, busy, disabled, error, onNext, onPlay, size, className = '' }: {
+  step: string; busy: boolean; disabled: boolean; error?: string; onNext(): void; onPlay?(ms: number): void; size?: 'sm'; className?: string
 }) {
   const [, rerender] = useState(0)
   const total = autoDelay()
   const [paused, setPaused] = useState(false)
-  /** No `?auto`: ▶ starts it at the default delay, for the rest of the walkthrough. */
-  const play = () => { setAutoDelay(DEFAULT_AUTO); setPaused(false); rerender(n => n + 1) }
+  /** No `?auto`: ▶ starts it at the default delay for the rest of the walkthrough, and puts `?auto=5s` in the address. */
+  const play = () => { setAutoDelay(DEFAULT_AUTO); onPlay?.(DEFAULT_AUTO); setPaused(false); rerender(n => n + 1) }
   const wrap = useRef<HTMLSpanElement>(null), left = useRef<HTMLSpanElement>(null)
   const latest = useRef(onNext)
   latest.current = onNext
