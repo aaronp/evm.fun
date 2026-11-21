@@ -1076,3 +1076,8 @@ Claude's calls (spec "Settled after the builder check"): Open is all-or-nothing 
 ## Consequences
 - Saved files contain private keys (playground keys only; warned on first Save).
 - Files grow with snapshots and chain history.
+- Save with 8 live chains opens a transient dump-only chain beyond LIVE_MAX (one at a time, closed straight after); normal opens keep the cap.
+- `kv` silently falling back to memory made persistence a precondition: New and Open are refused up front when storage isn't persistent, instead of reloading into nothing.
+- Restore after a failed Open is best-effort: clear, then load the in-memory backup; Open refuses if the current workspace can't be backed up.
+- `@evmb/orderbook` Store gained `entries(table)` so order-book rows can be saved.
+- Risks R42–R46 log the keys in the file, the missing size cap, Open replacing everything, orphaned state, and the nine-engine peak.
