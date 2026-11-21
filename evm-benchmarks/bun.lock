@@ -129,6 +129,7 @@
         "@evmb/assets": "workspace:*",
         "@evmb/contracts": "workspace:*",
         "@evmb/core": "workspace:*",
+        "@evmb/htlc": "workspace:*",
         "@evmb/orderbook": "workspace:*",
         "@evmb/pool": "workspace:*",
         "@evmb/swap": "workspace:*",
