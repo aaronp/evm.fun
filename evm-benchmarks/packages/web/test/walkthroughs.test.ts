@@ -9,7 +9,7 @@ import { readContract } from '../src/tx/send'
 import { bundled } from '../walkthroughs'
 import { validate } from '../src/walkthrough/validate'
 import { amount } from '../src/walkthrough/resolve'
-import { checks, done, initialInputs, newRun, perform, record, venueOf, type Env } from '../src/walkthrough/run'
+import { checks, done, initialInputs, newRun, perform, poolOutputs, record, venueOf, type Env } from '../src/walkthrough/run'
 import { clearRun, loadRun, saveRun } from '../src/walkthrough/runs'
 import type { Outputs, Run, Walkthrough } from '../src/walkthrough/types'
 
@@ -256,7 +256,19 @@ describe('pool walkthrough', () => {
       expect(await bal(e, run, 'USD', 'bob')).toBe(1253690703n)
       const [, k] = await checks(w, w.steps[at('swap')]!, e, run)
       expect(k).toMatchObject({ pass: true, actual: expect.stringContaining('grew') })
+      // k is read at the add's own block: re-reading the add after the swap still gives the post-add reserves
+      expect((await poolOutputs(await chainOf(e, run), 'addLiquidity', add.tx)).k).toBe(add.k)
       await clearRun(w.id)
+    } finally { await disposeAll(e) }
+  }, 60_000)
+
+  test('kGrew before the swap: pass false, "did not grow"', async () => {
+    const e = env()
+    try {
+      const run = await runSteps(w, e, newRun(w), at('bobOk') + 1)
+      const [, k] = await checks(w, w.steps[at('swap')]!, e, run)
+      expect(k).toMatchObject({ pass: false })
+      expect(k!.actual).toContain('did not grow')
     } finally { await disposeAll(e) }
   }, 60_000)
 

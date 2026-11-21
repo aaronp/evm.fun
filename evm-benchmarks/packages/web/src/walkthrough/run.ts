@@ -149,15 +149,16 @@ type PoolStep = 'addLiquidity' | 'removeLiquidity' | 'poolSwap'
  * reserves product read right after it (the kGrew baseline); the remove's payout (pool order); the swap's output.
  */
 export async function poolOutputs<K extends PoolStep>(c: ChainHandle, kind: K, tx: Hex): Promise<Outputs[K]> {
-  const rc = (await c.request('eth_getTransactionReceipt', [tx])) as { logs: Parameters<typeof parseEventLogs>[0]['logs'] }
+  const rc = (await c.request('eth_getTransactionReceipt', [tx])) as { blockNumber: Hex; logs: Parameters<typeof parseEventLogs>[0]['logs'] }
   const name = ({ addLiquidity: 'LiquidityAdded', removeLiquidity: 'LiquidityRemoved', poolSwap: 'Swapped' } as const)[kind]
   const ev = parseEventLogs({ abi: poolAbi, eventName: name, logs: rc.logs })[0]
   if (!ev) throw new Error(`No ${name} event in ${tx}`)
   const a = ev.args as unknown as Record<string, bigint>
   if (kind === 'poolSwap') return { tx, out: String(a.amountOut) } as Outputs[K]
   if (kind === 'removeLiquidity') return { tx, base: String(a.base), quote: String(a.quote) } as Outputs[K]
-  // ponytail: reads the reserves at latest right after the add; exact while nothing else sends in between (the page is busy-locked)
-  const p = await readPool(request(c), ev.address)
+  // the reserves at the add's own block; latest where a chain keeps no history
+  const at = (m: string, p: unknown[]) => c.request(m, m === 'eth_call' ? [p[0], rc.blockNumber] : p)
+  const p = await readPool(at, ev.address).catch(() => readPool(request(c), ev.address))
   return { tx, shares: String(a.shares), k: String(p.reserveBase * p.reserveQuote) } as Outputs[K]
 }
 /** The pool a pool step names, read live. */
