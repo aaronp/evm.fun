@@ -96,7 +96,7 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
   ;(f.secrets ?? []).forEach((s: any, i: number) => {
     if (!isObj(s) || !isKey(s.hash) || !isKey(s.secret)) return bad(`secrets[${i}] needs a 32-byte hex hash and secret`)
     if (hashOf(s.secret) !== s.hash.toLowerCase()) return bad(`secrets[${i}]: the secret does not match its hash`)
-    if (!str(s.chain) || !(isStr(s.lockId) && /^(|0|[1-9][0-9]{0,77})$/.test(s.lockId))) return bad(`secrets[${i}] needs a chain and a decimal lockId ('' before the lock is mined)`)
+    if (!isId(s.chain) || !(isStr(s.lockId) && /^(|0|[1-9][0-9]{0,77})$/.test(s.lockId))) return bad(`secrets[${i}] needs a chain and a decimal lockId ('' before the lock is mined)`)
   })
 
   if (f.selection !== undefined) {

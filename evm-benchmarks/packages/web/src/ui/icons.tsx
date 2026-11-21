@@ -33,6 +33,8 @@ export const DownloadIcon = icon(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2
 export const UploadIcon = icon(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><path d="M12 3v12" /></>)
 export const AssetsIcon = icon(<><circle cx="12" cy="12" r="9" /><path d="M12 7v10M9 9.5h4.5a1.75 1.75 0 0 1 0 3.5h-3a1.75 1.75 0 0 0 0 3.5H15" /></>)
 export const InfoIcon = icon(<><circle cx="12" cy="12" r="9" /><path d="M12 8h.01M11 12h1v5h1" /></>)
+/** two chains with a swap between them */
+export const XSwapIcon = icon(<><path d="M4 8h12l-3-3" /><path d="M20 16H8l3 3" /><circle cx="19" cy="8" r="2" /><circle cx="5" cy="16" r="2" /></>)
 export const SwapIcon = icon(<><path d="M4 9h15l-4-4" /><path d="M20 15H5l4 4" /></>)
 export const PoolIcon = icon(<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z" />)
 export const TradeIcon = icon(<path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4" />)

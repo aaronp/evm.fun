@@ -11,9 +11,11 @@ const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 /** "Request {amount} {SYM} from {issuer}": the Assets page's Send dialog acting as `issuer`, prefilled with `recipient`
  *  and the exact shortfall, coming `back` after. Only when the issuer is one of this browser's accounts (we sign with
  *  their key), isn't the recipient, and holds at least the shortfall (`issuerHas`). */
-export function requestFix({ chainId, asset, issuer, recipient, need, have, issuerHas, back, accounts }: {
+export function requestFix({ chainId, asset, issuer, recipient, need, have, issuerHas, back, accounts, backChain = chainId }: {
   chainId: string; asset: Asset; issuer?: string; recipient: string; need: bigint; have: bigint
   issuerHas?: bigint; back: string; accounts: Persona[]
+  /** the chain to come back to (the page's selected chain) when the shortfall is on another one (xswap's chain B) */
+  backChain?: string
 }): Fix | undefined {
   const short = need - have
   const from = issuer && accounts.find(a => eq(a.address, issuer))
@@ -24,7 +26,7 @@ export function requestFix({ chainId, asset, issuer, recipient, need, have, issu
     href: withParams('/assets', {
       chain: chainId, as: personaParam(from.address, accounts), asset: asset.id, send: recipient, amount,
       // the way back restores this chain and the recipient as the persona, even if the address hadn't caught up yet
-      back: withParams(back, { chain: chainId, as: personaParam(recipient, accounts) }),
+      back: withParams(back, { chain: backChain, as: personaParam(recipient, accounts) }),
     }),
   }
 }
@@ -35,8 +37,8 @@ const FEE_MARGIN = 3_000_000n * 2_000_000_000n // the payer's own Send gas: the 
 /** "Request {amount} ETH from {account}" for a sender with no ETH for fees: the Assets page's native Send acting as
  *  the local account (not the sender) with the most ETH. Amount: the known shortfall rounded up to 0.01 ETH, else 1 ETH;
  *  none when no other account holds more than that (it pays fees for the Send too). */
-export function gasFix({ chainId, shortfall, balances, back, accounts }: {
-  chainId: string; shortfall: GasShortfall; balances: Map<string, bigint>; back: string; accounts: Persona[]
+export function gasFix({ chainId, shortfall, balances, back, accounts, backChain }: {
+  chainId: string; shortfall: GasShortfall; balances: Map<string, bigint>; back: string; accounts: Persona[]; backChain?: string
 }): Fix | undefined {
   const short = (shortfall.need ?? 0n) - (shortfall.have ?? 0n)
   const amount = short > 0n ? (short + CENT - 1n) / CENT * CENT : 10n ** 18n
@@ -45,7 +47,7 @@ export function gasFix({ chainId, shortfall, balances, back, accounts }: {
     const has = balances.get(a.address) ?? 0n
     if (!eq(a.address, shortfall.address) && has > most) { rich = a; most = has }
   }
-  return rich && requestFix({ chainId, asset: nativeAsset(chainId), issuer: rich.address, recipient: shortfall.address, need: amount, have: 0n, issuerHas: most, back, accounts })
+  return rich && requestFix({ chainId, asset: nativeAsset(chainId), issuer: rich.address, recipient: shortfall.address, need: amount, have: 0n, issuerHas: most, back, accounts, backChain })
 }
 
 /** The Send a request link asks for (`?as=&asset=&send=&amount=&back=`): `from` must be one of this browser's

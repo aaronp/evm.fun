@@ -17,3 +17,12 @@ export const createSecrets = (kv: Kv) => ({
 })
 
 export const secrets = createSecrets(appKv)
+
+/** kv table: chain A's head when the taker locked on B, by hash (decimal), so the swap report judges `unsafe` exactly.
+ * Not saved in workspace files: a reopened file's report falls back to the lock-block proxy (see @evmb/htlc README). */
+export const ANSWERS = 'xswapAnswers'
+export const createAnswers = (kv: Kv) => ({
+  put: (hash: Hex, headA: bigint) => kv.set(ANSWERS, hash.toLowerCase(), String(headA)),
+  get: (hash: Hex) => kv.get<string>(ANSWERS, hash.toLowerCase()),
+})
+export const answers = createAnswers(appKv)

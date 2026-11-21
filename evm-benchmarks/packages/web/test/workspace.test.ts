@@ -335,7 +335,7 @@ describe('validateWorkspace', () => {
     const secret = newSecret(), entry = { hash: hashOf(secret), secret, chain: f.chains[0]!.id, lockId: '1' }
     expect(errs({ ...f, secrets: [entry, { ...entry, lockId: '' }] })).toEqual([])
     expect(errs({ ...f, secrets: [{ ...entry, hash: hashOf(newSecret()) }] })[0]).toMatch(/secrets\[0\]/)
-    for (const bad of [{ secret: '0x12' }, { hash: '0xzz' }, { secret: 7 }, { chain: 1 }, { lockId: '01' }, { lockId: 'x' }, { lockId: 1 }])
+    for (const bad of [{ secret: '0x12' }, { hash: '0xzz' }, { secret: 7 }, { chain: 1 }, { chain: '' }, { chain: 'a/b' }, { chain: 'x'.repeat(101) }, { lockId: '01' }, { lockId: 'x' }, { lockId: 1 }])
       expect(errs({ ...f, secrets: [entry, { ...entry, ...bad }] })[0]).toMatch(/secrets\[1\]/)
     expect(errs({ ...f, secrets: {} })[0]).toMatch(/secrets/)
   })
