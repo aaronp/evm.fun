@@ -1,3 +1,5 @@
+import { withParams } from '../links'
+
 /** `?auto=5s` — press the ribbon's Next after a delay. Accepts `5s`, `3` (seconds), `1500ms`, `0.5m`; `off` or `0` turns it off. */
 const KEY = 'evmb.walkthrough.auto'
 /** The delay ▶ starts when the address has no `?auto`. */
@@ -42,5 +44,6 @@ export function withAuto(path: string, ms: number | undefined = autoDelay()): st
   return s ? `${p}?${s}` : p
 }
 
-/** Same page and query, ignoring `auto`. */
-export const sameRoute = (a: string, b: string) => withAuto(a, 0) === withAuto(b, 0)
+/** Same page and query, ignoring `auto` and `chain`/`as` (the URL sync re-adds those after a navigation). */
+const bare = (p: string) => withParams(withAuto(p, 0), { chain: undefined, as: undefined })
+export const sameRoute = (a: string, b: string) => bare(a) === bare(b)

@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from 'react'
 import { HashRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { StorageNotice } from './ui/notice'
+import { ShellNotice, UrlSync } from './components/UrlSync'
 import { AppState } from './state'
 import { AppBarProvider } from './state/appBar'
 import { AppBar } from './components/AppBar'
@@ -89,6 +90,8 @@ export function App() {
         </aside>
         <Main>
           <AppBar />
+          <UrlSync />
+          <ShellNotice />
           <StorageNotice />
           <AddressList />
           <Routes>
