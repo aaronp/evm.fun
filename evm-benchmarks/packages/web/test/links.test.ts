@@ -66,10 +66,10 @@ describe('syncDecision (one round settles)', () => {
   const none: Last = {}
 
   test('first load with a link: select what the URL names (chain already restored from it)', () => {
-    const d = syncDecision({ chain: 'c1', as: 'bob' }, sel('c1', A), none, known)
-    expect(d).toEqual({ account: B, notices: [], last: { chain: 'c1', as: 'bob' } })
+    const d = syncDecision({ chain: 'c1', as: 'alice' }, sel('c1', B), none, known)
+    expect(d).toEqual({ account: A, notices: [], last: { chain: 'c1', as: 'alice' } })
     // next round, the selection caught up: nothing
-    expect(syncDecision({ chain: 'c1', as: 'bob' }, sel('c1', B), d.last, known)).toEqual({ notices: [], last: d.last })
+    expect(syncDecision({ chain: 'c1', as: 'alice' }, sel('c1', A), d.last, known)).toEqual({ notices: [], last: d.last })
   })
 
   test('a link to another chain selects it; while it loads nothing is rewritten; then settled', () => {
@@ -124,8 +124,26 @@ describe('syncDecision (one round settles)', () => {
   })
 
   test('ambiguous label in a link picks the first match; written back as the address after a switch', () => {
-    expect(syncDecision({ chain: 'c1', as: 'bob' }, sel('c1', A), { chain: 'c1', as: 'alice' }, known).account).toBe(B)
+    const d = syncDecision({ chain: 'c1', as: 'bob' }, sel('c1', A), { chain: 'c1', as: 'alice' }, known)
+    expect(d.account).toBe(B)
+    expect(d.url).toEqual({ chain: 'c1', as: personaParam(B, accts) }) // the link's ambiguous label → the address
+    expect(syncDecision(d.url!, sel('c1', B), d.last, known)).toEqual({ notices: [], last: d.last })
     expect(syncDecision({ chain: 'c1', as: 'alice' }, sel('c1', C), { chain: 'c1', as: 'alice' }, known).url!.as).toBe(personaParam(C, accts))
+  })
+
+  test('a label that became ambiguous (new account) is rewritten to the address', () => {
+    const two = [...accts, { label: 'alice', address: '0x' + 'e'.repeat(40) }]
+    const d = syncDecision({ chain: 'c1', as: 'alice' }, sel('c1', A), { chain: 'c1', as: 'alice' }, { ...known, accounts: two })
+    expect(d.url).toEqual({ chain: 'c1', as: personaParam(A, two) })
+    expect(d.url!.as).not.toBe('alice')
+  })
+
+  test('busy (tx in flight, passed as loading): Back/Forward or a pasted link waits, then applies', () => {
+    const last = { chain: 'c1', as: 'alice' }
+    expect(syncDecision({ chain: 'c2', as: 'bob' }, sel('c1', A, true), last, known)).toEqual({ notices: [], last })
+    const d = syncDecision({ chain: 'c2', as: 'bob' }, sel('c1', A), last, known) // the tx landed
+    expect(d.chain).toBe('c2')
+    expect(d.account).toBe(B)
   })
 
   test('back/forward to an older URL selects it', () => {

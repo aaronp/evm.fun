@@ -59,9 +59,10 @@ export function AppState({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     registry.pruneSnapshots().catch(() => {}) // once per page load, before any ephemeral chain exists
+    const link = linked() // now: a navigation while the list loads must not lose it
     refresh().then(async () => {
       const ids = (await registry.list()).map(c => c.id)
-      const id = [linked(), read()].find(x => x && ids.includes(x))
+      const id = [link, read()].find(x => x && ids.includes(x))
       if (id) await selectChain(id)
     }).finally(() => setPending(n => n - 1))
   }, [refresh, selectChain])

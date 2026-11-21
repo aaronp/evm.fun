@@ -36,7 +36,7 @@ type Decision = { chain?: string; account?: string; url?: { chain?: string; as?:
 
 /** What the URL sync does this round. `last` is the pair the URL and the selection last agreed on: a param that
  *  differs from it was changed in the address (a link, back/forward) and selects; otherwise the selection changed
- *  (or a navigation dropped the params) and the URL is rewritten. While a chain loads, nothing. */
+ *  (or a navigation dropped the params) and the URL is rewritten. While a chain loads or a tx is in flight (`loading`), nothing — the URL's pair applies after. */
 export function syncDecision(
   url: { chain?: string | null; as?: string | null },
   sel: { chain?: string; account?: string; loading: boolean },
@@ -56,9 +56,11 @@ export function syncDecision(
   const r = ua && resolvePersona(ua, known.accounts)
   let as = sel.account && personaParam(sel.account, known.accounts)
   if (ua && ua !== last.as) {
-    if (r) { if (!sel.account || !eq(r, sel.account)) d.account = r; as = ua }
-    else d.notices.push(`No account ${ua} in this browser`)
-  } else if (r && sel.account && eq(r, sel.account)) as = ua // written as an address: keep it
+    if (r) {
+      if (!sel.account || !eq(r, sel.account)) d.account = r
+      as = eq(ua, r) ? ua : personaParam(r, known.accounts) // an ambiguous label becomes the address
+    } else d.notices.push(`No account ${ua} in this browser`)
+  } else if (ua && sel.account && eq(ua, sel.account)) as = ua // written as an address: keep it
 
   d.last = { chain, as }
   if (chain !== uc || as !== ua) d.url = { chain, as }
