@@ -132,3 +132,12 @@ test('decodePoolError: ERC-20 errors, Error/Panic, unknown data', () => {
   const ins = encodeErrorResult({ abi: Pool.abi, errorName: 'ERC20InsufficientBalance', args: [lp.address, 1n, 2n] })
   expect(decodePoolError(ins)).toEqual({ name: 'ERC20InsufficientBalance', args: { sender: lp.address, balance: 1n, needed: 2n } })
 })
+
+test('findPool: a record that is not a pool is skipped; a transport error propagates (no duplicate deploy offered)', () =>
+  withChain(async ({ request, gbp, usd, deployPool }) => {
+    const pool = await deployPool(gbp, usd)
+    const rec = (address: Address) => ({ name: 'Pool', address, abi: Pool.abi as any })
+    expect(await findPool(request, [rec(pool), rec(gbp)], gbp, usd)).toBe(pool) // gbp reverts base(): skipped
+    const down = (async (m: string, p?: unknown[]) => { if (m === 'eth_call') throw new Error('fetch failed'); return request(m, p as any) }) as typeof request
+    await expect(findPool(down, [rec(pool)], gbp, usd)).rejects.toThrow('fetch failed')
+  }), 60_000)

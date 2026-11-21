@@ -5,7 +5,7 @@ export type AppBarAction =
   | { kind: 'toggle'; id: string; label: string; value: string; options: { value: string; label: string; icon: ReactNode }[]; onChange: (v: string) => void }
   /** text segments with a visible label, e.g. "Acting as" */
   | { kind: 'choice'; id: string; label: string; value: string; options: { value: string; label: string }[]; onChange: (v: string) => void }
-export interface AppBarConfig { title: string; crumbs?: { label: string; to?: string }[]; /** mono chip after the title */ chip?: string; actions?: AppBarAction[] }
+export interface AppBarConfig { title: string; crumbs?: { label: string; to?: string }[]; /** mono chip after the title */ chip?: string; /** right-aligned text before the actions, e.g. "Your wallet: …" */ aside?: ReactNode; actions?: AppBarAction[] }
 
 // Two contexts so pages (setter only) don't re-render when the bar's config changes.
 const Value = createContext<AppBarConfig | undefined>(undefined)

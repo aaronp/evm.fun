@@ -102,14 +102,14 @@ test('a fork keeps its own venue records and its off-chain rows keyed by its own
   } finally { await p.dispose() }
 }, 60_000)
 
-test('Trade sits under Markets after Swap; without a chain it says "Select a chain first."', async () => {
+test('Trade sits under Markets after Swap and Pool; without a chain it says "Select a chain first."', async () => {
   const { createElement: h } = await import('react')
   const { renderToString } = await import('react-dom/server')
   const { MemoryRouter } = await import('react-router-dom')
   const { groups, real } = await import('../src/App')
   const { AppState } = await import('../src/state')
   const { AppBarProvider } = await import('../src/state/appBar')
-  expect(groups.find(g => g.label === 'Markets')!.items.map(([n]) => n)).toEqual(['Assets', 'Swap', 'Trade'])
+  expect(groups.find(g => g.label === 'Markets')!.items.map(([n]) => n)).toEqual(['Assets', 'Swap', 'Pool', 'Trade'])
   const html = renderToString(h(MemoryRouter, { initialEntries: ['/trade'] }, h(AppState, null, h(AppBarProvider, null, real.Trade!))))
   expect(html).toContain('Select a chain first.')
 })

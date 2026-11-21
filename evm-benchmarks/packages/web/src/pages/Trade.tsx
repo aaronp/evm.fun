@@ -11,6 +11,8 @@ import { reconcileAssets } from '../assets/build'
 import { contractsRegistry } from '../contracts/registry'
 import { NO_RECORDS } from '../swap/locate'
 import { pickPair } from '../swap/ui'
+import { usePool } from '../pool/locate'
+import { poolRef } from '../pool/ui'
 import { deployVenue, useVenue, venueName, type VenueKind } from '../orderbook/locate'
 import { idText, spreadOf } from '../orderbook/ui'
 import { walletOf } from '../orderbook/wallet'
@@ -79,6 +81,7 @@ export function Trade() {
 
   const pair = pickPair(assets.filter(a => a.chainId === chainId), params.get('base'), params.get('quote'), 'Trade')
   const { base, quote } = pair
+  const pool = usePool(chain, base?.address as Address | undefined, quote?.address as Address | undefined, balanceTick) // the header's "pool 1.2700"
 
   // the book and trades are always read live; a tick keeps the old values until the new ones land
   const market = base && quote ? { base: base.address as Address, quote: quote.address as Address } : undefined
@@ -184,6 +187,7 @@ export function Trade() {
   const markets = pair.tokens.flatMap(b => pair.tokens.filter(q => q !== b).map(q => ({ b, q })))
   const s = book && spreadOf(book.bids, book.asks)
   const last = trades?.[0]?.price
+  const ref = poolRef(pool.state)
   const disabled = !!chain.info.ephemeral || !venue || !base || !quote // venue null: still looking, or the lookup failed
   const name = venueName(kind)
 
@@ -213,7 +217,10 @@ export function Trade() {
           </button>
         </div>
         <div className={stat}>
-          <span className="font-mono text-xl font-semibold text-bid">{last === undefined || !quote ? '—' : priceText(last, quote.decimals)}</span>
+          <span className="flex items-baseline gap-2.5">
+            <span className="font-mono text-xl font-semibold text-bid">{last === undefined || !quote ? '—' : priceText(last, quote.decimals)}</span>
+            {ref && <span className="font-mono text-sm text-muted">{ref}</span>}
+          </span>
           <span className={statLabel}>last · {quote?.symbol ?? '—'} per {base?.symbol ?? '—'}</span>
         </div>
         <div className={stat}>

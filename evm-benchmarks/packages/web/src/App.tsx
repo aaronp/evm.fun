@@ -14,12 +14,13 @@ import { Assets } from './pages/Assets'
 import { GetStarted } from './pages/GetStarted'
 import { Swap } from './pages/Swap'
 import { SwapReport } from './pages/SwapReport'
+import { Pool } from './pages/Pool'
 import { Trade } from './pages/Trade'
 import { TradeReport } from './pages/TradeReport'
 import { ContextBox, ContextStrip } from './components/ContextBox'
 import { ThemeSwitcher } from './components/ThemeSwitcher'
 import { ENGINE } from './chain/revm'
-import { AccountsIcon, BenchmarkIcon, BrandIcon, ChainsIcon, StudioIcon, TransactIcon, AssetsIcon, SwapIcon, TradeIcon, FlagIcon } from './ui/icons'
+import { AccountsIcon, BenchmarkIcon, BrandIcon, ChainsIcon, StudioIcon, TransactIcon, AssetsIcon, SwapIcon, PoolIcon, TradeIcon, FlagIcon } from './ui/icons'
 import { AddressList } from './components/AddressList'
 import { Ribbon } from './components/Ribbon'
 import { WizardProvider, useWizard } from './walkthrough/wizard'
@@ -27,12 +28,12 @@ import { WizardProvider, useWizard } from './walkthrough/wizard'
 export const groups = [
   { label: 'Setup', items: [['Get started', FlagIcon], ['Accounts', AccountsIcon], ['Chains', ChainsIcon]] },
   { label: 'Build & run', items: [['Studio', StudioIcon], ['Transact', TransactIcon], ['Benchmark', BenchmarkIcon]] },
-  { label: 'Markets', items: [['Assets', AssetsIcon], ['Swap', SwapIcon], ['Trade', TradeIcon]] },
+  { label: 'Markets', items: [['Assets', AssetsIcon], ['Swap', SwapIcon], ['Pool', PoolIcon], ['Trade', TradeIcon]] },
 ] as const
 const pages = groups.flatMap(g => g.items.map(([n]) => n))
 
 const slug = (p: string) => p.toLowerCase().replaceAll(' ', '-')
-export const real: Record<string, ReactElement> = { 'Get started': <GetStarted />, Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Benchmark: <Benchmark />, Assets: <Assets />, Swap: <Swap />, Trade: <Trade /> }
+export const real: Record<string, ReactElement> = { 'Get started': <GetStarted />, Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Benchmark: <Benchmark />, Assets: <Assets />, Swap: <Swap />, Pool: <Pool />, Trade: <Trade /> }
 const LegacyRedirect = () => <Navigate to={legacyRoute(useLocation().pathname) ?? '/chains'} replace />
 const Stub = ({ name }: { name: string }) => <h1 className="text-xl font-semibold">{name}</h1>
 

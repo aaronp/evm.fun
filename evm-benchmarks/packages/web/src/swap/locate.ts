@@ -28,10 +28,10 @@ export async function swapFor(chain: ChainHandle): Promise<Address | undefined> 
   return findSwap(named.length < 2 ? named : await inDeployOrder(chain, named))
 }
 
-/** Deploy `contract` from `from` and save its record under `name`. Refused on benchmark chains. */
-export async function deployContract(chain: ChainHandle, from: Account, name: string, contract: { abi: Abi; bytecode: Hex }, onSent?: () => void): Promise<Address> {
+/** Deploy `contract` (with constructor `args`) from `from` and save its record under `name`. Refused on benchmark chains. */
+export async function deployContract(chain: ChainHandle, from: Account, name: string, contract: { abi: Abi; bytecode: Hex }, onSent?: () => void, args?: readonly unknown[]): Promise<Address> {
   if (chain.info.ephemeral) throw new Error(NO_RECORDS)
-  const r = await signAndSend(chain, from, { data: encodeDeployData({ abi: contract.abi, bytecode: contract.bytecode }) }, onSent)
+  const r = await signAndSend(chain, from, { data: encodeDeployData({ abi: contract.abi, bytecode: contract.bytecode, args } as Parameters<typeof encodeDeployData>[0]) }, onSent)
   if (r.status !== 'success' || !r.contractAddress) throw new Error(`Deploy ${r.status}${r.error ? `: ${r.error}` : ''}`)
   await contractsRegistry.add(chain.info.id, { address: r.contractAddress, name, abi: contract.abi as any[], deployer: from.address, txHash: r.hash })
   return r.contractAddress
