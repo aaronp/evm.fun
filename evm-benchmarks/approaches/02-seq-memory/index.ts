@@ -202,6 +202,12 @@ const factory: ApproachFactory = (opts = {}, host = {}) => {
 
     pending: () => submitted - settled,
 
+    async mine() {
+      // the executor is the node's only caller while txs are in flight
+      if (submitted !== settled) throw new Error(`02-seq-memory: mine refused, ${submitted - settled} txs pending`);
+      await run!.node.mine();
+    },
+
     async open() {
       if (!persistence || !(await persistence.load())) throw new Error('02-seq-memory: nothing persisted to open');
       await start(persistence);

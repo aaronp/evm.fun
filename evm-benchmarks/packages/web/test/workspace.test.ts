@@ -16,6 +16,13 @@ import type { Run } from '../src/walkthrough/types'
 import { validateWorkspace } from '../src/workspace/validate'
 import type { WorkspaceFile } from '../src/workspace/types'
 import { bundled } from '../walkthroughs'
+import { encodeFunctionData } from 'viem'
+import { AssetToken } from '@evmb/contracts'
+import { claimCall, hashOf, lockCall, newSecret, readLock } from '@evmb/htlc'
+import { createSecrets } from '../src/htlc/secrets'
+import { deployContract } from '../src/swap/locate'
+import { deployHashLock } from '../src/htlc/locate'
+import { signAndSend } from '../src/tx/send'
 
 const ENGINE = 'test-engine'
 const KEY = `0x${'11'.repeat(32)}` as const
@@ -318,6 +325,20 @@ describe('validateWorkspace', () => {
     h.walkthroughs.edits = [{ ...bundled[0]!, steps: 'x' } as any]
     expect(errs(h)[0]).toMatch(/walkthroughs\.edits\[0\]/)
   })
+
+  test('secrets: an older file without them is ok (none); a secret under the wrong hash or malformed hex refuses the file', async () => {
+    const f = await good()
+    expect(f.secrets).toEqual([])
+    const { secrets: _, ...older } = f
+    const r = validateWorkspace(encodeWorkspace(older as WorkspaceFile), opts)
+    expect('ok' in r && r.ok.secrets).toEqual([])
+    const secret = newSecret(), entry = { hash: hashOf(secret), secret, chain: f.chains[0]!.id, lockId: '1' }
+    expect(errs({ ...f, secrets: [entry, { ...entry, lockId: '' }] })).toEqual([])
+    expect(errs({ ...f, secrets: [{ ...entry, hash: hashOf(newSecret()) }] })[0]).toMatch(/secrets\[0\]/)
+    for (const bad of [{ secret: '0x12' }, { hash: '0xzz' }, { secret: 7 }, { chain: 1 }, { lockId: '01' }, { lockId: 'x' }, { lockId: 1 }])
+      expect(errs({ ...f, secrets: [entry, { ...entry, ...bad }] })[0]).toMatch(/secrets\[1\]/)
+    expect(errs({ ...f, secrets: {} })[0]).toMatch(/secrets/)
+  })
 })
 
 /** A file compared as data: the save/export times differ by design. */
@@ -335,6 +356,7 @@ async function expectEmpty(e: ReturnType<typeof env>) {
   expect(await e.kv.list('snapshots')).toEqual([])
   expect(await e.kv.list('walkthroughEdits')).toEqual([])
   expect(await e.kv.list(RUNS)).toEqual([])
+  expect(await createSecrets(e.kv).all()).toEqual([])
   for (const t of Object.keys(bookSchema)) expect(await e.book.entries(t)).toEqual([])
   for (const k of [ACCOUNTS_KEY, SELECTED_CHAIN, ACTIVE_WALKTHROUGH]) expect(e.local.get(k)).toBeUndefined()
 }
@@ -482,6 +504,29 @@ describe('New / Open / Save', () => {
     for (const [k, v] of Object.entries(PER_BROWSER)) expect(e.local.get(k)).toBe(v)
     await e.disposeAll()
   })
+
+  test('xswap Review Focus 5: Save → New → Open keeps a secret and its lock; the maker can still claim', async () => {
+    const e = env()
+    const [h] = await populated(e, ['a'])
+    const token = await deployContract(h!, acct, 'GBP', AssetToken, undefined, ['GBP', 'GBP', 2, 1000n, acct.address])
+    const lock = await deployHashLock(h!, acct)
+    await signAndSend(h!, acct, { to: token, data: encodeFunctionData({ abi: AssetToken.abi, functionName: 'approve', args: [lock, 100n] }) })
+    const secret = newSecret(), hash = hashOf(secret), headNow = BigInt((await h!.request('eth_blockNumber', [])) as string)
+    await createSecrets(e.kv).put(hash, { secret, chain: h!.info.id, lockId: '' })
+    expect((await signAndSend(h!, acct, lockCall(lock, { token, amount: 100n, recipient: acct.address, hash, timeoutBlock: headNow + 100n }))).status).toBe('success')
+    await createSecrets(e.kv).put(hash, { secret, chain: h!.info.id, lockId: '1' })
+    const { text } = await saveWorkspace(e.ws)
+    expect(valid(text).secrets).toEqual([{ hash, secret, chain: h!.info.id, lockId: '1' }])
+    expect(await newWorkspace(e.ws)).toEqual({ ok: true })
+    await expectEmpty(e)
+    expect(await openWorkspace(text, e.ws)).toEqual({ ok: true })
+    const kept = (await createSecrets(e.kv).get(hash))!
+    expect(kept).toEqual({ secret, chain: h!.info.id, lockId: '1' })
+    const c = await e.registry.open(kept.chain)
+    expect((await readLock((m, p) => c.request(m, p), lock, BigInt(kept.lockId))).status).toBe('locked')
+    expect((await signAndSend(c, acct, claimCall(lock, BigInt(kept.lockId), kept.secret))).status).toBe('success')
+    await e.disposeAll()
+  }, 30_000)
 
   test('benchmark chains are cleared too', async () => {
     const e = env()

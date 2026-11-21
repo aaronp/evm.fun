@@ -51,6 +51,8 @@ export interface Approach {
   snapshot?(): Promise<ChainDump>;
   /** replace the chain with the dump (restarts on a fresh node, then loadState); persists if persistence given */
   restore?(dump: ChainDump): Promise<void>;
+  /** mine one block now (empty unless txs are pending) */
+  mine?(): Promise<void>;
   /** txs submitted but not yet settled */
   pending?(): number;
   dispose(): Promise<void>;

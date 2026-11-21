@@ -111,6 +111,11 @@ const factory: ApproachFactory = (_opts, host = {}) => {
 
     pending: () => 0,
 
+    async mine() {
+      if (restoring) await restoring;
+      await node!.mine();
+    },
+
     async open() {
       if (!persistence || !(await persistence.load())) throw new Error('01-webevm-baseline: nothing persisted to open');
       await start(persistence);
