@@ -585,13 +585,30 @@ describe('New / Open / Save', () => {
     expect(e.registry.peek(y!.info.id)).toBeDefined() // nothing after the failure
     await clearWorkspace(e.ws, { bestEffort: true })
     expect(e.registry.peek(y!.info.id)).toBeUndefined() // carried on past x
-    expect(e.registry.peek(x!.info.id)).toBeDefined() // only the failing one is still running…
-    expect(await e.registry.list()).toEqual([]) // …and its rows went with the rest of kv
+    expect(e.registry.peek(x!.info.id)).toBeUndefined() // the failing one is closed instead, so its id can load again
+    expect(await e.registry.list()).toEqual([]) // and its rows went with the rest of kv
     expect(await createContractsRegistry(e.kv).list('gone-chain')).toEqual([])
     expect(await e.kv.list('snapshots')).toEqual([])
     e.registry.remove = remove
     await e.disposeAll()
-    await x!.dispose()
+  })
+
+  test("a chain whose dispose throws doesn't block the restore: the previous workspace loads fully", async () => {
+    const other = env()
+    await other.registry.create('z', 'plain', [])
+    const text = encodeWorkspace(await buildWorkspace(other.ws))
+    await other.disposeAll()
+    const e = env()
+    const [, y] = await populated(e)
+    const before = await buildWorkspace({ ...e.ws, account: acct.address })
+    const dispose = y!.dispose.bind(y)
+    y!.dispose = async () => { throw new Error('stuck') }
+    const r = await openWorkspace(text, { ...e.ws, account: acct.address })
+    expect(r).toMatchObject({ error: expect.stringMatching(/stuck/) })
+    expect((r as { restoreError?: string }).restoreError).toBeUndefined()
+    expect(same(await buildWorkspace({ ...e.ws, account: acct.address }))).toEqual(same(before))
+    await e.disposeAll()
+    await dispose()
   })
 
   test('after Open the address carries the loaded selection, not a stale ?chain=', () => {

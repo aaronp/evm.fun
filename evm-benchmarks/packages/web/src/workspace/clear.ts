@@ -13,7 +13,7 @@ export async function clearWorkspace(env: WriteEnv, o: { bestEffort?: boolean } 
   const { registry, kv, book, storage } = env
   const step = async (f: () => unknown) => { try { await f() } catch (e) { if (!o.bestEffort) throw e } }
   for (const k of [ACCOUNTS_KEY, SELECTED_CHAIN, ACTIVE_WALKTHROUGH]) await step(() => storage.removeItem(k))
-  for (const c of await registry.list().catch(e => { if (o.bestEffort) return []; throw e })) await step(() => registry.remove(c.id))
+  for (const c of await registry.list().catch(e => { if (o.bestEffort) return []; throw e })) await step(() => registry.remove(c.id).catch(e => registry.close(c.id).finally(() => { throw e }))) // a failed dispose leaves it live; close drops it, so its id can load again
   await step(() => kv.clear())
   for (const t of Object.keys(bookSchema)) await step(async () => { for (const { key } of await book.entries(t)) await book.del(t, key) })
 }
