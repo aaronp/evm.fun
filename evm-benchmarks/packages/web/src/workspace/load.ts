@@ -2,6 +2,7 @@ import type { ChainSource } from '../chain/chainFile'
 import { CROSS_ENGINE_OK, parseJson } from '../chain/chainFile'
 import { createSnapshotStore } from '../chain/snapshots'
 import { personaParam, withParams } from '../links'
+import { pageOf } from '../routes'
 import { ACCOUNTS_KEY, type Account } from '../store/accounts'
 import { ACTIVE_WALKTHROUGH, EDITS, RUNS, SELECTED_CHAIN, saveWorkspace } from './build'
 import { clearWorkspace, type WriteEnv } from './clear'
@@ -9,6 +10,8 @@ import type { WorkspaceFile } from './types'
 import { validateWorkspace } from './validate'
 
 type Download = (f: { name: string; text: string }) => void
+/** Checked right before clearing: why the app can't be cleared now (a tx, walkthrough step or install running). */
+type Busy = () => string | undefined
 export type OpenResult =
   | { ok: true }
   | { errors: string[] }
@@ -29,9 +32,10 @@ export async function loadWorkspace(f: WorkspaceFile, env: WriteEnv) {
   const { registry, kv, book, storage } = env
   storage.setItem(ACCOUNTS_KEY, JSON.stringify(f.accounts.map(({ label, address, privateKey }) => ({ label, address, privateKey }))))
   const selected = f.selection?.chain
-  for (const c of f.chains) {
+  const t0 = Date.now() // createdAt staggered in file order (= the saved list order), so the Chains page keeps it
+  for (const [i, c] of f.chains.entries()) {
     try {
-      await registry.createFrom(c.dump, { id: c.id, name: c.chain.name, type: c.chain.type, contracts: c.contracts, assets: c.assets, source: cleanSource(c.source) })
+      await registry.createFrom(c.dump, { createdAt: new Date(t0 + i).toISOString(), id: c.id, name: c.chain.name, type: c.chain.type, contracts: c.contracts, assets: c.assets, source: cleanSource(c.source) })
     } catch (e) { throw new Error(`Chain "${c.chain.name}": ${message(e)}`) }
     if (c.id !== selected) await registry.close(c.id)
   }
@@ -46,8 +50,9 @@ export async function loadWorkspace(f: WorkspaceFile, env: WriteEnv) {
 
 export const NOT_KEEPING = "This browser isn't keeping data (private window or storage blocked), so New and Open are off. Save still works."
 const LOST = "This browser stopped keeping data (storage full or blocked), so the workspace wasn't kept"
+const keeps = (env: WriteEnv) => env.kv.persistent && env.book.persistent !== false
 /** Storage fell back to memory: what was just written would be gone after a reload. */
-const kept = (env: WriteEnv) => { if (!env.kv.persistent) throw new Error(LOST) }
+const kept = (env: WriteEnv) => { if (!keeps(env)) throw new Error(LOST) }
 
 /** Clear (best effort: it may be what just failed), then load our own earlier Save; the error if that fails too. */
 async function restore(text: string, env: WriteEnv): Promise<string | undefined> {
@@ -61,14 +66,16 @@ async function restore(text: string, env: WriteEnv): Promise<string | undefined>
 }
 
 /** New: optionally Save first (`download`), then clear. If the clear fails part-way, the previous workspace is restored. */
-export async function newWorkspace(env: WriteEnv, o: { download?: Download } = {}): Promise<OpenResult> {
-  if (!env.kv.persistent) return { error: NOT_KEEPING }
+export async function newWorkspace(env: WriteEnv, o: { download?: Download; busy?: Busy } = {}): Promise<OpenResult> {
+  if (!keeps(env)) return { error: NOT_KEEPING }
   let backup: { name: string; text: string } | undefined
   try { backup = await saveWorkspace(env) } catch (e) {
     if (o.download) return { error: message(e) } // "Save first" must not clear unsaved
     // ponytail: no backup when the current workspace can't be built (a broken chain): New is the way out, so it still clears
   }
   if (backup) o.download?.(backup)
+  const why = o.busy?.()
+  if (why) return { error: `${why}: nothing was cleared. Try again when it finishes.` }
   try {
     await clearWorkspace(env)
     kept(env)
@@ -82,13 +89,15 @@ export async function newWorkspace(env: WriteEnv, o: { download?: Download } = {
 
 /** Open: validate (errors → nothing changed) → back up the current workspace (Save first downloads that backup) →
  *  clear → load. On any load failure the backup is restored. Never throws. */
-export async function openWorkspace(text: string, env: WriteEnv, o: { download?: Download } = {}): Promise<OpenResult> {
+export async function openWorkspace(text: string, env: WriteEnv, o: { download?: Download; busy?: Busy } = {}): Promise<OpenResult> {
   const v = validateWorkspace(text, { engine: env.engine, crossEngineOk: CROSS_ENGINE_OK })
   if ('errors' in v) return v
-  if (!env.kv.persistent) return { error: NOT_KEEPING }
+  if (!keeps(env)) return { error: NOT_KEEPING }
   let backup: { name: string; text: string }
   try { backup = await saveWorkspace(env) } catch (e) { return { error: message(e) } } // nothing changed
   o.download?.(backup)
+  const why = o.busy?.()
+  if (why) return { error: `${why}: nothing was changed. Try again when it finishes.` }
   try {
     await clearWorkspace(env)
     await loadWorkspace(v.ok, env)
@@ -100,7 +109,8 @@ export async function openWorkspace(text: string, env: WriteEnv, o: { download?:
   }
 }
 
-/** The address to reload at after New/Open: the loaded selection replaces any stale `?chain=&as=` (state.tsx lets a link win). */
+/** The address to reload at after New/Open: the page only (its details, e.g. ?asset= or a report, belong to the old
+ *  workspace, as ChainPicker drops them), with the loaded selection replacing any stale `?chain=&as=` (state.tsx lets a link win). */
 export function selectionHash(hash: string, sel: WorkspaceFile['selection'], accounts: Account[]): string {
-  return '#' + withParams(hash.replace(/^#/, '') || '/', { chain: sel?.chain, as: sel?.account && personaParam(sel.account, accounts) })
+  return '#' + withParams(pageOf(hash.replace(/^#/, '').split('?')[0]!), { chain: sel?.chain, as: sel?.account && personaParam(sel.account, accounts) })
 }

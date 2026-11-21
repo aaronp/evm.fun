@@ -3,19 +3,21 @@ import type { Address } from '@evmb/core'
 import type { Kv } from '../store/kv'
 import type { Account } from '../store/accounts'
 import type { createChainRegistry } from '../chain/registry'
-import { encodeJson, type ChainFile } from '../chain/chainFile'
+import { CROSS_ENGINE_OK, encodeJson, type ChainFile } from '../chain/chainFile'
 import { createSnapshotStore, type Snapshot } from '../chain/snapshots'
 import { NO_SNAPSHOT } from '../chain/snapshotUi'
 import { createContractsRegistry } from '../contracts/registry'
 import { createWebAssets } from '../assets/registry'
 import type { Run, Walkthrough } from '../walkthrough/types'
 import type { WorkspaceFile } from './types'
+import { validateWorkspace } from './validate'
 
 export type WorkspaceEnv = {
   registry: ReturnType<typeof createChainRegistry>
   kv: Kv
   accounts: Account[]
-  book: Store
+  /** `persistent: false` = the order-book store fell back to memory (the app's bookStore) */
+  book: Store & { persistent?: boolean }
   /** localStorage in the app: the selected chain and the active walkthrough */
   storage: Pick<Storage, 'getItem'>
   engine: string
@@ -51,7 +53,7 @@ export async function buildWorkspace(env: WorkspaceEnv): Promise<WorkspaceFile> 
   }
   const ids = new Set(saved.map(c => c.id))
   const snaps = createSnapshotStore(kv), snapshots: Snapshot[] = []
-  for (const c of saved) snapshots.push(...await snaps.list(c.id))
+  for (const c of saved) snapshots.push(...(await snaps.list(c.id)).map(s => ({ ...s, assets: s.assets ?? [] }))) // taken before assets were kept
   const orderbook: WorkspaceFile['orderbook'] = []
   for (const table of Object.keys(bookSchema)) for (const r of await env.book.entries(table)) orderbook.push({ table, ...r })
   const stored = get(env.storage, SELECTED_CHAIN), active = get(env.storage, ACTIVE_WALKTHROUGH)
@@ -77,10 +79,14 @@ export const encodeWorkspace = (f: WorkspaceFile): string => encodeJson(f)
 export const workspaceFileName = (d = new Date()) =>
   `workspace-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.json`
 
-/** The Save file. Any failure while building (e.g. a chain that won't open) reads as a Save error. */
+/** The Save file. Any failure while building (e.g. a chain that won't open), or a file Open would refuse (legacy
+ *  rows), reads as a Save error. */
 export async function saveWorkspace(env: WorkspaceEnv): Promise<{ name: string; text: string }> {
   try {
-    return { name: workspaceFileName(), text: encodeWorkspace(await buildWorkspace(env)) }
+    const text = encodeWorkspace(await buildWorkspace(env))
+    const v = validateWorkspace(text, { engine: env.engine, crossEngineOk: CROSS_ENGINE_OK })
+    if ('errors' in v) throw new Error(`the file wouldn't open: ${v.errors.join('; ')}`)
+    return { name: workspaceFileName(), text }
   } catch (e) {
     throw new Error(`Couldn't save: ${e instanceof Error ? e.message : String(e)}`)
   }

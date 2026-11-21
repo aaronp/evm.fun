@@ -9,6 +9,7 @@ import { WizardProvider } from '../src/walkthrough/wizard'
 import { menuReducer, type MenuState } from '../src/components/Menu'
 import { ProfileMenu } from '../src/components/ProfileMenu'
 import { FileMenu, TopBar } from '../src/components/TopBar'
+import { busyReason } from '../src/components/WorkspaceDialogs'
 import { accounts } from '../src/store/accounts'
 import { readFileSync } from 'node:fs'
 import { bundled } from '../walkthroughs'
@@ -110,6 +111,14 @@ describe('top bar', () => {
     expect(why).toMatch(/aria-disabled="true"[^>]*>Export chain<span[^>]*>Select a chain first</)
   })
 
+  test('busy reasons for New/Open/Import chain: a tx, a walkthrough step, an install', () => {
+    expect(busyReason({})).toBeUndefined()
+    expect(busyReason({ installing: 0 })).toBeUndefined()
+    expect(busyReason({ installing: 1 })).toBe('A walkthrough is installing')
+    expect(busyReason({ step: true, installing: 1 })).toBe('A walkthrough step is running')
+    expect(busyReason({ tx: true, step: true })).toBe('A transaction is in flight')
+  })
+
   test('the shell renders the workspace Open and Import chain file inputs', () => {
     const out = at('/accounts', h(Shell))
     expect(out).toContain('aria-label="Open workspace file"')
@@ -127,6 +136,7 @@ describe('profile menu', () => {
       const first = accounts.list()[0]!
       expect(closed).toContain(`>${first.label[0]!.toUpperCase()}</span>`)
       expect(closed).toContain(`<span class="sr-only max-w-32 truncate sm:not-sr-only">${first.label}</span>`) // exposed at phone width too
+      expect(closed).toContain('<span class="hidden sm:inline font-mono text-xs text-muted">—</span>') // its ETH balance from sm up (none without a chain)
       const open = at('/accounts', h(ProfileMenu, { defaultOpen: true }))
       expect(open).toContain('aria-expanded="true"')
       expect(open).toContain('>alice<'); expect(open).toContain('>bob<')

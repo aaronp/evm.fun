@@ -804,7 +804,7 @@ A saved workspace file holds each account's private key unencrypted, so a shared
 - likelihood: 3
 - target: 2x2
 - appetite: 4
-- category: Security
+- category: Performance
 - driver: Claude
 - approver: Aaron
 
@@ -830,14 +830,14 @@ Open clears every account, chain, record and walkthrough before loading the file
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
-| Confirm with Save first, all-or-nothing Open with in-memory backup restored on failure, and a download of the previous workspace | Corrective | Effective |
+| Confirm with Save first, all-or-nothing Open with in-memory backup restored on failure, and a download of the previous workspace (automatic when the restore fails; Close then asks to confirm) | Corrective | Effective |
 
 ## R45 · A chain whose removal fails may leave orphaned persisted state
 - impact: 2
 - likelihood: 2
 - target: 2x2
 - appetite: 4
-- category: Security
+- category: Quality
 - driver: Claude
 - approver: Aaron
 
@@ -853,7 +853,7 @@ If removing a chain fails during New or Open, its host-persisted state can remai
 - likelihood: 2
 - target: 2x2
 - appetite: 4
-- category: Security
+- category: Performance
 - driver: Claude
 - approver: Aaron
 

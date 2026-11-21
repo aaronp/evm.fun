@@ -4,6 +4,7 @@ import type { Address } from 'viem'
 import { useApp } from '../state'
 import { accounts } from '../store/accounts'
 import { formatEth, useBalance } from '../chain/useBalance'
+import { MAX_NAME } from '../chain/chainFile'
 import { Button } from '../ui/button'
 import { Input, fieldLabel } from '../ui/input'
 import { Menu } from './Menu'
@@ -15,13 +16,13 @@ function Avatar({ label, index }: { label: string; index: number }) {
   return <span aria-hidden="true" className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${TONES[index % TONES.length]}`}>{label[0]?.toUpperCase() ?? '?'}</span>
 }
 
-/** Mounted only while the menu is open, so balances are read lazily. */
-function Balance({ address }: { address: Address }) {
+/** In the menu: mounted only while it is open, so balances are read lazily. */
+function Balance({ address, className = 'ml-auto pl-4' }: { address: Address; className?: string }) {
   const { chain } = useApp()
-  return <span className="ml-auto pl-4 font-mono text-xs text-muted">{formatEth(useBalance(chain, address))}</span>
+  return <span className={`${className} font-mono text-xs text-muted`}>{formatEth(useBalance(chain, address))}</span>
 }
 
-/** The acting account (initial, label) and a menu to switch, create or manage accounts. */
+/** The acting account (initial, label, ETH balance from sm up) and a menu to switch, create or manage accounts. */
 export function ProfileMenu({ defaultOpen }: { defaultOpen?: boolean }) {
   const { account, selectAccount } = useApp()
   const nav = useNavigate()
@@ -41,7 +42,7 @@ export function ProfileMenu({ defaultOpen }: { defaultOpen?: boolean }) {
     <>
       <Menu label="Account menu" name={`${me?.label ?? 'No account'} – account menu`} align="right" defaultOpen={defaultOpen}
         trigger={me
-          ? <><Avatar label={me.label} index={i} /><span className="sr-only max-w-32 truncate sm:not-sr-only">{me.label}</span></>
+          ? <><Avatar label={me.label} index={i} /><span className="sr-only max-w-32 truncate sm:not-sr-only">{me.label}</span><Balance address={me.address} className="hidden sm:inline" /></>
           : <span className="text-muted">No account</span>}
         items={[
           ...people.map((p, n) => ({
@@ -54,7 +55,7 @@ export function ProfileMenu({ defaultOpen }: { defaultOpen?: boolean }) {
       <dialog ref={dialog} onClose={() => setLabel('')} aria-labelledby="create-account-title" className="m-auto w-[min(24rem,calc(100vw-2rem))] rounded-xl border border-line bg-panel p-5 text-text backdrop:bg-bg/70">
         <form className="space-y-3" onSubmit={e => { e.preventDefault(); create() }}>
           <h2 id="create-account-title" className="font-display text-lg font-semibold">Create account</h2>
-          <label className={fieldLabel}>Label<Input autoFocus value={label} placeholder={`Account ${people.length + 1}`} onChange={e => setLabel(e.target.value)} /></label>
+          <label className={fieldLabel}>Label<Input autoFocus maxLength={MAX_NAME} value={label} placeholder={`Account ${people.length + 1}`} onChange={e => setLabel(e.target.value)} /></label>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => dialog.current?.close()}>Cancel</Button>
             <Button type="submit">Create</Button>

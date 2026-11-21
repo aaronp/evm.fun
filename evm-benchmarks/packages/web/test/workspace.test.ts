@@ -525,6 +525,51 @@ describe('New / Open / Save', () => {
     await e.disposeAll()
   })
 
+  test('a snapshot taken before assets were kept saves with assets: [] and the file opens', async () => {
+    const e = env()
+    await populated(e)
+    const snaps = createSnapshotStore(e.kv)
+    const [s] = await snaps.list((await e.registry.list())[0]!.id)
+    const { assets: _, ...legacy } = s!
+    await snaps.put(legacy as any)
+    const f = valid((await saveWorkspace(e.ws)).text)
+    expect(f.snapshots[0]!.assets).toEqual([])
+    await e.disposeAll()
+  })
+
+  test("Save refuses a file Open would refuse (a legacy run), naming why", async () => {
+    const e = env()
+    await e.kv.set(RUNS, 'old', { walkthrough: 'old' })
+    await expect(saveWorkspace(e.ws)).rejects.toThrow(/^Couldn't save: the file wouldn't open: walkthroughs\.runs\[0\]/)
+    await e.disposeAll()
+  })
+
+  test('New and Open re-check busy right before clearing: refused with the reason, nothing changed', async () => {
+    const e = env()
+    await populated(e)
+    const before = await buildWorkspace(e.ws)
+    const busy = () => 'A walkthrough is installing'
+    expect(await newWorkspace(e.ws, { busy })).toEqual({ error: 'A walkthrough is installing: nothing was cleared. Try again when it finishes.' })
+    expect(await openWorkspace(encodeWorkspace(before), e.ws, { busy })).toEqual({ error: 'A walkthrough is installing: nothing was changed. Try again when it finishes.' })
+    expect(same(await buildWorkspace(e.ws))).toEqual(same(before))
+    await e.disposeAll()
+  })
+
+  test('Open keeps the chain list order and heights', async () => {
+    const src = env()
+    const hs = await populated(src, ['c', 'a', 'b'])
+    const text = (await saveWorkspace(src.ws)).text
+    const heights = await Promise.all(hs.map(async h => Number(BigInt(await h.request('eth_blockNumber', []) as string))))
+    await src.disposeAll()
+    const e = env()
+    expect(await openWorkspace(text, e.ws)).toEqual({ ok: true })
+    const list = await e.registry.list()
+    expect(list.map(c => c.name)).toEqual(['c', 'a', 'b'])
+    expect(list.map(c => c.lastHeight)).toEqual(heights)
+    expect(heights[0]).toBeGreaterThan(0)
+    await e.disposeAll()
+  })
+
   test("a chain's source from the file is rebuilt with only its known fields", async () => {
     const src = env()
     await src.registry.create('x', 'plain', [])
@@ -544,6 +589,10 @@ describe('New / Open / Save', () => {
     e.disk.kept = false
     expect(await newWorkspace(e.ws)).toEqual({ error: NOT_KEEPING })
     expect(await openWorkspace(encodeWorkspace(before), e.ws)).toEqual({ error: NOT_KEEPING })
+    expect(same(await buildWorkspace(e.ws))).toEqual(same(before))
+    e.disk.kept = true
+    const ws = { ...e.ws, book: Object.assign(Object.create(e.book), { persistent: false }) } // the order book fell back to memory
+    expect(await newWorkspace(ws)).toEqual({ error: NOT_KEEPING })
     expect(same(await buildWorkspace(e.ws))).toEqual(same(before))
     await e.disposeAll()
   })
@@ -613,7 +662,9 @@ describe('New / Open / Save', () => {
 
   test('after Open the address carries the loaded selection, not a stale ?chain=', () => {
     const accounts = [acct]
-    expect(selectionHash('#/swap?chain=old&as=bob&x=1', { chain: 'new', account: acct.address }, accounts)).toBe('#/swap?chain=new&as=alice&x=1')
+    expect(selectionHash('#/swap?chain=old&as=bob&x=1', { chain: 'new', account: acct.address }, accounts)).toBe('#/swap?chain=new&as=alice')
+    expect(selectionHash('#/assets?asset=gbp&chain=old', { chain: 'new' }, accounts)).toBe('#/assets?chain=new') // the old workspace's details go
+    expect(selectionHash('#/chains/tx/0xabc', undefined, accounts)).toBe('#/chains')
     expect(selectionHash('#/swap?chain=old&as=bob', undefined, accounts)).toBe('#/swap')
     expect(selectionHash('', { chain: 'c' }, accounts)).toBe('#/?chain=c')
   })
