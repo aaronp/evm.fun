@@ -28,13 +28,13 @@
     }
   ],
   "report": {
-    "To Do": 27,
-    "Doing": 0,
+    "To Do": 26,
+    "Doing": 1,
     "Done": 59
   },
   "source": {
     "label": "docs/board/board.md",
     "url": "https://aaronp.github.io/agile/?src=docs/board/board.md"
   },
-  "updated": "2026-11-20"
+  "updated": "2026-11-21"
 }

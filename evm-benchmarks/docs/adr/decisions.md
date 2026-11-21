@@ -912,3 +912,84 @@ Claude's calls (spec `docs/superpowers/specs/2026-11-20-orderbook-design.md`, "S
 - The taker pays each maker per fill (ceil per fill) and escrows only its resting part: escrow-then-refund at one ceil can't cover the sum of per-fill ceils. Allowances need `quoteFor(up)` plus one raw unit per fill.
 - Attempts carry the decoded revert `reason`; failed orders show it as a badge. Expired orders show as cancelled.
 - O(n) reads and contract list growth are logged risks with backlog cards (R26-R33, t-82 to t-85).
+
+---
+id: ADR-0019
+title: "Liquidity pool: one Pool.sol per pair that is its own LP token (v2 shape, from scratch)"
+status: accepted
+date: 2026-11-21
+tags: architecture, pool, step-4
+decision: pair
+---
+
+## Goal
+A GBP/USD pool to add/remove liquidity and swap against with a quote and a slippage limit, giving later steps a reference price, readable in a playground.
+
+## Hypothesis
+- We believe: one small x·y = k contract per pair, itself the ERC-20 LP token, with a UI-free `@evmb/pool` that mirrors its maths to the unit
+- Will result in: quotes that always match execution, and a pool price the order book and Swap can reference
+- Measured by: quote == on-chain output in tests across decimals; `amm-swap` verifies conservation and k
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| read | Readable | 5 | Higher = easy to read and explain in a playground. |
+| familiar | Familiar | 4 | Higher = matches what people know (Uniswap v2). |
+| effort | Low effort | 3 | Higher = less to build. |
+| lp | LP transferable | 2 | Higher = LP shares are a normal ERC-20. |
+
+## Solution: pair — one Pool.sol per pair, its own LP ERC-20
+| criterion | score |
+| --- | --- |
+| read | 5 |
+| familiar | 5 |
+| effort | 4 |
+| lp | 5 |
+
+Pros:
+- About a page of Solidity; the v2 model people know
+- LP shares are transferable ERC-20s
+
+Cons:
+- One deploy per pair; no factory
+
+## Solution: singleton — one contract for every pair, internal LP balances
+| criterion | score |
+| --- | --- |
+| read | 3 |
+| familiar | 2 |
+| effort | 3 |
+| lp | 1 |
+
+Pros:
+- One deploy
+
+Cons:
+- LP not transferable; less familiar
+
+## Solution: vendor — vendor Uniswap v2
+| criterion | score |
+| --- | --- |
+| read | 1 |
+| familiar | 5 |
+| effort | 4 |
+| lp | 5 |
+
+Pros:
+- Battle-tested
+
+Cons:
+- Hard to read in a playground; licence questions
+
+## Decision
+pair. Decided with Aaron: the pool goes next (before t-62); the screenshot (design/step4/Pool.png) is the layout reference.
+
+Claude's calls (spec "Settled after the builder check"): LP shares normalised to 18-decimal whole units before the √ (first deposit locks 1,000 raw units); `amm-swap` verifies order-independent invariants (conservation, positive outputs, final k ≥ start) with minOut = 0; a pool belongs to an unordered pair (public base/quote, found in either order, no duplicates).
+
+## Consequences
+- Activity reads the pool's events from its deploy block (O(chain); risk to log).
+- No factory: pools are found from contract records plus on-chain base/quote reads.

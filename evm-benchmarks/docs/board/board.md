@@ -27,15 +27,6 @@ A way to make blocks pass. Timeouts are measured in blocks, and a plain chain on
 This gives you cross-chain settlement early and with little machinery. Done when both the claim path and the refund path work and each produces a report.
 ```
 
-### Liquidity pool (Uniswap v2-style, x·y = k)
-- id: t-63
-- history:
-  - To Do @ 2026-11-20T08:47:49.803Z
-
-```md
-Create a GBP/USD pool, add and remove liquidity, and swap with a quote and a slippage limit. It’s self-contained, with no matching and no counterparty online, and it gives every later step a reference price. I’d write a minimal pool yourself (about a page of Solidity) rather than vendoring Uniswap’s code. That’s easier to read in a playground and avoids licence questions. Benchmark scenario: amm-swap.
-```
-
 ### Signed orders and off-chain matching
 - id: t-65
 - history:
@@ -271,6 +262,19 @@ ADR-0017, ADR-0018. Extend walkthroughs with personas: a setup that deploys asse
 ```
 
 ## Doing
+
+### Liquidity pool (Uniswap v2-style, x·y = k)
+- id: t-63
+- history:
+  - To Do @ 2026-11-20T08:47:49.803Z
+  - Doing @ 2026-11-21T10:08:25Z
+
+```md
+ADR-0019. Taken next, before t-62. Spec: docs/superpowers/specs/2026-11-21-pool-design.md.
+
+Create a GBP/USD pool, add and remove liquidity, and swap with a quote and a slippage limit. It’s self-contained, with no matching and no counterparty online, and it gives every later step a reference price. I’d write a minimal pool yourself (about a page of Solidity) rather than vendoring Uniswap’s code. That’s easier to read in a playground and avoids licence questions. Benchmark scenario: amm-swap.
+```
+
 
 ## Done
 
