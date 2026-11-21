@@ -6,7 +6,7 @@ import { formatAmount, parseAmount } from '../assets/ui'
 import { allowanceNote, approveFor, availableText, percentAmount, plan, priceAway, slippageOf, spendable, submitText } from '../orderbook/form'
 import { card, solid } from './TakePanel'
 import { venueName, type VenueKind } from '../orderbook/locate'
-import { Shortfall, useRequestFix } from './Shortfall'
+import { GasFix, Shortfall, useRequestFix } from './Shortfall'
 import { orThrow, useWizardAction, useWizardField, useWizardMark, withFix } from '../walkthrough/wizard'
 
 /** `committed`: what the acting account's other live off-chain orders already claim of this asset (`Venue.committed`) */
@@ -67,6 +67,7 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
   // the venue's "You hold …" pre-check failed: the allowance covers the order, the balance doesn't
   const lack = p?.need !== undefined && f.bal !== undefined && f.bal < p.need + held && (f.alw === undefined || f.alw >= p.need + held)
   const fix = useRequestFix(give, lack ? p!.need! + held : 0n, f.bal ?? 0n)
+  const isLack = (e?: string) => lack && !!e?.startsWith('You hold ') // the error shown is that pre-check (not, say, gas)
   const thin = p?.thin ? `Book too thin: only ${amountText(p.filled, base)} of ${amountText(amount!, base)} can fill` : undefined
   const total = !p || p.bound === undefined ? '—'
     // a crossing limit order settles its fills at the makers' better prices: the bound is a limit, not exact
@@ -94,7 +95,7 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
     return e
   }
   useWizardAction('order.approve', toApprove !== undefined && !busy ? () => orThrow(approve()) : undefined)
-  useWizardAction('order.submit', toApprove === undefined && !busy ? () => orThrow(submit().then(e => withFix(e, fix))) : undefined)
+  useWizardAction('order.submit', toApprove === undefined && !busy ? () => orThrow(submit().then(e => withFix(e, isLack(e) ? fix : undefined))) : undefined)
   function percent(pct: number) {
     if (f.bal === undefined) return
     if (buy && type === 'limit' && price === undefined) return setError(priceErr ?? 'Enter a limit price')
@@ -156,9 +157,10 @@ export function OrderForm({ base, quote, book, venue, funds, picked, busy, onApp
           </span>
         </div>
       )}
-      {error && lack
+      {error && isLack(error)
         ? <Shortfall fix={fix}><span role="alert" className="text-xs text-danger">{error}</span></Shortfall>
         : (error ?? thin) && <span role="alert" className="text-xs text-danger">{error ?? thin}</span>}
+      <GasFix error={error} />
       <button type="button" {...mark('order.submit')} disabled={busy} onClick={submit} className={`${solid} mt-auto min-h-12 text-[15px] ${buy ? 'bg-bid' : 'bg-ask'}`}>{submitText(side, amount, base)}</button>
     </section>
   )

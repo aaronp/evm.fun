@@ -12,6 +12,7 @@ import { fieldHint, fieldLabel, Input } from '../ui/input'
 import { useApp } from '../state'
 import { show } from './ReceiptView'
 import { ADDRESS_LIST } from './AddressList'
+import { GasFix } from './Shortfall'
 
 /** One form per function: view/pure -> eth_call, otherwise sign and send. */
 export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
@@ -74,6 +75,7 @@ export function FunctionForm({ fn, abi, to, chain, account, onReceipt }: {
       <div className="flex flex-wrap items-center gap-3">
         <Button variant={read ? 'ghost' : 'primary'} onClick={run} disabled={busy}>{read ? 'Call' : 'Send'}</Button>
         {out && <span role="status" className={`min-w-0 whitespace-pre-wrap break-all font-mono text-xs ${out.ok ? 'text-success-text' : 'text-danger'}`}>{out.text}</span>}
+        <GasFix error={out?.ok ? undefined : out?.text} />
       </div>
     </div>
   )

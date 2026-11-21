@@ -11,6 +11,7 @@ import { sameRoute, setAutoDelay, withAuto } from './auto'
 import { activeId, loadRun, saveRun, setActiveId } from './runs'
 import type { Outputs, Run, Step, StepType, Walkthrough } from './types'
 import type { Fix } from '../fix'
+import { useGasFix } from '../components/Shortfall'
 
 type Active = { w: Walkthrough; run: Run; index: number }
 export type CheckResult = Awaited<ReturnType<typeof checks>>[number]
@@ -29,6 +30,10 @@ export const withFix = (e: string | undefined, fix?: Fix): Outcome => (e && fix 
 /** What Next shows for a thrown failure: its message and the fix `orThrow` attached. */
 export const failure = (e: unknown): Failure => ({ message: message(e), fix: (e as { fix?: Fix } | undefined)?.fix })
 const tick = () => new Promise(r => setTimeout(r, 50))
+/** A fix's round trip is over: it was opened (`opened`) and the location has left it — its Send landed and came back
+ *  (or you went elsewhere). The step's error and fix are then stale, and a second Request would send twice. */
+export const fixReturned = (opened: boolean, here: string, href: string) => opened && !sameRoute(here, href)
+
 export type Layout = 'horizontal' | 'vertical'
 
 export type Wizard = {
@@ -172,6 +177,17 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
       await start(w, false)
     })().catch(e => setError(`Couldn't resume the walkthrough: ${message(e)}`))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // a step that failed for lack of ETH for fees gets "Request … ETH from …", fixed when found (its href keeps the failing page)
+  const gas = useGasFix(fail && !fail.fix ? fail.message : undefined)
+  useEffect(() => { if (gas) setFail(f => f && !f.fix ? { ...f, fix: gas } : f) }, [gas?.href]) // eslint-disable-line react-hooks/exhaustive-deps
+  // after the fix's round trip, clear the step's error (and fix): pressing Request again would send twice
+  const here = location.pathname + location.search, fixHref = fail?.fix?.href, opened = useRef(false)
+  useEffect(() => {
+    if (!fixHref) opened.current = false
+    else if (fixReturned(opened.current, here, fixHref)) { opened.current = false; setFail(undefined) }
+    else if (sameRoute(here, fixHref)) opened.current = true
+  }, [here, fixHref])
 
   const latest = useRef({ active, status, initials, busy, location, app })
   latest.current = { active, status, initials, busy, location, app }

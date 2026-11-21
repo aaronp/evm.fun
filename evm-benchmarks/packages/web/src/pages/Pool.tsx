@@ -27,6 +27,7 @@ import { orThrow, useWizardAction, useWizardMark, useWizardReport } from '../wal
 import { Button } from '../ui/button'
 import { Select } from '../ui/input'
 import { Notice } from '../ui/notice'
+import { GasFix } from '../components/Shortfall'
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const cols = 'grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.65fr)]'
@@ -228,6 +229,7 @@ export function Pool() {
       )}
       {pair.error && <p role="alert" className="text-sm text-warn-text">{pair.error}</p>}
       {(err ?? pool.error) && <p role="alert" className="text-sm text-danger">{err ?? pool.error}</p>}
+      <GasFix error={err} />
       {flash && flash.chainId === chainId && <Notice tone={flash.tone} action={flash.tx && <Link to={`/chains/tx/${flash.tx}`} className="ml-auto font-semibold">View tx →</Link>}>{flash.text}</Notice>}
 
       <div inert={disabled} className={`flex flex-col gap-[18px] ${disabled ? 'opacity-45' : ''}`}>

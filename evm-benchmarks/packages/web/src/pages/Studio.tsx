@@ -29,6 +29,7 @@ import { deployPool } from '../pool/locate'
 import type { Asset } from '@evmb/assets'
 import type { ChainHandle } from '../chain/handle'
 import type { Account } from '../store/accounts'
+import { GasFix } from '../components/Shortfall'
 
 // Only var(--c-…) strings: a theme switch recolours the editor live, no remount.
 const editorTheme = EditorView.theme({
@@ -169,6 +170,7 @@ function DeployPoolCard({ chain, acting, deployed, setDeployed, bumpBalance }: {
       </span>
       {whyNot && <p className="text-xs text-muted">{whyNot}</p>}
       {status && <div role="status" className={`break-words text-sm ${status.ok ? 'text-success-text' : 'text-danger'}`}>{status.text}</div>}
+      <GasFix error={status?.ok ? undefined : status?.text} />
     </Card>
   )
 }
@@ -305,6 +307,7 @@ export function Studio() {
 
         <div className="min-w-0 space-y-4">
           {!contract && status && <Card role="status" className={`break-words text-sm ${status.ok ? 'text-success-text' : 'text-danger'}`}>{status.text}</Card>}
+          {!contract && <GasFix error={status?.ok ? undefined : status?.text} />}
           {contract && (
             <Card className="space-y-3">
               {result!.contracts.length > 1 && (
@@ -334,6 +337,7 @@ export function Studio() {
                   {chain && list.length === 0 && <span className="text-xs text-muted">Create an account first.</span>}
                 </div>
                 {status && <div role="status" className={`break-words text-sm ${status.ok ? 'text-success-text' : 'text-danger'}`}>{status.text}</div>}
+                <GasFix error={status?.ok ? undefined : status?.text} />
               </div>
             </Card>
           )}

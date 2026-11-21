@@ -20,6 +20,7 @@ import { Button } from '../ui/button'
 import { Select } from '../ui/input'
 import { Notice } from '../ui/notice'
 import { orThrow, useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
+import { GasFix } from '../components/Shortfall'
 
 const stat = 'flex flex-col gap-1 rounded-xl border border-line-strong bg-surface px-3.5 py-3'
 const statLabel = 'text-xs text-muted'
@@ -241,6 +242,7 @@ export function Swap() {
       )}
       {pair.error && <p role="alert" className="text-sm text-warn-text">{pair.error}</p>}
       {err && <p role="alert" className="text-sm text-danger">{err}</p>}
+      <GasFix error={err} />
 
       <div inert={disabled} className={`flex flex-col gap-[18px] ${disabled ? 'opacity-45' : ''}`}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

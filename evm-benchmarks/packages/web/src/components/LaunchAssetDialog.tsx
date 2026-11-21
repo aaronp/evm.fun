@@ -10,6 +10,7 @@ import { fieldLabel, Input, Select } from '../ui/input'
 import { Notice } from '../ui/notice'
 import { orThrow, useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
 import { WizardInline } from './WizardInline'
+import { GasFix } from './Shortfall'
 
 /** Native modal, mounted per open (state resets on unmount); the parent unmounts it on onClose. */
 export function LaunchAssetDialog({ chain, accounts, onLaunched, onSent, onClose }: {
@@ -66,6 +67,7 @@ export function LaunchAssetDialog({ chain, accounts, onLaunched, onSent, onClose
         <h2 id="launch-title" className="font-display text-base font-semibold">Launch asset</h2>
         <WizardInline step="launchAsset" />
         {err && <Notice>{err}</Notice>}
+        <GasFix error={err} onClick={() => ref.current?.close()} />
         <label className={fieldLabel}>Name<Input {...mark('launch.name')} aria-label="Name" value={name} maxLength={MAX_NAME} onChange={e => setName(e.target.value)} /></label>
         <div className="grid grid-cols-2 gap-3">
           <label className={fieldLabel}>Symbol<Input {...mark('launch.symbol')} aria-label="Symbol" value={symbol} maxLength={MAX_NAME} onChange={e => setSymbol(e.target.value)} /></label>

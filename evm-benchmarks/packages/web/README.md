@@ -114,6 +114,7 @@ Every page's address carries `?chain=<registry id>&as=<persona>` (with the page'
 - **`back`:** a URI-encoded in-app path (`/swap?…`) to return to after a fix; anything else (a scheme, a host, `//`) is dropped.
 - **Back/Forward** switches chain and persona to the ones in that history entry, by design: the address is the source.
 - **Fix actions:** a balance shortfall ("Not enough GBP — you have 0.00.") on Swap (make, take), Trade (order form) and Pool (swap, add) offers **Request {amount} {SYM} from {issuer}** when the token's issuer is one of this browser's accounts, isn't you, and holds the shortfall (`requestFix` in `src/fix.ts`). It opens `/assets?chain=&as=<issuer>&asset=&send=<you>&amount=<shortfall>&back=<this page>`: the Send dialog acting as the issuer, prefilled. After the transfer lands it goes back to `back` (as you again) with "Received {amount} {SYM} from {issuer}". In a walkthrough the same fix shows under the step's error in the ribbon.
+- **ETH for fees:** `signAndSend` refuses a tx its sender can't pay fees for (gas limit × max fee + value) and throws the node's "insufficient funds for gas …" message; `gasShortfall` (`src/tx/send.ts`) recognises it wherever it is shown, and `<GasFix>` next to each send error (or the ribbon) offers **Request {amount} ETH from {account}**: the native asset's Send from the local account with the most ETH (not you), amount the shortfall rounded up to 0.01 ETH (1 ETH when unknown), none when nobody else holds more; same round trip and notice as tokens.
 
 ## Known limits
 

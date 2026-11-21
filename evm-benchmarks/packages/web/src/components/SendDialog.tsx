@@ -10,6 +10,7 @@ import { fieldLabel, Input, Select } from '../ui/input'
 import { Notice } from '../ui/notice'
 import { orThrow, useWizardAction, useWizardField, useWizardMark, useWizardReport } from '../walkthrough/wizard'
 import { WizardInline } from './WizardInline'
+import { GasFix } from './Shortfall'
 
 const OTHER = 'other'
 
@@ -77,6 +78,7 @@ export function SendDialog({ dialogRef, chain, asset, from, balance, accounts, t
           {balance !== undefined && <> · <span className="font-mono">{formatAmount(balance, asset.decimals, asset.kind === 'native' ? 8 : undefined)} {asset.symbol}</span></>}
         </p>
         {err && <Notice>{err}</Notice>}
+        <GasFix error={err} onClick={() => dialogRef.current?.close()} />
         <label className={fieldLabel}>
           To
           <Select aria-label="To" value={to} onChange={e => setTo(e.target.value)}>

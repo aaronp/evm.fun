@@ -28,6 +28,7 @@ import { MyOrders } from '../components/MyOrders'
 import { Button } from '../ui/button'
 import { Notice } from '../ui/notice'
 import { Segmented } from '../ui/segmented'
+import { GasFix } from '../components/Shortfall'
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const stat = 'flex flex-col gap-0.5'
@@ -246,8 +247,10 @@ export function Trade() {
       )}
       {pair.error && <p role="alert" className="text-sm text-warn-text">{pair.error}</p>}
       {[err, readErr.book, readErr.orders].map((e, i) => e && <p key={i} role="alert" className="text-sm text-danger">{e}</p>)}
+      <GasFix error={err} />
 
       {flash && flash.chainId === chainId && <Notice tone={flash.tone} action={flash.link && <Link to={flash.link.to} className="ml-auto font-semibold">{flash.link.label}</Link>}>{flash.text}</Notice>}
+      {flash?.tone === 'danger' && flash.chainId === chainId && <GasFix error={flash.text} />}
 
       {base && quote && (
         <div inert={disabled} className={`flex flex-col gap-4 ${disabled ? 'opacity-45' : ''}`}>
