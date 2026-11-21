@@ -136,9 +136,13 @@ function DeployPoolCard({ chain, acting, deployed, setDeployed, bumpBalance }: {
   const [tokens, setTokens] = useState<Asset[]>([])
   const [pick, setPick] = useState<[string, string]>(['', ''])
   const [busy, setBusy] = useState(false)
+  useEffect(() => { setPick(['', '']); setStatus(undefined) }, [chain])
   useEffect(() => {
     setTokens([])
-    if (chain) assetRegistry.list(chain.info.id).then(a => setTokens(a.filter(t => t.kind === 'erc20')))
+    if (!chain) return
+    let live = true
+    assetRegistry.list(chain.info.id).then(a => live && setTokens(a.filter(t => t.kind === 'erc20')))
+    return () => { live = false }
   }, [chain, deployed])
   const [base, quote] = [pick[0] || tokens[0]?.address || '', pick[1] || tokens.find(t => t.address !== (pick[0] || tokens[0]?.address))?.address || '']
   const whyNot = !chain ? 'Select a chain first' : chain.info.ephemeral ? NO_RECORDS : tokens.length < 2 ? 'Pool needs two ERC-20 assets on this chain.' : base === quote ? 'Pick two different tokens.' : !acting ? 'Create an account first' : undefined

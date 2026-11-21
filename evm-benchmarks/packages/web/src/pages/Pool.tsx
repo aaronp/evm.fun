@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { erc20Abi, type Address } from 'viem'
-import { readTokenInfo, type Asset } from '@evmb/assets'
-import { activity, position, type PoolActivity as Item } from '@evmb/pool'
+import { Link, useSearchParams } from 'react-router-dom'
+import { erc20Abi, isAddressEqual, type Address, type Hex } from 'viem'
+import { approveCall, readTokenInfo, type Asset } from '@evmb/assets'
+import { activity, addLiquidityCall, position, removeLiquidityCall, swapCall, type PoolActivity as Item, type PoolState } from '@evmb/pool'
 import { book, readOffers } from '@evmb/swap'
 import { useApp } from '../state'
 import { useAppBar } from '../state/appBar'
@@ -13,10 +13,11 @@ import { shortAddress } from '../assets/ui'
 import { contractsRegistry } from '../contracts/registry'
 import { readContract } from '../tx/send'
 import { NO_RECORDS, swapFor } from '../swap/locate'
-import { amountText, makerLabel, pickPair } from '../swap/ui'
-import { deployPool, usePool } from '../pool/locate'
+import { amountText, makerLabel, pickPair, same } from '../swap/ui'
+import { deployPool, poolTx, usePool } from '../pool/locate'
 import { activityRow, offersText } from '../pool/ui'
-import { card } from '../components/TakePanel'
+import { card, type Funds } from '../components/TakePanel'
+import { PoolTabs } from '../components/PoolTabs'
 import { PoolStats } from '../components/PoolStats'
 import { PoolCurve } from '../components/PoolCurve'
 import { PoolPosition } from '../components/PoolPosition'
@@ -26,7 +27,7 @@ import { Select } from '../ui/input'
 import { Notice } from '../ui/notice'
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
-const cols = 'grid grid-cols-1 items-stretch gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.65fr)]'
+const cols = 'grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.65fr)]'
 
 export function Pool() {
   const { chain, account, balanceTick, bumpBalance, setBusy: lockChain } = useApp()
@@ -34,13 +35,18 @@ export function Pool() {
   const people = accountStore.list()
   const acting = people.find(p => p.address.toLowerCase() === account?.toLowerCase())
   const [assets, setAssets] = useState<Asset[]>([])
-  const [wallet, setWallet] = useState<{ base?: bigint; quote?: bigint }>({})
+  const [wallet, setWallet] = useState<{ base?: bigint; quote?: bigint; allowBase?: bigint; allowQuote?: bigint }>({})
   const [pos, setPos] = useState<{ shares: bigint; base: bigint; quote: bigint }>()
   const [items, setItems] = useState<Item[]>()
   const [offers, setOffers] = useState<string>()
   const [deploying, setDeploying] = useState(false)
   const [deployed, setDeployed] = useState(0) // bumped after a deploy: the record lands after the send's tick
   const [err, setErr] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const [after, setAfter] = useState<Pick<PoolState, 'reserveBase' | 'reserveQuote'>>() // the Swap tab's quote, for the curve
+  // the chain it belongs to: a tx that lands after a chain switch must not flash on the new chain
+  const [flash, setFlashOn] = useState<{ text: string; tone: 'success' | 'danger'; tx?: Hex; chainId?: string }>()
+  const setFlash = (f?: { text: string; tone: 'success' | 'danger'; tx?: Hex }) => setFlashOn(f && { ...f, chainId: chain?.info.id })
   const reconciled = useRef(new Set<string>())
   const chainId = chain?.info.id
 
@@ -67,14 +73,20 @@ export function Pool() {
   const s = pool.state
 
   // everything below is read live on each balance tick; a tick keeps the old values until the new ones land
-  useEffect(() => { setWallet({}) }, [chainId, base?.address, quote?.address, acting?.address])
+  useEffect(() => { setWallet({}) }, [chainId, base?.address, quote?.address, acting?.address, pool.address])
+  useEffect(() => { setErr(undefined); setFlash(undefined) }, [chainId, base?.address, quote?.address, acting?.address]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!chain || !base || !quote || !acting) return
     let live = true
-    const bal = (t: Asset) => readContract(chain, t.address as Address, erc20Abi, 'balanceOf', [acting.address]).then(v => v as bigint, () => undefined)
-    Promise.all([bal(base), bal(quote)]).then(([b, q]) => live && setWallet({ base: b, quote: q }))
+    const read = (t: Asset, fn: 'balanceOf' | 'allowance', args: Address[]) =>
+      readContract(chain, t.address as Address, erc20Abi, fn, args).then(v => v as bigint, () => undefined)
+    const at = pool.address
+    Promise.all([
+      read(base, 'balanceOf', [acting.address]), read(quote, 'balanceOf', [acting.address]),
+      at ? read(base, 'allowance', [acting.address, at]) : undefined, at ? read(quote, 'allowance', [acting.address, at]) : undefined,
+    ]).then(([b, q, ab, aq]) => live && setWallet({ base: b, quote: q, allowBase: ab, allowQuote: aq }))
     return () => { live = false }
-  }, [chain, base?.address, quote?.address, acting?.address, balanceTick]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [chain, base?.address, quote?.address, acting?.address, pool.address, balanceTick]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setPos(undefined); setItems(undefined) }, [chainId, pool.address, acting?.address])
   useEffect(() => {
@@ -110,7 +122,7 @@ export function Pool() {
     aside: acting && base && quote ? <>Your wallet: <span className="font-mono text-text">{held(wallet.base, base)} · {held(wallet.quote, quote)}</span></> : undefined,
   })
 
-  useEffect(() => { lockChain(deploying); return () => lockChain(false) }, [deploying, lockChain])
+  useEffect(() => { lockChain(deploying || busy); return () => lockChain(false) }, [deploying, busy, lockChain])
 
   if (!chain) return <p className="text-sm text-muted">Select a chain first.</p>
 
@@ -119,6 +131,48 @@ export function Pool() {
     setDeploying(true); setErr(undefined)
     try { await deployPool(chain, acting, base.address as Address, quote.address as Address, bumpBalance); setDeployed(n => n + 1) } catch (e) { setErr(msg(e)) } finally { setDeploying(false) }
   }
+
+  type Tok = { symbol: string; decimals: number }
+  /** Send one pool/approve call; flashes the outcome with its tx and resolves to the page's error message when it failed. */
+  async function send(call: { to: Address; data: Hex }, unit: (min: bigint) => Tok, done: string): Promise<string | undefined> {
+    if (!chain || !acting) return 'Create an account first.'
+    if (busy) return 'Another transaction is still in flight.'
+    setBusy(true); setErr(undefined); setFlash(undefined)
+    try {
+      const r = await poolTx(chain, acting, call, unit, bumpBalance)
+      if (r.error && !r.hash) setErr(r.error)
+      else setFlash({ text: r.error ?? done, tone: r.error ? 'danger' : 'success', tx: r.hash })
+      return r.error
+    } finally { setBusy(false) }
+  }
+  const raw = pool.raw, LP: Tok = { symbol: 'LP', decimals: 18 }
+  /** page (base, quote) amounts → the pool's on-chain order */
+  const onChain = (b: bigint, q: bigint): [bigint, bigint] => (raw && base && same(raw.base, base.address) ? [b, q] : [q, b])
+  const amt = (v: bigint, a: Tok) => `${amountText(v, a.decimals)} ${a.symbol}`
+  async function approve(a: Asset, amount: bigint) {
+    if (!pool.address) return 'No pool for this pair.'
+    return send(approveCall(a, pool.address, amount), () => a, `Approved Pool to spend ${amt(amount, a)}.`)
+  }
+  async function swap(tokenIn: Asset, amountIn: bigint, minOut: bigint) {
+    if (!raw || !base || !quote) return 'No pool for this pair.'
+    const t = tokenIn.address as Address
+    if (!isAddressEqual(t, raw.base) && !isAddressEqual(t, raw.quote)) return `${tokenIn.symbol} is not one of this pool's tokens.`
+    const out = same(t, base.address) ? quote : base
+    return send(swapCall(raw.address, t, amountIn, minOut), () => out, `Swapped ${amt(amountIn, tokenIn)} for at least ${amt(minOut, out)}.`)
+  }
+  async function add(baseIn: bigint, quoteIn: bigint, minShares: bigint) {
+    if (!raw || !base || !quote) return 'No pool for this pair.'
+    return send(addLiquidityCall(raw.address, ...onChain(baseIn, quoteIn), minShares), () => LP, `Added liquidity to the ${base.symbol}/${quote.symbol} pool.`)
+  }
+  async function remove(shares: bigint, minBase: bigint, minQuote: bigint) {
+    if (!raw || !base || !quote) return 'No pool for this pair.'
+    if (!shares || pos === undefined || shares > pos.shares) return 'Remove between 0 and your shares.'
+    const [m0, m1] = onChain(minBase, minQuote)
+    // a Slippage(out, min) names one side by its min; the pool checks its base side first, so a tie names that one
+    const [t0, t1] = same(raw.base, base.address) ? [base, quote] : [quote, base]
+    return send(removeLiquidityCall(raw.address, shares, m0, m1), min => (min === m0 ? t0 : t1), `Removed ${amt(shares, LP)} from the pool.`)
+  }
+  const funds: Funds = a => (same(a.address, base?.address) ? { bal: wallet.base, alw: wallet.allowBase } : { bal: wallet.quote, alw: wallet.allowQuote })
 
   const setPair = (b: string, q: string) => setParams({ base: b, quote: q }, { replace: true })
   const disabled = !!chain.info.ephemeral || !pool.address || !base || !quote
@@ -132,12 +186,12 @@ export function Pool() {
     <div className="flex w-full max-w-[1300px] flex-col gap-[18px]">
       {pair.tokens.length >= 2 && (
         <div className="flex items-center gap-2">
-          <Select aria-label="Base" disabled={deploying} value={base?.address ?? ''} onChange={e => setPair(e.target.value, quote?.address ?? '')}>
+          <Select aria-label="Base" disabled={deploying || busy} value={base?.address ?? ''} onChange={e => setPair(e.target.value, quote?.address ?? '')}>
             {pair.tokens.map(t => <option key={t.id} value={t.address} disabled={t.address === quote?.address}>{t.symbol}</option>)}
           </Select>
-          <Button variant="outline" size="field" aria-label="Swap base and quote" title="Swap base and quote" disabled={deploying || !base || !quote}
+          <Button variant="outline" size="field" aria-label="Swap base and quote" title="Swap base and quote" disabled={deploying || busy || !base || !quote}
             onClick={() => base && quote && setPair(quote.address!, base.address!)}>⇄</Button>
-          <Select aria-label="Quote" disabled={deploying} value={quote?.address ?? ''} onChange={e => setPair(base?.address ?? '', e.target.value)}>
+          <Select aria-label="Quote" disabled={deploying || busy} value={quote?.address ?? ''} onChange={e => setPair(base?.address ?? '', e.target.value)}>
             {pair.tokens.map(t => <option key={t.id} value={t.address} disabled={t.address === base?.address}>{t.symbol}</option>)}
           </Select>
         </div>
@@ -154,13 +208,16 @@ export function Pool() {
       )}
       {pair.error && <p role="alert" className="text-sm text-warn-text">{pair.error}</p>}
       {(err ?? pool.error) && <p role="alert" className="text-sm text-danger">{err ?? pool.error}</p>}
+      {flash && flash.chainId === chainId && <Notice tone={flash.tone} action={flash.tx && <Link to={`/chains/tx/${flash.tx}`} className="ml-auto font-semibold">View tx →</Link>}>{flash.text}</Notice>}
 
       <div inert={disabled} className={`flex flex-col gap-[18px] ${disabled ? 'opacity-45' : ''}`}>
         <PoolStats s={s} base={B} quote={Q} />
         <div className={cols}>
-          {/* Swap / Add liquidity / Remove: Task 4 */}
-          <section aria-label="Swap, add or remove liquidity" data-slot="pool-tabs" className={`${card} min-h-40`} />
-          <PoolCurve s={s} base={B} quote={Q} offers={offers ?? '…'} />
+          {s && base && quote
+            ? <PoolTabs s={s} base={base} quote={quote} funds={funds} busy={busy || !acting} mine={pos?.shares}
+                onApprove={approve} onSwap={swap} onAdd={add} onRemove={remove} onAfter={setAfter} />
+            : <section aria-label="Swap, add or remove liquidity" className={`${card} min-h-40`} />}
+          <PoolCurve s={s} after={after} base={B} quote={Q} offers={offers ?? '…'} />
         </div>
         <div className={`${cols} items-start`}>
           <PoolPosition s={s} pos={pos} base={B} quote={Q} />

@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
-import type { Address } from 'viem'
+import type { Address, Hex } from 'viem'
 import { Pool } from '@evmb/contracts'
-import { findPool, orient, readPool, type PoolState } from '@evmb/pool'
+import { replayError } from '@evmb/orderbook'
+import { findPool, orient, poolAbi, readPool, type PoolState } from '@evmb/pool'
 import type { ChainHandle } from '../chain/handle'
 import { contractsRegistry } from '../contracts/registry'
 import type { Account } from '../store/accounts'
 import { deployContract, inDeployOrder, NO_RECORDS } from '../swap/locate'
+import { signAndSend } from '../tx/send'
+import { revertText } from './form'
 
 /** The newest-deployed Pool for {base, quote} in either order, with its deploy block (0 when unknown). */
 async function poolRecord(chain: ChainHandle, base: Address, quote: Address): Promise<{ address: Address; block: bigint } | undefined> {
@@ -52,4 +55,15 @@ export function usePool(chain: ChainHandle | undefined, base: Address | undefine
     return () => { live = false }
   }, [chain, base, quote, tick])
   return v
+}
+
+/** Send a pool (or approve) call from `from`. `error` is the page's message when it failed: a revert is replayed and
+ * decoded with Pool's errors ("Reverted: Slippage — …"); `unit(min)` names the token a Slippage is counted in. */
+export async function poolTx(chain: ChainHandle, from: Account, call: { to: Address; data: Hex }, unit: Parameters<typeof revertText>[1], onSent?: () => void): Promise<{ hash?: Hex; error?: string }> {
+  try {
+    const r = await signAndSend(chain, from, call, onSent)
+    if (r.status === 'success') return { hash: r.hash }
+    if (r.status !== 'reverted') return { hash: r.hash, error: `Transaction ${r.status}${r.error ? `: ${r.error}` : ''}` }
+    return { hash: r.hash, error: `Reverted: ${revertText(await replayError(chain.request, r.hash, poolAbi), unit)}` }
+  } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
 }

@@ -130,3 +130,89 @@ test('Pool sits under Markets between Swap and Trade; without a chain it says "S
   const html = renderToString(h(MemoryRouter, { initialEntries: ['/pool'] }, h(AppState, null, h(AppBarProvider, null, real.Pool!))))
   expect(html).toContain('Select a chain first.')
 })
+
+// ---- Task 4: Swap / Add liquidity / Remove ----
+
+test('form helpers: min at tolerance, approve exactly what is needed, percent of shares, new share %', async () => {
+  const { minAt, approveFor, percentOf, newShareText, swapAfter } = await import('../src/pool/form')
+  expect(minAt(1_253_690_000n, 50)).toBe(1_247_421_550n) // 1,253.69 USD at 0.5% → 1,247.42
+  expect(minAt(1000n, 10)).toBe(999n); expect(minAt(1000n, 100)).toBe(990n); expect(minAt(999n, 50)).toBe(994n) // floor
+  expect(approveFor(100n, 0n)).toBe(100n) // approve sets the allowance: the whole need, not the gap
+  expect(approveFor(100n, 40n)).toBe(100n)
+  expect(approveFor(100n, 100n)).toBe(0n)
+  expect(approveFor(100n, undefined)).toBe(0n) // unknown yet: no button
+  expect(percentOf(1001n, 25)).toBe(250n); expect(percentOf(1001n, 50)).toBe(500n); expect(percentOf(1001n, 75)).toBe(750n)
+  expect(percentOf(1001n, 100)).toBe(1001n)
+  expect(newShareText(s, 0n, s.totalShares)).toBe('50.00%')
+  expect(newShareText({ ...s, totalShares: 0n }, 0n, 9000n)).toBe('90.00%') // first deposit: 1000 go to dEaD
+  expect(swapAfter(s, true, 100_000n, 1_253_690_000n)).toEqual({ reserveBase: 10_100_000n, reserveQuote: 125_746_310_000n })
+  expect(swapAfter(s, false, 1_253_690_000n, 100_000n)).toEqual({ reserveBase: 9_900_000n, reserveQuote: 128_253_690_000n })
+})
+
+test('fill the other side at the pool ratio so the contract pulls exactly that amount', async () => {
+  const { quoteAdd } = await import('@evmb/pool')
+  const { fillOther } = await import('../src/pool/form')
+  const odd: PoolState = { ...s, reserveBase: 10_000_003n, reserveQuote: 127_000_000_017n, totalShares: 112_694_276_695_846_597_034_457n }
+  for (const st of [s, odd, flipped])
+    for (const v of [1n, 7n, 100_000n, 1_234_567n, 5_000_000n]) {
+      const q = fillOther(st, 'base', v)
+      const a = quoteAdd(st, v, q)
+      expect(a.quoteUsed).toBe(q); expect(a.baseUsed).toBeLessThanOrEqual(v)
+      const b = fillOther(st, 'quote', v * 12_700n)
+      const c = quoteAdd(st, b, v * 12_700n)
+      expect(c.baseUsed).toBe(b); expect(c.quoteUsed).toBeLessThanOrEqual(v * 12_700n)
+    }
+  expect(fillOther(s, 'base', 5_000_000n)).toBe(63_500_000_000n) // 50,000 GBP ↔ 63,500 USD
+})
+
+test('a revert reads as a sentence: Slippage names what you would get and your minimum', async () => {
+  const { revertText } = await import('../src/pool/form')
+  const usdT = { symbol: 'USD', decimals: 6 }
+  expect(revertText({ error: 'Slippage', args: [1_253_690_000n, 1_260_000_000n] }, () => usdT))
+    .toBe('Slippage — you would get 1,253.69 USD, below your minimum 1,260.00 USD.')
+  expect(revertText({ error: 'BadAmount', args: [] }, () => usdT)).toBe('BadAmount')
+  expect(revertText({ error: 'ERC20InsufficientAllowance', args: ['0x01', 0n, 5n] }, () => usdT)).toBe('ERC20InsufficientAllowance(0x01, 0, 5)')
+})
+
+test('Review Focus 3: a slippage revert on a real chain surfaces its decoded Slippage(out, min)', async () => {
+  const { approveCall } = await import('@evmb/assets')
+  const { addLiquidityCall, quoteSwap, readPool, swapCall } = await import('@evmb/pool')
+  const { poolTx } = await import('../src/pool/locate')
+  const h = await registry().create('c', 'plain', [me.address])
+  try {
+    const tok = async (sym: string, dp: number) => {
+      const r = await signAndSend(h, me, { data: encodeDeployData({ abi: AssetToken.abi, bytecode: AssetToken.bytecode, args: [sym, sym, dp, 10n ** 15n, me.address] }) })
+      return getAddress(r.contractAddress!) as Address
+    }
+    const g = await tok('GBP', 2), u = await tok('USD', 6)
+    const pool = await deployPool(h, me, g, u)
+    const asset = (address: Address, decimals: number) => ({ address, decimals, kind: 'erc20' }) as any
+    for (const [t, d, v] of [[g, 2, 10_000_000n], [u, 6, 127_000_000_000n]] as const) await signAndSend(h, me, approveCall(asset(t, d), pool, v))
+    expect((await poolTx(h, me, addLiquidityCall(pool, 10_000_000n, 127_000_000_000n, 0n), () => ({ symbol: 'LP', decimals: 18 }))).error).toBeUndefined()
+    await signAndSend(h, me, approveCall(asset(g, 2), pool, 100_000n))
+    const q = quoteSwap(await readPool(h.request, pool), g, 100_000n, 50)
+    const r = await poolTx(h, me, swapCall(pool, g, 100_000n, q.out + 1n), () => ({ symbol: 'USD', decimals: 6 }))
+    expect(r.hash).toBeDefined()
+    const { exactText } = await import('../src/swap/ui')
+    expect(r.error).toBe(`Reverted: Slippage — you would get ${exactText(q.out, 6)} USD, below your minimum ${exactText(q.out + 1n, 6)} USD.`)
+    const ok = await poolTx(h, me, swapCall(pool, g, 100_000n, q.minOut), () => ({ symbol: 'USD', decimals: 6 }))
+    expect(ok.error).toBeUndefined(); expect(ok.hash).toBeDefined()
+  } finally { await h.dispose() }
+}, 60_000)
+
+test('Review Focus 5: an empty pool shows only Add liquidity, both amounts free, with the initial price', async () => {
+  const { createElement: h } = await import('react')
+  const { renderToString } = await import('react-dom/server')
+  const { PoolTabs } = await import('../src/components/PoolTabs')
+  const GBP = { id: 'g', chainId: 'c', kind: 'erc20', symbol: 'GBP', name: 'GBP', decimals: 2, address: gbp } as any
+  const USD = { id: 'u', chainId: 'c', kind: 'erc20', symbol: 'USD', name: 'USD', decimals: 6, address: usd } as any
+  const props = { base: GBP, quote: USD, funds: () => ({}), busy: false, onApprove: async () => undefined, onSwap: async () => undefined, onAdd: async () => undefined, onRemove: async () => undefined, onAfter: () => {} }
+  const empty = renderToString(h(PoolTabs, { ...props, s: { ...s, reserveBase: 0n, reserveQuote: 0n, totalShares: 0n } }))
+  expect(empty).toContain('Add liquidity'); expect(empty).toContain('Initial price')
+  expect(empty).not.toContain('>Swap<'); expect(empty).not.toContain('>Remove<'); expect(empty).not.toContain('You pay')
+  expect(empty).not.toMatch(/readonly|readOnly/)
+  const live = renderToString(h(PoolTabs, { ...props, s }))
+  for (const t of ['>Swap<', 'Add liquidity', '>Remove<', 'You pay', 'You receive (estimate)', 'Your price', 'Price impact', 'Fee (0.30%)', 'Slippage tolerance', '0.1%', '0.5%', '1%', 'Minimum received',
+    'Reverts if you would get less than the minimum — e.g. if someone else trades first and moves the price.']) expect(live).toContain(t)
+  expect(live).toMatch(/aria-pressed="true"[^>]*>0\.5%/) // default tolerance
+})
