@@ -9,7 +9,7 @@ import { NO_SNAPSHOT } from '../chain/snapshotUi'
 import { createContractsRegistry } from '../contracts/registry'
 import { createWebAssets } from '../assets/registry'
 import type { Run, Walkthrough } from '../walkthrough/types'
-import { createSecrets } from '../htlc/secrets'
+import { createAnswers, createSecrets } from '../htlc/secrets'
 import type { WorkspaceFile } from './types'
 import { validateWorkspace } from './validate'
 
@@ -71,6 +71,7 @@ export async function buildWorkspace(env: WorkspaceEnv): Promise<WorkspaceFile> 
     ...(active && { activeWalkthrough: active }),
     orderbook,
     secrets: await createSecrets(kv).all(),
+    answers: await createAnswers(kv).all(),
   }
 }
 

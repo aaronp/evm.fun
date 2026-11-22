@@ -38,6 +38,7 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
     bad('Missing or invalid walkthroughs: expected { edits: [], runs: [] }')
   if (f.activeWalkthrough !== undefined && !str(f.activeWalkthrough)) bad('Invalid activeWalkthrough')
   if (f.secrets !== undefined && !Array.isArray(f.secrets)) bad('Invalid secrets: expected an array')
+  if (f.answers !== undefined && !Array.isArray(f.answers)) bad('Invalid answers: expected an array')
   if (errors.length) return { errors }
 
   const addrs = new Set<string>()
@@ -98,6 +99,9 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
     if (hashOf(s.secret) !== s.hash.toLowerCase()) return bad(`secrets[${i}]: the secret does not match its hash`)
     if (!isId(s.chain) || !(isStr(s.lockId) && /^(|0|[1-9][0-9]{0,77})$/.test(s.lockId))) return bad(`secrets[${i}] needs a chain and a decimal lockId ('' before the lock is mined)`)
   })
+  ;(f.answers ?? []).forEach((a: any, i: number) => {
+    if (!isObj(a) || !isKey(a.hash) || !(isStr(a.headA) && /^(0|[1-9][0-9]{0,77})$/.test(a.headA))) bad(`answers[${i}] needs a 32-byte hex hash and a decimal headA`)
+  })
 
   if (f.selection !== undefined) {
     const s = f.selection
@@ -108,7 +112,8 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
 
   if (errors.length) return { errors }
   const secrets = (f.secrets ?? []).map(({ hash, secret, chain, lockId }: any) => ({ hash, secret, chain, lockId }))
-  return { ok: { ...f, chains: f.chains.map((c: any) => chains.get(c.id)), secrets } as WorkspaceFile }
+  const answers = (f.answers ?? []).map(({ hash, headA }: any) => ({ hash, headA }))
+  return { ok: { ...f, chains: f.chains.map((c: any) => chains.get(c.id)), secrets, answers } as WorkspaceFile }
 }
 
 /** What the wizard and ribbon dereference: run.values[k], run.steps[id].outputs/inputs. */

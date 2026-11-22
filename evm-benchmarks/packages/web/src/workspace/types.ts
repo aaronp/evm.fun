@@ -18,4 +18,6 @@ export type WorkspaceFile = {
   orderbook: { table: string; key: string; value: unknown }[]
   /** the maker's cross-chain swap secrets (kv `secrets`); missing in older files = none */
   secrets: { hash: Hex; secret: Hex; chain: string; lockId: string }[]
+  /** chain A's head (decimal) when the taker answered, by hash (kv `xswapAnswers`); missing in older files = none */
+  answers: { hash: Hex; headA: string }[]
 }

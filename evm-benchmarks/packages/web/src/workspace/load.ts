@@ -7,7 +7,7 @@ import { ACCOUNTS_KEY, type Account } from '../store/accounts'
 import { ACTIVE_WALKTHROUGH, EDITS, RUNS, SELECTED_CHAIN, saveWorkspace } from './build'
 import { clearWorkspace, type WriteEnv } from './clear'
 import type { WorkspaceFile } from './types'
-import { createSecrets } from '../htlc/secrets'
+import { createAnswers, createSecrets } from '../htlc/secrets'
 import { validateWorkspace } from './validate'
 
 type Download = (f: { name: string; text: string }) => void
@@ -47,6 +47,7 @@ export async function loadWorkspace(f: WorkspaceFile, env: WriteEnv) {
   if (f.activeWalkthrough) storage.setItem(ACTIVE_WALKTHROUGH, f.activeWalkthrough)
   for (const r of f.orderbook) await book.put(r.table, r.key, r.value)
   for (const { hash, ...s } of f.secrets ?? []) await createSecrets(kv).put(hash, s) // ?? []: restore() loads an unvalidated backup
+  for (const a of f.answers ?? []) await createAnswers(kv).put(a.hash, a.headA)
   if (selected) storage.setItem(SELECTED_CHAIN, selected)
 }
 

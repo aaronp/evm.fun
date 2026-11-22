@@ -181,6 +181,13 @@ async function loadSwap(a: ChainHandle, bId: string | null, hash: Hex): Promise<
   return { report, assets: [...await assetRegistry.list(a.info.id), ...(b ? await assetRegistry.list(b.info.id) : [])] }
 }
 
+/** Where the "Cross-chain swap" crumb goes: a tx report's `back` (the swap, its chain B and hash, as the fix link), else the swap by hash. */
+export function crumbTo(params: URLSearchParams): string {
+  const back = params.get('tx') ? safeBack(params.get('back')) : undefined
+  const hash = params.get('hash'), chainB = params.get('chainB')
+  return back ?? (hash ? `/xswap?hash=${hash}${chainB ? `&chainB=${chainB}` : ''}` : '/xswap')
+}
+
 type Got = { tx: TxReport; assets: Asset[] } | { swap: SwapReport; assets: Asset[] } | { error: string }
 
 /** `/xswap/report?tx=&chain=` (one transaction) or `?hash=&chain=&chainB=` (the swap), read from the chains each time. */
@@ -204,7 +211,7 @@ export function XSwapReport() {
   const leaf = tx ? 'Transaction report' : 'Swap report'
   useAppBar({
     title: leaf,
-    crumbs: [{ label: 'Cross-chain swap', to: hash ? `/xswap?hash=${hash}${chainB ? `&chainB=${chainB}` : ''}` : '/xswap' }, { label: leaf }],
+    crumbs: [{ label: 'Cross-chain swap', to: crumbTo(params) }, { label: leaf }],
     actions: got && 'swap' in got ? [{
       kind: 'button', id: 'json', label: 'Download JSON', text: true, icon: <DownloadIcon />,
       onClick: () => downloadJson(`xswap-report-${got.swap.hash.slice(0, 10)}.json`, JSON.stringify(got.swap, null, 2)),

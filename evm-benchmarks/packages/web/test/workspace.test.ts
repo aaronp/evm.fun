@@ -19,7 +19,7 @@ import { bundled } from '../walkthroughs'
 import { encodeFunctionData } from 'viem'
 import { AssetToken } from '@evmb/contracts'
 import { claimCall, hashOf, lockCall, newSecret, readLock } from '@evmb/htlc'
-import { createSecrets } from '../src/htlc/secrets'
+import { createAnswers, createSecrets } from '../src/htlc/secrets'
 import { deployContract } from '../src/swap/locate'
 import { deployHashLock } from '../src/htlc/locate'
 import { signAndSend } from '../src/tx/send'
@@ -339,6 +339,19 @@ describe('validateWorkspace', () => {
       expect(errs({ ...f, secrets: [entry, { ...entry, ...bad }] })[0]).toMatch(/secrets\[1\]/)
     expect(errs({ ...f, secrets: {} })[0]).toMatch(/secrets/)
   })
+
+  test('answers (A\'s head when B answered): absent = none; malformed rows refuse the file', async () => {
+    const f = await good()
+    expect(f.answers).toEqual([])
+    const { answers: _, ...older } = f
+    const r = validateWorkspace(encodeWorkspace(older as WorkspaceFile), opts)
+    expect('ok' in r && r.ok.answers).toEqual([])
+    const entry = { hash: hashOf(newSecret()), headA: '42' }
+    expect(errs({ ...f, answers: [entry, { ...entry, headA: '0' }] })).toEqual([])
+    for (const bad of [{ hash: '0x12' }, { headA: 42 }, { headA: '042' }, { headA: '-1' }, { headA: '' }])
+      expect(errs({ ...f, answers: [entry, { ...entry, ...bad }] })[0]).toMatch(/answers\[1\]/)
+    expect(errs({ ...f, answers: {} })[0]).toMatch(/answers/)
+  })
 })
 
 /** A file compared as data: the save/export times differ by design. */
@@ -515,13 +528,16 @@ describe('New / Open / Save', () => {
     await createSecrets(e.kv).put(hash, { secret, chain: h!.info.id, lockId: '' })
     expect((await signAndSend(h!, acct, lockCall(lock, { token, amount: 100n, recipient: acct.address, hash, timeoutBlock: headNow + 100n }))).status).toBe('success')
     await createSecrets(e.kv).put(hash, { secret, chain: h!.info.id, lockId: '1' })
+    await createAnswers(e.kv).put(hash, 7n)
     const { text } = await saveWorkspace(e.ws)
     expect(valid(text).secrets).toEqual([{ hash, secret, chain: h!.info.id, lockId: '1' }])
+    expect(valid(text).answers).toEqual([{ hash, headA: '7' }])
     expect(await newWorkspace(e.ws)).toEqual({ ok: true })
     await expectEmpty(e)
     expect(await openWorkspace(text, e.ws)).toEqual({ ok: true })
     const kept = (await createSecrets(e.kv).get(hash))!
     expect(kept).toEqual({ secret, chain: h!.info.id, lockId: '1' })
+    expect(await createAnswers(e.kv).get(hash)).toBe('7')
     const c = await e.registry.open(kept.chain)
     expect((await readLock((m, p) => c.request(m, p), lock, BigInt(kept.lockId))).status).toBe('locked')
     expect((await signAndSend(c, acct, claimCall(lock, BigInt(kept.lockId), kept.secret))).status).toBe('success')
