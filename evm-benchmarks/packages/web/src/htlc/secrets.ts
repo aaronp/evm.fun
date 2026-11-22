@@ -25,6 +25,7 @@ export type AnswerEntry = { hash: Hex; headA: string }
 export const createAnswers = (kv: Kv) => ({
   put: (hash: Hex, headA: bigint | string) => kv.set(ANSWERS, hash.toLowerCase(), { hash: hash.toLowerCase(), headA: String(headA) }),
   get: async (hash: Hex) => (await kv.get<AnswerEntry>(ANSWERS, hash.toLowerCase()))?.headA,
-  all: () => kv.list<AnswerEntry>(ANSWERS),
+  // rows from before answers were objects (a bare head) are skipped
+  all: async () => (await kv.list<AnswerEntry>(ANSWERS)).filter(a => typeof a === 'object' && a && 'headA' in a),
 })
 export const answers = createAnswers(appKv)

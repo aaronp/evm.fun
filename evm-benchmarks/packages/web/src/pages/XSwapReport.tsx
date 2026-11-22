@@ -136,7 +136,7 @@ export function XSwapReportView({ r, chains, people, assets }: { r: SwapReport; 
   return (
     <ReportView ok={OK.has(r.outcome)} title={TITLE[r.outcome] ?? 'Cross-chain swap refunded'} pill={`${r.outcome}${r.unsafe ? ' · unsafe timeouts' : ''}`}
       summary={summary} meta={[`Hash ${shortAddress(r.hash)}`, `${A} ⇄ ${B}`]}
-      notice={r.unsafe ? `Unsafe timeouts: the taker’s lock did not end at least 10 blocks before the maker’s, so the maker could claim on ${B} after the taker could still claim on ${A}.` : undefined}
+      notice={r.unsafe ? `Unsafe timeouts: the taker’s lock did not end at least 10 blocks before the maker’s, so the maker could claim on ${B} after the taker could no longer claim on ${A}.` : undefined}
       kpis={[
         { label: 'Outcome', value: r.outcome, sub: r.unsafe ? 'unsafe timeouts' : 'timeouts checked', tone: OK.has(r.outcome) ? 'text-success' : 'text-danger' },
         { label: `Maker locks on ${A}`, value: give, sub: `#${o.id} · ${o.status}`, tone: 'text-text' },

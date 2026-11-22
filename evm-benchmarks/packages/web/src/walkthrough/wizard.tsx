@@ -335,6 +335,7 @@ export function useWizardAction(id: string, fn: Press | undefined) {
   const press = useCallback(() => ref.current?.(), [])
   const on = !!c?.w && !!fn
   if (on) c!.actions.set(id, press) // during render too, so the first paint (and SSR) knows what pulses
+  else if (c?.actions.get(id) === press) c.actions.delete(id) // a re-render (e.g. a field filled during render) turned it off
   const actions = c?.actions, bump = c?.bump
   useLayoutEffect(() => {
     if (!on || !actions) return

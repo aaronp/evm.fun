@@ -132,7 +132,8 @@ export function binding(step: Step, w: Walkthrough): Binding {
     case 'deployHashLock': return b(xswapPath(step, w), [], [`xswap.deploy${side(step, w)}`])
     case 'advanceBlocks': return b(xswapPath(step, w), [`xswap.blocks${side(step, w)}`], [`xswap.advance${side(step, w)}`])
     case 'lockFunds': return step.args?.swap
-      ? b(xswapPath(step, w), ['xswap.answerTimeout'], ['xswap.accept'], 'xswap.acceptCard')
+      // "Lock anyway" only when the step asks for it; the page reports either press as `xswap.accept`
+      ? { ...b(xswapPath(step, w), ['xswap.answerTimeout'], [step.args.unsafe === true ? 'xswap.acceptUnsafe' : 'xswap.accept'], 'xswap.acceptCard'), report: 'xswap.accept' }
       : b(xswapPath(step, w), XMAKE, ['xswap.lock'], 'xswap.make')
     case 'claimLock': return b(xswapPath(step, w), [], [`xswap.claim${side(step, w)}`], 'xswap.claims')
     case 'refundLock': return b(xswapPath(step, w), [], [`xswap.refund${side(step, w)}`], 'xswap.claims')

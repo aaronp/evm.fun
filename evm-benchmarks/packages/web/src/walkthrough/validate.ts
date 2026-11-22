@@ -178,24 +178,37 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
       if (t && p && p in keys && !t.includes(p)) e('pay', "pay must be one of the pool's tokens")
       if (![10, 50, 100].includes(args.slippageBps)) e('slippageBps', 'slippageBps must be 10, 50 or 100 (the page offers 0.1%, 0.5%, 1%)')
     }
+    /** each of a swap's chains needs a HashLock deployed by an earlier step */
+    const hashLocks = (...ks: unknown[]) => {
+      for (const k of new Set(ks)) if (typeof k === 'string' && !steps.slice(0, i).some((x: any) => isObj(x) && x.do === 'deployHashLock' && stepChain(x) === k))
+        e('chain', `Deploy a HashLock on $${k} first (a deployHashLock step before this one)`)
+    }
     if (s.do === 'lockFunds') {
       if (!Number.isInteger(args.timeout) || args.timeout < 1 || args.timeout > 1e9) e('timeout', 'timeout must be a whole number of blocks (1 or more)')
       if (args.swap !== undefined) {
         const o = openingAt(args.swap, i)
         if (!o) e('swap', 'swap must be the id of an earlier lockFunds that opens a swap')
-        else if (stepChain(s) !== assetChain(o.args.for)) e('chain', 'An answer locks on the chain of the asset the opening wants')
+        else {
+          if (stepChain(s) !== assetChain(o.args.for)) e('chain', 'An answer locks on the chain of the asset the opening wants')
+          if (args.from !== o.args.to) e('from', `An answer comes from the account the opening lock is addressed to (${String(o.args.to)})`)
+          hashLocks(stepChain(o), assetChain(o.args.for))
+        }
         if (args.unsafe !== undefined && args.unsafe !== true) e('unsafe', 'unsafe must be true (the page\'s "Lock anyway") or left out')
       } else {
         kindArg('to', 'account'); amountArg('amount', args.amount); amountArg('for', args.for)
         if (args.unsafe !== undefined) e('unsafe', 'Only an answer can be unsafe')
         if (assetChain(args.amount) && assetChain(args.amount) !== stepChain(s)) e('amount', 'amount must be an asset on this chain')
         if (assetChain(args.for) && assetChain(args.for) === stepChain(s)) e('for', 'for must be an asset on the other chain')
+        hashLocks(stepChain(s), assetChain(args.for))
       }
     }
     if (s.do === 'claimLock' || s.do === 'refundLock') {
       const o = openingAt(args.swap, i)
       if (!o) e('swap', 'swap must be the id of an earlier lockFunds that opens a swap')
-      else if (![stepChain(o), assetChain(o.args.for)].includes(stepChain(s))) e('chain', "chain must be one of the swap's two chains")
+      else {
+        if (![stepChain(o), assetChain(o.args.for)].includes(stepChain(s))) e('chain', "chain must be one of the swap's two chains")
+        hashLocks(stepChain(o), assetChain(o.args.for))
+      }
     }
     if (s.do === 'advanceBlocks' && (!Number.isInteger(args.blocks) || args.blocks < 1 || args.blocks > 9999)) e('blocks', 'blocks must be a whole number from 1 to 9999 (the page\'s box)')
     if (s.do === 'view') {

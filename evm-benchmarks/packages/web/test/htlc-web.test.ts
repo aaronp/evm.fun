@@ -5,7 +5,8 @@ import { createKv, kv } from '../src/store/kv'
 import { createChainRegistry } from '../src/chain/registry'
 import { contractsRegistry } from '../src/contracts/registry'
 import { deployHashLock, hashLockFor } from '../src/htlc/locate'
-import { createSecrets } from '../src/htlc/secrets'
+import { ANSWERS, createAnswers, createSecrets } from '../src/htlc/secrets'
+import { makeHandle } from '../src/chain/handle'
 import type { Account } from '../src/store/accounts'
 
 const key = `0x${'11'.repeat(32)}` as const
@@ -77,4 +78,16 @@ test('secrets: put → get → all round trip, keyed by hash; lockId set later; 
   expect(await s.get(hash.toUpperCase().replace('0X', '0x') as `0x${string}`)).toEqual({ secret, chain: 'c1', lockId: '7' })
   expect(await s.all()).toEqual([{ hash, secret, chain: 'c1', lockId: '7' }])
   await expect(s.put(hashOf(newSecret()), { secret, chain: 'c1', lockId: '' })).rejects.toThrow(/hash/)
+})
+
+test('answers.all skips rows from before answers were objects', async () => {
+  const k = createKv(), an = createAnswers(k), hash = hashOf(newSecret())
+  await k.set(ANSWERS, '0xold', '123')
+  await an.put(hash, 7n)
+  expect(await an.all()).toEqual([{ hash, headA: '7' }])
+})
+
+test('a chain whose approach has no mine says so', async () => {
+  const h = makeHandle({ id: 'x', name: 'x', type: 'plain', createdAt: '' }, { request: async () => '0x1' } as any)
+  await expect(h.mine(1)).rejects.toThrow("This chain can't advance blocks")
 })

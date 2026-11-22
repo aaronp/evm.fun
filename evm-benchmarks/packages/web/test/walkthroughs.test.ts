@@ -454,7 +454,7 @@ describe('cross-chain swap walkthroughs', () => {
     const w = byId('gbp-usd-xswap-unsafe'), e = env()
     try {
       const { run, pages } = await runOnPages(w, e)
-      expect(pages.answer).toMatch(/data-wizard="xswap\.accept"[^>]*>Lock anyway</)
+      expect(pages.answer).toMatch(/data-wizard="xswap\.acceptUnsafe"[^>]*>Lock anyway</)
       expect(pages.answer).toContain('Unsafe timeouts')
       expect(await balance(e, run, 'dave', 'GBP', 'alice')).toBe(100_000_000n)
       expect(await balance(e, run, 'sue', 'USD', 'alice')).toBe(1270_000000n)
@@ -473,6 +473,48 @@ describe('cross-chain swap walkthroughs', () => {
     } finally { await disposeAll(e) }
   }, 60_000)
 
+  test('unsafe timeouts on the page: a step without "unsafe": true offers Next nothing; with it Next presses "Lock anyway"', async () => {
+    const { createElement: h } = await import('react')
+    const { renderToString } = await import('react-dom/server')
+    const { MemoryRouter } = await import('react-router-dom')
+    const { AppState } = await import('../src/state')
+    const { WizardProvider, useWizard } = await import('../src/walkthrough/wizard')
+    const { binding, lastRegistered } = await import('../src/walkthrough/bindings')
+    const { XSwapPanels } = await import('../src/pages/XSwap')
+    const unsafe = byId('gbp-usd-xswap-unsafe'), e = env()
+    try {
+      const i = unsafe.steps.findIndex(s => s.id === 'answer')
+      const run = await runSteps(unsafe, e, newRun(unsafe), i)
+      const s = await pageState(e, binding(unsafe.steps[i]!, unsafe).path(run))
+      const pressed = (w: Walkthrough) => {
+        let c: ReturnType<typeof useWizard> = null
+        const Probe = () => { c = useWizard(); return null }
+        const html = renderToString(h(MemoryRouter, null, h(AppState, null, h(WizardProvider, { seed: { w, run, index: i } },
+          h('div', null, h(XSwapPanels, { ...s, on: {} } as any), h(Probe))))))
+        expect(html).toContain('Lock anyway')
+        return { safe: c!.actions.has('xswap.accept'), next: lastRegistered(binding(w.steps[i]!, w).actions, c!.actions) }
+      }
+      expect(pressed(unsafe)).toEqual({ safe: false, next: 'xswap.acceptUnsafe' })
+      const asked = structuredClone(unsafe) as Walkthrough
+      delete asked.steps[i]!.args!.unsafe
+      expect(pressed(asked)).toEqual({ safe: false, next: undefined })
+      expect(binding(unsafe.steps[i]!, unsafe).report).toBe('xswap.accept') // the page reports the answer under one id
+    } finally { await disposeAll(e) }
+  }, 60_000)
+
+  test('headless, a claim the next block would reject (past the timeout) is refused without sending', async () => {
+    const w = byId('gbp-usd-xswap'), e = env()
+    try {
+      const i = w.steps.findIndex(s => s.id === 'aliceClaims')
+      const run = await runSteps(w, e, newRun(w), i)
+      const sue = await e.registry.open(idOf(run, 'sue'))
+      await sue.mine(48) // the answer's timeout T is its head + 50: the head is now T − 1, so a claim would mine at T
+      const h0 = await sue.request('eth_blockNumber', [])
+      await expect(perform(w, w.steps[i]!, e, run)).rejects.toThrow(/can no longer be claimed/)
+      expect(await sue.request('eth_blockNumber', [])).toBe(h0)
+    } finally { await disposeAll(e) }
+  }, 60_000)
+
   test('validation: a step naming an unknown chain key, or no chain where there are two, is refused', () => {
     const w = byId('gbp-usd-xswap')
     const errs = (f: (w: Walkthrough) => void) => { const c = structuredClone(w) as Walkthrough; f(c); const r = validate(c); return 'errors' in r ? r.errors.map(x => `${x.step} · ${x.field} — ${x.message}`) : [] }
@@ -483,5 +525,8 @@ describe('cross-chain swap walkthroughs', () => {
     expect(errs(c => { c.steps.find(s => s.id === 'answer')!.args!.swap = 'nope' })).toContain('answer · swap — swap must be the id of an earlier lockFunds that opens a swap')
     expect(errs(c => { c.steps.find(s => s.id === 'bobClaims')!.expect = [{ report: 'offer', outcome: 'won' } as any] })).toContain('bobClaims · expect — Unknown outcome won')
     expect(errs(c => { c.steps.find(s => s.id === 'offer')!.args!.for = '1270 $GBP' })).toContain('offer · for — for must be an asset on the other chain')
+    expect(errs(c => { c.steps.find(s => s.id === 'answer')!.args!.from = '$alice' })).toContain('answer · from — An answer comes from the account the opening lock is addressed to ($bob)')
+    const noSue = errs(c => { c.steps = c.steps.filter(s => s.id !== 'lockSue') })
+    for (const id of ['offer', 'answer', 'aliceClaims', 'bobClaims']) expect(noSue).toContain(`${id} · chain — Deploy a HashLock on $sue first (a deployHashLock step before this one)`)
   })
 })

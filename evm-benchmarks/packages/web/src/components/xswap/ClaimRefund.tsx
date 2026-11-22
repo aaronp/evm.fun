@@ -27,7 +27,7 @@ export function ClaimRefund({ role, actions, copy, secret, busy, onAction }: {
         ? <div className="flex flex-wrap items-center gap-2 rounded-[10px] border border-line bg-panel px-3 py-2">
             <span className="text-xs text-muted">Your secret</span>
             <span className="min-w-0 flex-1 break-all font-mono text-xs">{shown ? mine : maskSecret(mine)}</span>
-            <Button variant="ghost" size="chip" onClick={() => setShown(s => !s)}>{shown ? 'Hide' : 'Reveal'}</Button>
+            <Button variant="ghost" size="chip" aria-pressed={shown} onClick={() => setShown(s => !s)}>{shown ? 'Hide' : 'Reveal'}</Button>
           </div>
         : <p className="text-[13px] text-muted">The secret for this swap is not in this browser, so you can’t claim on {copy.chainB} here.</p>)}
       {actions.map(a => (

@@ -138,7 +138,7 @@ Three bundled walkthroughs run the whole swap across two chains (dave, sue) in t
 
 - **Swap pounds for dollars across two chains** (`gbp-usd-xswap`): the claim path, ending `completed`.
 - **Get your tokens back when nobody answers** (`gbp-usd-xswap-refund`): Alice locks, Bob never answers, dave advances past her timeout and she refunds (`refunded (maker)`).
-- **Why the taker's timeout must be shorter** (`gbp-usd-xswap-unsafe`): Bob answers with a timeout that outlasts Alice's and presses "Lock anyway"; Alice claims late and refunds, ending `taker lost` with the unsafe flag.
+- **Why the taker's timeout must be shorter** (`gbp-usd-xswap-unsafe`): Bob answers with a timeout that ends less than 10 blocks before Alice's and presses "Lock anyway"; Alice claims late and refunds, ending `taker lost` with the unsafe flag.
 
 ## Themes
 

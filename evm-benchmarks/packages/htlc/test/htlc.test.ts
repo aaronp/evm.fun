@@ -212,7 +212,7 @@ test('taker misses the window (safe timeouts): claimedB not masked by expiring, 
     const sides = sidesOf(c)
     const secret = newSecret(), hash = hashOf(secret)
     const o = await open(c, hash, 40n)
-    const an = await answer(c, hash, { blocks: 15n })
+    await answer(c, hash, { blocks: 15n })
     let s = await swapState(...await sides(), hash)
     expect(s.safe).toBe(true)
     expect(s.claimable).toEqual({ a: true, b: true })
@@ -239,7 +239,6 @@ test('taker misses the window (safe timeouts): claimedB not masked by expiring, 
       { chain: 'sue', holder: taker.address, token: c.usd, delta: String(-USD) },
       { chain: 'sue', holder: maker.address, token: c.usd, delta: String(USD) },
     ])
-    void an
   }), 120_000)
 
 test('maker lost: A claimed (secret leaked), B refunded; A claimed with no answer reads completed', () =>

@@ -51,6 +51,17 @@ export async function makerSecret(role: Role | undefined, hash: Hex | undefined,
   return role === 'maker' && hash ? (await get(hash))?.secret : undefined
 }
 
+/**
+ * The swap re-read at both chains' heads now, or why `action` isn't possible now. The page's `st` can be a send or an
+ * Advance behind: acting on it could send a second (unpaired) answer, or a claim that mines at the timeout, reverts,
+ * and leaves the secret in its calldata.
+ */
+export async function recheck(a: ChainHandle, b: ChainHandle | undefined, hash: Hex, action: Action, acting: string | undefined, secret: boolean): Promise<SwapState | string> {
+  const s = await sidesFor(a, b, hash)
+  const st = s.a && await swapState(s.a, s.b, hash)
+  return st && actionsFor(st, acting, { secret, b: !!s.b }).includes(action) ? st : 'That is not possible for this swap now: a chain moved on since the page last looked.'
+}
+
 type Res = Promise<string | undefined>
 type Side = 'A' | 'B'
 type Terms = Parameters<Parameters<typeof MakeLock>[0]['onLock']>[0]
@@ -144,6 +155,7 @@ export function XSwap() {
   const [lockA, setLockA] = useState<Lock | null>(), [lockB, setLockB] = useState<Lock | null>() // null: still looking
   const [headA, setHeadA] = useState<bigint>(), [headB, setHeadB] = useState<bigint>()
   const [st, setSt] = useState<SwapState & { b: boolean }>()
+  const [stTick, setStTick] = useState<number>() // the balanceTick `st` was read at
   const [mine, setMine] = useState<LockView[]>([])
   const [walletA, setWalletA] = useState<Wallet>({}), [walletB, setWalletB] = useState<Wallet>({})
   const [secret, setSecret] = useState<Hex>()
@@ -208,8 +220,9 @@ export function XSwap() {
     if (!chain || !hash || !lockA) return
     let live = true
     const n = ++seq.current
+    const landed = () => live && n === seq.current && setStTick(balanceTick)
     sidesFor(chain, chainB, hash).then(async s => s.a && ({ ...await swapState(s.a, s.b, hash), b: !!s.b }))
-      .then(v => live && n === seq.current && setSt(v || undefined), e => live && setErr({ text: msg(e) }))
+      .then(v => { if (live && n === seq.current) setSt(v || undefined); landed() }, e => { if (live) setErr({ text: msg(e) }); landed() })
     return () => { live = false }
   }, [chain, chainB, hash, lockA, balanceTick])
 
@@ -247,6 +260,8 @@ export function XSwap() {
       : undefined,
   })
   const working = busy || !!deploying || !!mining
+  // after a send or an Advance the buttons wait for the swap read at the new heads
+  const stale = !!hash && !!lockA && stTick !== balanceTick
   useEffect(() => { lockChain(working); return () => lockChain(false) }, [working, lockChain])
   const wzReport = useWizardReport()
 
@@ -310,7 +325,8 @@ export function XSwap() {
     if (!lockA || !lockB || !chainB || !base || !quote) return 'Both chains need a HashLock and a token first.'
     const s = newSecret(), h = hashOf(s)
     // kept before the lock is sent: a lock whose secret is lost could only be refunded
-    await secrets.put(h, { secret: s, chain: chain!.info.id, lockId: '' })
+    try { await secrets.put(h, { secret: s, chain: chain!.info.id, lockId: '' }) }
+    catch (e) { const text = `Couldn’t keep the secret, so nothing was locked: ${msg(e)}`; setErr({ text }); return text }
     const r = await send(chain!, lockCall(lockA.address, { token: base.address as Address, amount: t.amount, recipient: t.taker, hash: h, timeoutBlock: t.timeoutBlock,
       wantChain: chainB.info.id, wantLock: lockB.address, wantToken: quote.address as Address, wantAmount: t.want }), `Locked ${amountText(t.amount, base.decimals)} ${base.symbol} on ${chain!.info.name}.`)
     if (typeof r === 'string') return r
@@ -328,6 +344,8 @@ export function XSwap() {
   }
   async function accept(timeoutBlock: bigint): Res {
     if (!opening || !chainB || !hash) return 'Pick an incoming lock first.'
+    const now = await recheck(chain!, chainB, hash, 'accept', acting?.address, false)
+    if (typeof now === 'string') { setErr({ text: now }); bumpBalance(); return now }
     await answers.put(hash, await headOf(chain!)) // A's head as the taker locks: the report judges `unsafe` from it
     const r = await send(chainB, lockCall(opening.wantLock, { token: opening.wantToken, amount: opening.wantAmount, recipient: opening.sender, hash, timeoutBlock }),
       `Locked ${wantAmount(opening)} on ${chainB.info.name}.`)
@@ -336,12 +354,15 @@ export function XSwap() {
     catch (e) { const text = `Locked, but reading the lock back failed: ${msg(e)}`; setErr({ text, on: chainB }); return text }
   }
   async function act(a: Action): Res {
-    if (!opening) return 'Pick a swap first.'
+    if (!opening || !hash) return 'Pick a swap first.'
+    const now = await recheck(chain!, chainB, hash, a, acting?.address, !!secret)
+    if (typeof now === 'string') { setErr({ text: now }); bumpBalance(); return now }
+    const o = now.opening!, an = now.answer
     const tx = {
-      claimB: () => answer && secret && [chainB!, claimCall(answer.address, answer.id, secret)] as const,
-      claimA: () => answer && [chain!, claimCall(opening.address, opening.id, answer.secret)] as const,
-      refundA: () => [chain!, refundCall(opening.address, opening.id)] as const,
-      refundB: () => answer && [chainB!, refundCall(answer.address, answer.id)] as const,
+      claimB: () => an && secret && [chainB!, claimCall(an.address, an.id, secret)] as const,
+      claimA: () => an && [chain!, claimCall(o.address, o.id, an.secret)] as const,
+      refundA: () => [chain!, refundCall(o.address, o.id)] as const,
+      refundB: () => an && [chainB!, refundCall(an.address, an.id)] as const,
       accept: () => undefined,
     }[a]()
     if (!tx) return 'That is not possible for this swap now.'
@@ -399,7 +420,7 @@ export function XSwap() {
       <div inert={disabled} className={`flex flex-col gap-[18px] ${disabled ? 'opacity-45' : ''}`}>
         <XSwapPanels chainA={chain} chainB={chainB} chains={chains} people={people} acting={acting} tokA={tokA} tokB={tokB} base={base} quote={quote}
           lockA={lockA} lockB={lockB} headA={headA} headB={headB} st={st} walletA={walletA} walletB={walletB} secret={secret}
-          working={working} deploying={deploying} mining={mining} mineErr={mineErr} on={on} />
+          working={working || stale} deploying={deploying} mining={mining} mineErr={mineErr} on={on} />
 
         <div className="flex flex-wrap items-start gap-4">
           <SwapTimeline opening={opening} answer={answer} chainName={id => chainLabel(id, chains)} who={who} amount={lockAmount} reportHref={reportHref} />

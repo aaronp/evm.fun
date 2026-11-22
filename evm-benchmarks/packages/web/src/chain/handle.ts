@@ -24,7 +24,8 @@ export function makeHandle(info: ChainInfo, approach: Approach): ChainHandle {
     },
     request: (m, p) => approach.request!(m, p),
     async mine(n) {
-      for (let i = 0; i < n; i++) await approach.mine!()
+      if (!approach.mine) throw new Error("This chain can't advance blocks")
+      for (let i = 0; i < n; i++) await approach.mine()
       return BigInt((await approach.request!('eth_blockNumber', [])) as string)
     },
     dispose: () => approach.dispose(),

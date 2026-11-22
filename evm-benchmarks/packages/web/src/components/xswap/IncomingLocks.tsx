@@ -92,9 +92,12 @@ export function AcceptLock({ opening, chainA, chainB, headA, headB, amtB, quote,
     setError(e)
     return e
   }
-  // Next presses what the page shows: Approve while short of allowance, then the lock ("Lock anyway" when unsafe)
+  // Next presses what the page shows: Approve while short of allowance, then the lock; "Lock anyway" has its own id,
+  // which only a step that says `"unsafe": true` presses
+  const can = !needsApprove && !busy && !!check
   useWizardAction('xswap.acceptApprove', needsApprove && !busy ? () => orThrow(onApprove()) : undefined)
-  useWizardAction('xswap.accept', !needsApprove && !busy && ready ? () => orThrow(lock()) : undefined)
+  useWizardAction('xswap.accept', can && check.safe ? () => orThrow(lock()) : undefined)
+  useWizardAction('xswap.acceptUnsafe', can && !check.safe ? () => orThrow(lock()) : undefined)
   return (
     <section {...mark('xswap.acceptCard')} aria-labelledby="ac-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
       <h2 id="ac-h" className="text-sm font-semibold">Accept #{String(opening.id)} · answer on {chainB}</h2>
@@ -106,7 +109,7 @@ export function AcceptLock({ opening, chainA, chainB, headA, headB, amtB, quote,
       <div className="mt-auto flex flex-col gap-2">
         {needsApprove && <Button {...mark('xswap.acceptApprove')} className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={() => void onApprove()}>1 · Approve {amtB} {quote}</Button>}
         {check && !check.safe
-          ? <Button {...mark('xswap.accept')} variant="danger" className="min-h-12 rounded-[10px] text-[15px] font-semibold" disabled={needsApprove || busy} onClick={lock}>{needsApprove ? '2 · ' : ''}Lock anyway</Button>
+          ? <Button {...mark('xswap.acceptUnsafe')} variant="danger" className="min-h-12 rounded-[10px] text-[15px] font-semibold" disabled={needsApprove || busy} onClick={lock}>{needsApprove ? '2 · ' : ''}Lock anyway</Button>
           : <button {...mark('xswap.accept')} className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={needsApprove || busy || !ready} onClick={lock}>{needsApprove ? '2 · ' : ''}{text}</button>}
       </div>
     </section>

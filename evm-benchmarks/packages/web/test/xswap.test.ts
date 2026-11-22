@@ -234,6 +234,27 @@ test('refund path: early refund → tx report NotExpired "Advance … then refun
   } finally { await s.dispose() }
 }, 60_000)
 
+test('recheck at fresh heads: a second accept is refused; a claim at T − 1 is refused (the page sends nothing)', async () => {
+  const s = await setup()
+  const { recheck } = await import('../src/pages/XSwap')
+  try {
+    const secret = newSecret(), hash = hashOf(secret)
+    await signAndSend(s.A, maker, tokenCall(s.gbp, 'approve', [s.lockA, 1000n]))
+    await signAndSend(s.A, maker, lockCall(s.lockA, { token: s.gbp, amount: 1000n, recipient: taker.address, hash, timeoutBlock: (await head(s.A)) + 100n,
+      wantChain: s.B.info.id, wantLock: s.lockB, wantToken: s.usd, wantAmount: 1270n }))
+    expect(typeof await recheck(s.A, s.B, hash, 'accept', taker.address, false)).toBe('object')
+    await signAndSend(s.B, taker, tokenCall(s.usd, 'approve', [s.lockB, 2540n]))
+    const T = (await head(s.B)) + 20n
+    await signAndSend(s.B, taker, lockCall(s.lockB, { token: s.usd, amount: 1270n, recipient: maker.address, hash, timeoutBlock: T }))
+    expect(await recheck(s.A, s.B, hash, 'accept', taker.address, false)).toMatch(/not possible/)
+    await s.B.mine(Number(T - 2n - (await head(s.B))))
+    expect(typeof await recheck(s.A, s.B, hash, 'claimB', maker.address, true)).toBe('object') // T − 2: the claim mines at T − 1
+    await s.B.mine(1)
+    expect(await head(s.B)).toBe(T - 1n)
+    expect(await recheck(s.A, s.B, hash, 'claimB', maker.address, true)).toMatch(/not possible/)
+  } finally { await s.dispose() }
+}, 60_000)
+
 // ---------- page ----------
 
 test('Cross-chain swap sits under Markets after Swap; without a chain both pages say "Select a chain first."', async () => {
@@ -262,6 +283,7 @@ test('Claim/Refund panel: the taker never sees the secret (Review Focus 2); the 
   const mk = await ssr(h => h(ClaimRefund, { ...props, role: 'maker', actions: ['claimB'] }))
   expect(mk.toLowerCase()).not.toContain(secret.slice(2).toLowerCase())
   for (const t of ['Claim 12.70 USD on sue (reveals the secret)', 'Reveal', maskSecret(secret)]) expect(mk).toContain(t)
+  expect(mk).toMatch(/aria-pressed="false"[^>]*>Reveal</)
 })
 
 test('links: the URL sync keeps chainB (and the swap) when it rewrites chain/as; a chain-B fix comes back to chain A', async () => {

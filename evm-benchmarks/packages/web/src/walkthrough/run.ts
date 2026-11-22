@@ -3,7 +3,7 @@ import { approveCall, transferCall, type Asset } from '@evmb/assets'
 import { addLiquidityCall, orient, poolAbi, quoteAdd, quoteRemove, quoteSwap, readPool, removeLiquidityCall, swapCall } from '@evmb/pool'
 import { makeOfferCall, readOffer, swapAbi, takeCall, takeReport } from '@evmb/swap'
 import { parsePrice, type PlaceResult, type Store } from '@evmb/orderbook'
-import { claimCall, hashOf, isSafe, lockCall, newSecret, readLock, refundCall, swapReport, swapState } from '@evmb/htlc'
+import { canClaim, claimCall, hashOf, isSafe, lockCall, newSecret, readLock, refundCall, swapReport, swapState } from '@evmb/htlc'
 import { deployHashLock, headOf, lockedId, sidesFor } from '../htlc/locate'
 import { answers, secrets } from '../htlc/secrets'
 import type { createChainRegistry } from '../chain/registry'
@@ -330,6 +330,9 @@ export async function perform(w: Walkthrough, step: Step, env: Env, run: Run): P
     }
     case 'claimLock': {
       const { c, address, id: lockId, side, opening, answer } = await closing(w, env, run, step)
+      // as the page: a claim that would mine at or past the timeout reverts with the secret in its calldata, so it isn't sent
+      const l = await readLock(request(c), address, lockId)
+      if (!canClaim(l, await headOf(c))) throw new Error(`Step ${id}: lock #${lockId} on ${c.info.name} can no longer be claimed (timeout block ${l.timeoutBlock}, status ${l.status})`)
       // on B the maker's own secret (kv); on A the one the maker's claim revealed on B
       let secret: Hex | undefined
       if (side === 'B') secret = (await secrets.get(opening.hash))?.secret
