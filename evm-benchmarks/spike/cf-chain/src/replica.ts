@@ -2,7 +2,7 @@
 // replays accepted blocks and checks them against the DO. Only fetch/WebSocket/crypto.subtle,
 // so it runs in Bun and the browser; the caller supplies the revm wasm (bytes, URL or Module).
 import type { Hex, LocalAccount } from 'viem'
-import { applyBlock, makeChain, signRequest, type BlockRecord, type Chain, type Genesis } from './chain'
+import { applyBlock, makeChain, makeReadToken, signRequest, type AccessConfig, type BlockRecord, type Chain, type Genesis } from './chain'
 
 export class Device {
   constructor(readonly base: string, readonly account: LocalAccount) {}
@@ -19,14 +19,18 @@ export class Device {
     return { status: res.status, data: await res.json() as T }
   }
 
-  createChain(genesis: Genesis, members: string[] = []) {
-    return this.call<{ chainId: string }>('POST', '/chains', { genesis, accessPolicy: { members } })
+  createChain(genesis: Genesis, access: Omit<AccessConfig, 'admin'> = {}) {
+    return this.call<{ chainId: string }>('POST', '/chains', { genesis, access })
   }
 
-  async socket(chainId: string) {
+  /** Self-issued bearer read token (no server session). */
+  readToken(chainId: string, ttlS = 60) { return makeReadToken(this.account, chainId, ttlS) }
+
+  /** Subscribe with a signed request, or with ?token=<bearer> when `auth` is 'token'. */
+  async socket(chainId: string, auth: 'sig' | 'token' = 'sig') {
     const url = new URL(`/chains/${chainId}/subscribe`, this.base.replace(/^http/, 'ws'))
-    const a = await signRequest(this.account, 'GET', url, '')
-    for (const [k, v] of Object.entries(a)) url.searchParams.set(k, v)
+    if (auth === 'token') url.searchParams.set('token', await this.readToken(chainId))
+    else for (const [k, v] of Object.entries(await signRequest(this.account, 'GET', url, ''))) url.searchParams.set(k, v)
     return new WebSocket(url)
   }
 }

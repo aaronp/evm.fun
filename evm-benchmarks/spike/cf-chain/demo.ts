@@ -6,37 +6,20 @@ import { join } from 'node:path'
 import { privateKeyToAccount } from 'viem/accounts'
 import type { Hex } from 'viem'
 import { Device, Replica } from './src/replica'
+import { ACCESS, accessCall } from './src/chain'
 
 const DIR = import.meta.dir
 const PORT = 8799
 const BASE = `http://127.0.0.1:${PORT}`
 const PERSIST = join(DIR, '.wrangler/demo-state')
 const WASM = readFileSync(require.resolve('revm-wasm/revm.wasm'))
-const tmp = process.env.TMPDIR ?? '/tmp'
 
 let failures = 0
 const check = (ok: boolean, what: string) => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${what}`); if (!ok) failures++ }
 
-async function startWrangler() {
-  const t0 = performance.now()
-  const p = Bun.spawn([`${process.env.HOME}/.bun/bin/wrangler`, 'dev', '--port', String(PORT), '--ip', '127.0.0.1', '--persist-to', PERSIST], {
-    cwd: DIR, detached: true, stdout: Bun.file(join(tmp, 'cf-chain-wrangler.log')), stderr: Bun.file(join(tmp, 'cf-chain-wrangler.err')),
-    env: { ...process.env, WRANGLER_LOG_PATH: join(tmp, 'wrangler-logs'), WRANGLER_SEND_METRICS: 'false', XDG_CONFIG_HOME: join(tmp, 'xdg') },
-  })
-  for (let i = 0; i < 300; i++) {
-    try { const r = await fetch(BASE); if ((await r.text()).includes('"not found"')) { console.log(`wrangler dev up in ${(performance.now() - t0).toFixed(0)} ms`); return p } } catch {}
-    await Bun.sleep(100)
-  }
-  p.kill()
-  throw new Error(`wrangler dev did not come up; see ${tmp}/cf-chain-wrangler.err`)
-}
-// SIGTERM to wrangler alone orphans workerd, so wrangler runs in its own process group and we kill the group
-async function stop(p: Bun.Subprocess) {
-  process.kill(-p.pid, 'SIGTERM')
-  await p.exited
-  for (let i = 0; i < 100; i++) { try { await fetch(BASE) } catch { return } await Bun.sleep(100) }
-  throw new Error('wrangler dev still serving after stop')
-}
+import { startWrangler as start, stopWrangler } from './dev'
+const startWrangler = () => start(DIR, PORT, PERSIST)
+const stop = (p: Bun.Subprocess) => stopWrangler(p, PORT)
 
 // anvil keys 0,1,2
 const A = new Device(BASE, privateKeyToAccount('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'))
@@ -67,21 +50,25 @@ try {
   check(created.status === 201, `A creates chain -> ${created.status} ${created.data.chainId}`)
   const id = created.data.chainId
   check((await B.call('GET', `/chains/${id}`)).status === 403, 'B (not yet approved) refused with 403')
-  check((await B.call('POST', `/chains/${id}/members`, { add: [B.address] })).status === 403, 'B cannot add itself (owner only)')
-  check((await A.call('POST', `/chains/${id}/members`, { add: [B.address] })).status === 200, 'A (owner) approves B')
+  // membership is the on-chain ChainAccess contract now: approve = an addWriter tx from the admin
+  const head0 = (await A.call('GET', `/chains/${id}/head`)).data.hash
+  pendingNonce = 0
+  const selfAdd = await B.call('POST', `/chains/${id}/submit`, { expectedHead: head0, txs: [await B.account.signTransaction!({ type: 'eip1559', chainId: 777, nonce: 0, to: ACCESS, data: accessCall('addWriter', [B.address]), gas: 200_000n, maxFeePerGas: 3_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n })] })
+  check(selfAdd.status === 403, `B cannot add itself (not a writer) -> ${selfAdd.status} ${selfAdd.data.error}`)
+  check((await A.call('POST', `/chains/${id}/submit`, { expectedHead: head0, txs: [await txN(A, ACCESS, accessCall('addWriter', [B.address]))] })).status === 200, 'A (admin) approves B with an addWriter tx')
   const unsigned = await fetch(`${BASE}/chains/${id}`)
   check(unsigned.status === 401, `unsigned request refused with ${unsigned.status}`)
 
   // ---- replicas ----
   const rA = await Replica.open(A, id, WASM)
   const rB = await Replica.open(B, id, WASM)
+  await rA.sync(); await rB.sync()
   let bHeads = 0
   const ws = await rB.subscribe(() => bHeads++)
 
-  // block 1: deploy counter + transfer to B (2 txs)
-  pendingNonce = 0
+  // block 2: deploy counter + transfer to B (2 txs)
   const r1 = await rA.submit([await txN(A, null, COUNTER_INIT as Hex), await txN(A, B.account.address, '0x', 10n ** 18n)])
-  check(r1.status === 200, `A submits block 1 (deploy + transfer) -> ${r1.status}`)
+  check(r1.status === 200, `A submits block 2 (deploy + transfer) -> ${r1.status}`)
   const counter = (r1.data.block.receipts[0] as any).contractAddress as Hex
   // blocks 2..21: one counter increment each, for timings
   const timings: any[] = [r1.data.timings]
@@ -113,7 +100,7 @@ try {
   // ---- outsider ----
   check((await X.call('GET', `/chains/${id}`)).status === 403, 'non-member X: GET chain -> 403')
   check((await X.call('GET', `/chains/${id}/blocks?after=0`)).status === 403, 'non-member X: fetch blocks -> 403')
-  check((await X.call('POST', `/chains/${id}/submit`, { expectedHead: rA.head.hash, txs: [] })).status === 403, 'non-member X: submit -> 403')
+  check((await X.call('POST', `/chains/${id}/submit`, { expectedHead: rA.head.hash, txs: [await X.account.signTransaction!({ type: 'eip1559', chainId: 777, nonce: 0, to: X.account.address, gas: 21_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })] })).status === 403, 'non-member X: submit -> 403')
   let xws = 'open'
   try { const s = await X.socket(id); await new Promise((ok, err) => { s.onopen = () => ok(0); s.onerror = err; s.onclose = err }); } catch { xws = 'refused' }
   check(xws === 'refused', `non-member X: subscribe -> ${xws}`)
@@ -126,9 +113,9 @@ try {
   check(first.status === 200 && second.status === 401, `replayed signed request: first ${first.status}, replay ${second.status}`)
   // removal kicks the socket
   const closed = new Promise<number>((ok) => ws.addEventListener('close', (e) => ok(e.code)))
-  await A.call('POST', `/chains/${id}/members`, { remove: [B.address] })
-  check((await B.call('GET', `/chains/${id}`)).status === 403 && (await closed) === 4003, 'A removes B -> B refused, B\'s socket closed 4003')
-  await A.call('POST', `/chains/${id}/members`, { add: [B.address] })
+  await rA.submit([await txN(A, ACCESS, accessCall('removeWriter', [B.address]))])
+  check((await B.call('GET', `/chains/${id}`)).status === 403 && (await closed) === 4003, 'A removes B (removeWriter tx) -> B refused, B\'s socket closed 4003')
+  await rA.submit([await txN(A, ACCESS, accessCall('addWriter', [B.address]))])
 
   const snapGrowth = (await A.call('GET', `/chains/${id}/blocks?after=-1`)).data.map((b: any) => [b.number, b.snapshotBytes])
   const headBefore = rA.head
