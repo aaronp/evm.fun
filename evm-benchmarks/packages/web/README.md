@@ -117,6 +117,29 @@ The **Assets** page lists the selected chain's tokens with the native coin (ETH)
 - **Chains:** offers live in the contract, so they travel with snapshots, exports, forks and imports; a fork shows the parent's offers and its own Swap record.
 - **Limits:** ERC-20 only (no native ETH), each offer fills whole, no named markets, the book, "your offers" and Activity reads grow with chain history (risks R17, R19, R20).
 
+## Cross-chain swap
+
+**Cross-chain swap** (`/xswap`) trades tokens between two chains with no trusted party, using `HashLock.sol` on each (helpers in `@evmb/htlc`, see [packages/htlc/README.md](../htlc/README.md); ADR-0021). Either both legs complete or both are refunded.
+
+- **Two columns:** chain A (the selected chain, `?chain=`) on the left and chain B (`?chainB=`, picked on the page) on the right. Each column shows its head block, "Deploy HashLock.sol?" when the chain has none, and **Advance blocks**. The title reads "Cross-chain swap · GBP (A) ⇄ USD (B)". Benchmark chains keep no contract records, so the page is disabled on them.
+- **Advance blocks:** timeouts are in blocks, and a plain chain only makes blocks when there are transactions, so each column can mine N empty blocks (`mine()` on the chain). It is disabled while a send is in flight or transactions are pending. Use it to run a timeout down and to see Refund appear.
+- **Roles come from the locks, not the URL:** `?as=` is just the acting account. The maker is whoever made the opening lock on A (its terms: want chain, lock, token, amount); the taker is its recipient. Switch "Acting as" between them. Incoming lists locks addressed to you.
+- **Flow:** maker approves and locks on A (a secret is made and the `?hash=` is set); the taker approves and answers on B under the same hash; the maker claims on B, which reveals the secret; the taker claims on A with it. An answer pairs only with matching hash, swapped sender/recipient, the wanted token and amount on the wanted lock; anything else is ignored.
+- **Safety:** defaults are maker timeout = head A + 100, taker timeout = head B + 50. A swap is safe when the maker's remaining blocks exceed the taker's by at least 10. If not, the taker sees a warning and must press **Lock anyway**; the reports flag "unsafe timeouts".
+- **Claim / Refund edges:** a transaction mines at head + 1, so Claim is offered while `head + 1 < timeout` and Refund from `head + 1 >= timeout` (the countdown reads "refundable now"); the buttons follow those rules, not a simulation, because `eth_call` runs at the head. A claim after the timeout reverts `Expired`, an early refund `NotExpired` ("Advance dave n blocks, then refund.").
+- **The secret stays in this browser:** the maker's secret is kept in the browser's key-value store, keyed by its hash, and shown (masked, with Reveal) only to the maker. The taker's view, URLs and reports never carry it until the maker's claim has put it on chain. It is also written into **workspace files** (`secrets`), so a saved file lets you claim after Open; treat that file like the private keys it already holds. The taker-answer's chain-A head (`answers`) is saved too, so reports keep their "unsafe" verdict after Open.
+- **Reports:** Report (`/xswap/report`) explains the swap from the chain alone: both locks, steps, balance changes, Download JSON, and an outcome: `completed`, `refunded (maker)`, `refunded (both)`, `taker lost`, `maker lost` or `stuck` (a lock is still open). "unsafe timeouts" is shown when the answer was unsafe; because two chains share no clock it is judged from each lock's own block (or A's head at the answer when the page knows it). A reverted claim or refund opens the tx report with the decoded fix and a link back to the swap.
+- **Reload and files:** locks live on the chains, so a reload, or Save, New and Open mid-swap, keeps the swap and the maker can still claim.
+- **Limits:** ERC-20 only; finding locks reads `Locked` logs from the deploy block (risk R48); only chain A's newest HashLock is searched (R50); blocks stand in for time across chains (R49).
+
+### Walkthroughs
+
+Three bundled walkthroughs run the whole swap across two chains (dave, sue) in the ribbon, each step landing on the real page, in Get started:
+
+- **Swap pounds for dollars across two chains** (`gbp-usd-xswap`): the claim path, ending `completed`.
+- **Get your tokens back when nobody answers** (`gbp-usd-xswap-refund`): Alice locks, Bob never answers, dave advances past her timeout and she refunds (`refunded (maker)`).
+- **Why the taker's timeout must be shorter** (`gbp-usd-xswap-unsafe`): Bob answers with a timeout that ends less than 10 blocks before Alice's and presses "Lock anyway"; Alice claims late and refunds, ending `taker lost` with the unsafe flag.
+
 ## Themes
 
 Three themes: **dark**, **light** and **paper** (warm off-white). Colours are CSS custom properties (`--c-*`) defined once per theme in `src/theme/tokens.css` and mapped to Tailwind colours in `src/index.css`; components use only those tokens.

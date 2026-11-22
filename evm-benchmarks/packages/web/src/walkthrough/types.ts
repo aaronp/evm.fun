@@ -1,4 +1,5 @@
 import type { Address, Hex } from 'viem'
+import type { Phase, SwapOutcome } from '@evmb/htlc'
 
 export type KeyDef =
   | { account: { label: string } }
@@ -9,10 +10,12 @@ export type KeyDef =
   | { venue: { venue: 'onchain' | 'offchain' } }
   | { order: Record<string, never> }
   | { pool: Record<string, never> }
+  | { hashLock: Record<string, never> }
 
 export type StepType =
   | 'account' | 'chain' | 'launchAsset' | 'deploySwap' | 'approve' | 'makeOffer' | 'take' | 'view'
   | 'deployVenue' | 'placeOrder' | 'cancelOrder' | 'transfer' | 'deployPool' | 'addLiquidity' | 'removeLiquidity' | 'poolSwap'
+  | 'deployHashLock' | 'lockFunds' | 'claimLock' | 'refundLock' | 'advanceBlocks'
 
 export type OrderStatus = 'open' | 'partial' | 'filled' | 'cancelled' | 'failed' | 'unfunded'
 
@@ -24,6 +27,9 @@ export type Check =
   | { order: string; status: OrderStatus; filled?: string }
   | { trades: string; count: number }
   | { pool: string; kGrew: true }
+  /** `swap`/`report`: the id of the lockFunds step that opened the swap */
+  | { swap: string; phase: Phase }
+  | { report: string; outcome: SwapOutcome; unsafe?: boolean }
 
 export type Step = {
   id: string
@@ -58,6 +64,13 @@ export type Outputs = {
   /** paid out in the pool's (deploy) order */
   removeLiquidity: { tx: Hex; base: string; quote: string }
   poolSwap: { tx: Hex; out: string }
+  deployHashLock: { address: Address }
+  /** `id`: the lock's id (decimal); `hash`: the swap's hash (never the secret: runs are shown and saved) */
+  lockFunds: { tx: Hex; id: string; hash: Hex }
+  claimLock: { tx: Hex }
+  refundLock: { tx: Hex }
+  /** the chain's head after advancing (decimal) */
+  advanceBlocks: { head: string }
 }
 
 export type StepRecord = { inputs: Record<string, string>; outputs: Outputs[StepType]; at: string }

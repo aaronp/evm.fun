@@ -1,6 +1,7 @@
 import { assetId } from '@evmb/assets'
 import type { Address } from 'viem'
 import type { Outputs, Run, Step, Walkthrough } from './types'
+import { chainKeyOf, chainsAB, keyName, openingOf } from './resolve'
 
 export type Binding = { path(run: Run): string; fields: string[]; actions: string[]; areas: string[]; report: string }
 
@@ -63,14 +64,47 @@ const POOL: Partial<Record<Step['do'], string[]>> = {
   addLiquidity: ['pool.tab', 'add.base', 'add.quote'], removeLiquidity: ['pool.tab', 'remove.percent'],
   poolSwap: ['pool.tab', 'swap.pay', 'swap.amount', 'swap.slippage'],
 }
+const XMAKE = ['xswap.amount', 'xswap.want', 'xswap.taker', 'xswap.timeout']
+/** The page's column for the step's chain: A or B. */
+const side = (step: Step, w: Walkthrough) => (chainKeyOf(w, step) === chainsAB(w)[0] ? 'A' : 'B')
 const ACT: Partial<Record<Step['do'], string>> = { addLiquidity: 'pool.add', removeLiquidity: 'pool.remove', poolSwap: 'pool.swap' }
 
 /** `/assets?asset=<id>` for a transfer's asset on the run's chain, once both exist. */
 const assetPath = (step: Step, w: Walkthrough) => (run: Run) => {
-  const chainKey = Object.keys(w.keys).find(k => 'chain' in w.keys[k]!)
+  const chainKey = chainKeyOf(w, step)
   const chain = chainKey && (run.values[chainKey] as Outputs['chain'] | undefined)?.id
   const token = (run.values[keyOf(step.args?.amount) ?? ''] as { address?: Address } | undefined)?.address
   return chain && token ? `/assets?asset=${encodeURIComponent(assetId(chain, token))}` : '/assets'
+}
+
+const XSWAP = ['deployHashLock', 'lockFunds', 'claimLock', 'refundLock', 'advanceBlocks']
+/** The step runs on the Cross-chain swap page: an xswap step, or an approve before a lock. */
+export const onXSwap = (step: Step, w: Walkthrough) =>
+  XSWAP.includes(step.do) || (step.do === 'approve' && w.steps.find(s => s.id === step.args?.before)?.do === 'lockFunds')
+
+/** The chain the app selects for a step (the wizard switches to it): chain A on /xswap, whichever chain the step acts on; else the step's own. */
+export function pageChain(w: Walkthrough, step: Step, run: Run): string | undefined {
+  const k = onXSwap(step, w) ? chainsAB(w)[0] : chainKeyOf(w, step)
+  return k ? (run.values[k] as Outputs['chain'] | undefined)?.id : undefined
+}
+
+/** `/xswap?chain=<A>&chainB=<B>&as=<who acts>&base=&quote=&hash=`: from the run's actual chains, accounts, tokens and swap. */
+function xswapPath(step: Step, w: Walkthrough) {
+  const i = w.steps.indexOf(step)
+  // who the page acts as: the step's `from`, else the nearest earlier step's (Advance blocks is nobody's)
+  const from = w.steps.slice(0, i + 1).reverse().find(s => s.args?.from)?.args?.from
+  const open = openingOf(w, step.do === 'lockFunds' && !step.args?.swap ? step.id : (step.args?.swap as string | undefined))
+    ?? openingOf(w, w.steps.find(s => s.id === step.args?.before)?.id) ?? openingOf(w)
+  return (run: Run) => {
+    const v = (k?: string) => (k ? run.values[k] as { id?: string; address?: string } | undefined : undefined)
+    const [kA, kB] = chainsAB(w)
+    const hash = open && (run.steps[open.id]?.outputs as Outputs['lockFunds'] | undefined)?.hash
+    const q = Object.entries({
+      chain: v(kA)?.id, chainB: v(kB)?.id, as: v(keyName(from))?.address,
+      base: v(keyName(open?.args?.amount))?.address, quote: v(keyName(open?.args?.for))?.address, hash,
+    }).filter(([, x]) => x)
+    return q.length ? `/xswap?${new URLSearchParams(q as [string, string][])}` : '/xswap'
+  }
 }
 
 /**
@@ -95,8 +129,19 @@ export function binding(step: Step, w: Walkthrough): Binding {
     case 'deployVenue': return b(tradePath(step, w), [], ['trade.deploy'])
     case 'placeOrder': return b(tradePath(step, w), ORDER, ['order.submit'], 'order.card')
     case 'cancelOrder': return b(tradePath(step, w), ['cancel.order'], ['order.cancel'], 'orders.card')
+    case 'deployHashLock': return b(xswapPath(step, w), [], [`xswap.deploy${side(step, w)}`])
+    case 'advanceBlocks': return b(xswapPath(step, w), [`xswap.blocks${side(step, w)}`], [`xswap.advance${side(step, w)}`])
+    case 'lockFunds': return step.args?.swap
+      // "Lock anyway" only when the step asks for it; the page reports either press as `xswap.accept`
+      ? { ...b(xswapPath(step, w), ['xswap.answerTimeout'], [step.args.unsafe === true ? 'xswap.acceptUnsafe' : 'xswap.accept'], 'xswap.acceptCard'), report: 'xswap.accept' }
+      : b(xswapPath(step, w), XMAKE, ['xswap.lock'], 'xswap.make')
+    case 'claimLock': return b(xswapPath(step, w), [], [`xswap.claim${side(step, w)}`], 'xswap.claims')
+    case 'refundLock': return b(xswapPath(step, w), [], [`xswap.refund${side(step, w)}`], 'xswap.claims')
     case 'approve': {
       const before = w.steps.find(s => s.id === step.args?.before)
+      if (before?.do === 'lockFunds') return before.args?.swap
+        ? b(xswapPath(step, w), ['xswap.answerTimeout'], ['xswap.acceptApprove'], 'xswap.acceptCard')
+        : b(xswapPath(step, w), XMAKE, ['xswap.approve'], 'xswap.make')
       if (before?.do === 'placeOrder') return b(tradePath(step, w), ORDER, ['order.approve'], 'order.card')
       if (before?.do === 'addLiquidity' || before?.do === 'poolSwap') return b(poolPath, POOL[before.do]!, ['pool.approve'], 'pool.card')
       const side = before?.do === 'take' ? 'take' : 'offer'

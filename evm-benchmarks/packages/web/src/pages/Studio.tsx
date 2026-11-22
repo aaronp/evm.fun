@@ -26,6 +26,7 @@ import { contractsRegistry, type DeployedContract } from '../contracts/registry'
 import { deploySwap, NO_RECORDS, swapFor } from '../swap/locate'
 import { deployVenue, venueFor } from '../orderbook/locate'
 import { deployPool } from '../pool/locate'
+import { deployHashLock, hashLockFor } from '../htlc/locate'
 import type { Asset } from '@evmb/assets'
 import type { ChainHandle } from '../chain/handle'
 import type { Account } from '../store/accounts'
@@ -203,7 +204,8 @@ export function Studio() {
   const swapAction = useDeployOne('swap', 'Swap', swapFor, deploySwap, deployCtx)
   const bookAction = useDeployOne('orderbook', 'OrderBook', c => venueFor(c, 'onchain'), (c, a, s) => deployVenue(c, 'onchain', a, s), deployCtx)
   const settlementAction = useDeployOne('settlement', 'Settlement', c => venueFor(c, 'offchain'), (c, a, s) => deployVenue(c, 'offchain', a, s), deployCtx)
-  useAppBar({ title: 'Studio', actions: [swapAction, bookAction, settlementAction] })
+  const hashLockAction = useDeployOne('hashlock', 'HashLock', hashLockFor, deployHashLock, deployCtx)
+  useAppBar({ title: 'Studio', actions: [swapAction, bookAction, settlementAction, hashLockAction] })
 
   const compile = async () => {
     setBusy(true)

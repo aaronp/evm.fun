@@ -3,11 +3,11 @@
   "title": "evm.fun",
   "subtitle": "Kanban board",
   "status": {
-    "label": "30 open",
+    "label": "31 open",
     "tone": "neutral"
   },
   "heading": {
-    "primary": "62/92",
+    "primary": "63/94",
     "label": "tasks done"
   },
   "legend": [
@@ -28,13 +28,13 @@
     }
   ],
   "report": {
-    "To Do": 30,
+    "To Do": 31,
     "Doing": 0,
-    "Done": 62
+    "Done": 63
   },
   "source": {
     "label": "docs/board/board.md",
     "url": "https://aaronp.github.io/agile/?src=docs/board/board.md"
   },
-  "updated": "2026-11-21"
+  "updated": "2026-11-22"
 }

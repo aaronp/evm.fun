@@ -24,6 +24,13 @@ Named things with initial values the user may change. Each has one kind:
 | `{ "venue": { "venue": "onchain" \| "offchain" } }` | an order-book venue (OrderBook / Settlement contract) | `deployVenue` |
 | `{ "order": {} }` | a resting order | `placeOrder` |
 | `{ "pool": {} }` | a liquidity pool (Pool contract) | `deployPool` |
+| `{ "hashLock": {} }` | a HashLock contract on one chain | `deployHashLock` |
+
+**Two chains.** A walkthrough may declare two `chain` keys (the cross-chain swaps: `dave` and `sue`). Then every step
+that acts on a chain names it with `args.chain` (`"$dave"`), except `account`, `chain`, `view` and `approve` (an
+approve runs on its `before` step's chain); with one chain key, `args.chain` defaults to it. A balance check reads the
+asset's own chain (where its `launchAsset` ran). Chain A of a swap is the chain of its opening lock, chain B the chain
+of the asset it wants.
 
 When a step completes, the run records its **actual values** (address, id, tx hash). `$name` anywhere in a step resolves through those, never the initial value: if the user renames GBP to EUR, `$GBP` is the EUR token. A `$name` used before its step, or never declared, fails validation; one with no value at run time is an error naming the step and key.
 
@@ -49,6 +56,11 @@ an order that fills in full rests nothing (off-chain it then has no id), so a ta
 | `addLiquidity` | none | `from`, `pool` (`$pool`), `base`, `quote` (`"<amount> $ASSET"`, the pool's two tokens, one each). Minimum shares at 0.5% below the quote. |
 | `removeLiquidity` | none | `from`, `pool`, `percent` (whole number 1–100 of `from`'s shares). Minimums at 0.5% below the quote. |
 | `poolSwap` | none | `from`, `pool`, `pay` (`"<amount> $ASSET"`, one of the pool's tokens), `slippageBps` (10, 50 or 100: the page's 0.1% / 0.5% / 1%). |
+| `deployHashLock` | hashLock | `from`, `chain`. |
+| `lockFunds` | none | Opening (the maker): `from`, `chain`, `to` (`$account`, the taker), `amount` (on this chain), `for` (`"<amount> $ASSET"` on the other chain), `timeout` (blocks from this chain's head). A new secret is kept in the browser's `secrets` kv; the run records only `{ tx, id, hash }`. Answer (the taker): `from`, `chain` (the wanted asset's), `swap` (id of the opening step), `timeout`, `unsafe: true` when the timeout breaks the safety rule (the page's "Lock anyway"; without it the headless runner refuses, as the page warns). |
+| `claimLock` | none | `from`, `chain`, `swap`. On chain B the maker claims with the kept secret (revealing it); on chain A the taker claims with the secret read from B. |
+| `refundLock` | none | `from`, `chain`, `swap`: refunds that chain's lock of the swap once its timeout passed. |
+| `advanceBlocks` | none | `chain`, `blocks` (1–9999): mines empty blocks, standing in for time passing. |
 | `view` | none | `{ "page": "swap", "base", "quote" }` (two `$assets`), `{ "page": "trade", "venue", "base", "quote" }`, `{ "page": "pool", "pool" }` or `{ "page": "report", "step" }` (id of a `take` step). |
 
 Amounts are `"<decimal> $KEY"`, parsed at the asset's actual decimals. Offer ids are decimal strings, read from the `OfferMade` event. Order steps record `deployVenue {address, venue}`,
@@ -70,6 +82,8 @@ the add, the baseline for `kGrew`), `removeLiquidity {tx, base, quote}` (paid ou
 - `{ "outcome": "taken" | "reverted", "error"?: "<error name>" }` (on `take`)
 - `{ "order": "$order", "status": "open" | "partial" | "filled" | "cancelled" | "failed" | "unfunded", "filled"?: "<amount> $BASE" }` as its venue lists it now
 - `{ "trades": "$venue", "count": <n> }` exactly `n` trades in the market of the first `placeOrder` on that venue
+- `{ "swap": "<opening step id>", "phase": "offered" | "answered" | "claimedB" | "complete" | "refundedA" | "refundedB" | "refundedBoth" | "expiring" }` (`swapState`)
+- `{ "report": "<opening step id>", "outcome": "completed" | "refunded (maker)" | "refunded (taker)" | "refunded (both)" | "taker lost" | "maker lost" | "stuck", "unsafe"?: true | false }` (`swapReport`, with A's head at the answer when this browser kept it)
 - `{ "pool": "$pool", "kGrew": true }` the pool's `k = x · y` now is above `k` right after its first recorded `addLiquidity` (fees only grow it)
 
 ## How the runners use a file
@@ -84,6 +98,10 @@ the add, the baseline for `kGrew`), `removeLiquidity {tx, base, quote}` (paid ou
   app they run on the Pool page (`/pool?base=&quote=`, the pair as deployed); the ribbon picks the tab (`pool.tab`)
   before filling the tab's fields. A transfer runs in the Assets page's Send dialog (`/assets?asset=<id>`), sent from
   the acting account.
+- **Cross-chain swaps.** In the app every swap step runs on the Cross-chain swap page,
+  `/xswap?chain=<A>&chainB=<B>&as=<who acts>&base=&quote=&hash=` (the swap's `hash` once the opening lock is made);
+  the wizard selects chain A for them, whichever chain the step acts on, and presses that chain's column button
+  (Deploy HashLock.sol?, Advance {n} blocks) or the Make / Accept / Claim / Refund button the page shows.
 - Headless: `perform` does a step with the same helpers the pages use, `record` stores its outputs, `done` skips finished steps. The runner (`src/walkthrough/*.ts`) imports no React or DOM.
 
 ## Adding one

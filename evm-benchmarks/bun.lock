@@ -73,6 +73,17 @@
         "@evmb/approach-01-webevm-baseline": "workspace:*",
       },
     },
+    "packages/htlc": {
+      "name": "@evmb/htlc",
+      "dependencies": {
+        "@evmb/assets": "workspace:*",
+        "viem": "^2.58.1",
+      },
+      "devDependencies": {
+        "@evmb/contracts": "workspace:*",
+        "webevm": "0.9.1",
+      },
+    },
     "packages/orderbook": {
       "name": "@evmb/orderbook",
       "dependencies": {
@@ -118,6 +129,7 @@
         "@evmb/assets": "workspace:*",
         "@evmb/contracts": "workspace:*",
         "@evmb/core": "workspace:*",
+        "@evmb/htlc": "workspace:*",
         "@evmb/orderbook": "workspace:*",
         "@evmb/pool": "workspace:*",
         "@evmb/swap": "workspace:*",
@@ -285,6 +297,8 @@
     "@evmb/contracts": ["@evmb/contracts@workspace:packages/contracts"],
 
     "@evmb/core": ["@evmb/core@workspace:packages/core"],
+
+    "@evmb/htlc": ["@evmb/htlc@workspace:packages/htlc"],
 
     "@evmb/orderbook": ["@evmb/orderbook@workspace:packages/orderbook"],
 

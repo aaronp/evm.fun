@@ -6,27 +6,6 @@ theme: ledger
 
 ## To Do
 
-### Cross-chain swap (HTLC)
-- id: t-62
-- history:
-  - To Do @ 2026-11-20T08:47:27.136Z
-
-```md
-The same offer, but GBP on dave and USD on sue, using your AtomicSwap.sol:
-
-the maker locks GBP under a hash;
-the taker locks USD under the same hash;
-the maker claims the USD, which reveals the secret;
-the taker uses the secret to claim the GBP.
-
-Two new playground pieces are needed:
-
-A watcher. Something has to see events on one chain and act on the other. In the playground, the UI can play both parties.
-A way to make blocks pass. Timeouts are measured in blocks, and a plain chain only makes blocks when there are transactions. You’d need an “advance N blocks” control to test refunds.
-
-This gives you cross-chain settlement early and with little machinery. Done when both the claim path and the refund path work and each produces a report.
-```
-
 ### Signed orders and off-chain matching
 - id: t-65
 - history:
@@ -302,9 +281,55 @@ ADR-0019, R37, R38: no factory, so pools are found via contract records. Add a r
 ADR-0019, R39, R40: use full-precision mulDiv in Pool.sol to remove the theoretical uint256 overflow ceiling; support or explicitly reject fee-on-transfer and rebasing tokens (measure received balances).
 ```
 
+### Cross-chain swap: locksFor log scan
+- id: t-93
+- tags: htlc, backlog
+- history:
+  - To Do @ 2026-11-22T10:34:06Z
+
+```md
+ADR-0021, R48: `locksFor` reads every `Locked` log from the HashLock's deploy block; bound the window or index locks so page loads don't grow with the chain.
+```
+
+### Cross-chain swap: older HashLocks on chain A
+- id: t-94
+- tags: htlc, backlog
+- history:
+  - To Do @ 2026-11-22T10:34:06Z
+
+```md
+ADR-0021, R50: `sidesFor` reads only chain A's newest HashLock, so an opening lock on an earlier one isn't found after a redeploy; search every HashLock record on A.
+```
+
 ## Doing
 
 ## Done
+
+### Cross-chain swap (HTLC)
+- id: t-62
+- tags: web, htlc
+- history:
+  - To Do @ 2026-11-20T08:47:27.136Z
+  - Doing @ 2026-11-21T20:46:44Z
+  - Done @ 2026-11-22T10:34:06Z
+
+```md
+The same offer, but GBP on dave and USD on sue, using your AtomicSwap.sol:
+
+the maker locks GBP under a hash;
+the taker locks USD under the same hash;
+the maker claims the USD, which reveals the secret;
+the taker uses the secret to claim the GBP.
+
+Two new playground pieces are needed:
+
+A watcher. Something has to see events on one chain and act on the other. In the playground, the UI can play both parties.
+A way to make blocks pass. Timeouts are measured in blocks, and a plain chain only makes blocks when there are transactions. You’d need an “advance N blocks” control to test refunds.
+
+This gives you cross-chain settlement early and with little machinery. Done when both the claim path and the refund path work and each produces a report.
+
+Built as ADR-0021: HashLock.sol, `@evmb/htlc`, the /xswap page and three walkthroughs (claim, refund, unsafe). Spec: docs/superpowers/specs/2026-11-22-cross-chain-swap-design.md.
+```
 
 ### Top app bar, profile menu and workspace files (File: New / Open / Save)
 - id: t-92

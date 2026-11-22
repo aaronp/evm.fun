@@ -31,7 +31,7 @@ describe('/swap', () => {
     const { groups, real } = await import('../src/App')
     const { AppState } = await import('../src/state')
     const { AppBarProvider } = await import('../src/state/appBar')
-    expect(groups.find(g => g.label === 'Markets')!.items.map(([n]) => n)).toEqual(['Assets', 'Swap', 'Pool', 'Trade'])
+    expect(groups.find(g => g.label === 'Markets')!.items.map(([n]) => n)).toEqual(['Assets', 'Swap', 'Cross-chain swap', 'Pool', 'Trade'])
     const html = renderToString(h(MemoryRouter, { initialEntries: ['/swap'] }, h(AppState, null, h(AppBarProvider, null, real.Swap!))))
     expect(html).toContain('Select a chain first.')
   })

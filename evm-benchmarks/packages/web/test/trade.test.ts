@@ -109,7 +109,7 @@ test('Trade sits under Markets after Swap and Pool; without a chain it says "Sel
   const { groups, real } = await import('../src/App')
   const { AppState } = await import('../src/state')
   const { AppBarProvider } = await import('../src/state/appBar')
-  expect(groups.find(g => g.label === 'Markets')!.items.map(([n]) => n)).toEqual(['Assets', 'Swap', 'Pool', 'Trade'])
+  expect(groups.find(g => g.label === 'Markets')!.items.map(([n]) => n)).toEqual(['Assets', 'Swap', 'Cross-chain swap', 'Pool', 'Trade'])
   const html = renderToString(h(MemoryRouter, { initialEntries: ['/trade'] }, h(AppState, null, h(AppBarProvider, null, real.Trade!))))
   expect(html).toContain('Select a chain first.')
 })

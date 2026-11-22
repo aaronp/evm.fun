@@ -1,11 +1,16 @@
 import { parsePrice } from '@evmb/orderbook'
 import { parseAmount } from '../assets/ui'
 import type { Walkthrough } from './types'
+import { assetChainKey, chainKeyOf } from './resolve'
 
 type Err = { step?: string; field: string; message: string }
-const TYPES = ['account', 'chain', 'launchAsset', 'deploySwap', 'approve', 'makeOffer', 'take', 'view', 'deployVenue', 'placeOrder', 'cancelOrder', 'transfer', 'deployPool', 'addLiquidity', 'removeLiquidity', 'poolSwap']
+const TYPES = ['account', 'chain', 'launchAsset', 'deploySwap', 'approve', 'makeOffer', 'take', 'view', 'deployVenue', 'placeOrder', 'cancelOrder', 'transfer', 'deployPool', 'addLiquidity', 'removeLiquidity', 'poolSwap', 'deployHashLock', 'lockFunds', 'claimLock', 'refundLock', 'advanceBlocks']
+const PHASES = ['offered', 'answered', 'claimedB', 'complete', 'refundedA', 'refundedB', 'refundedBoth', 'expiring']
+const OUTCOMES = ['completed', 'refunded (maker)', 'refunded (taker)', 'refunded (both)', 'taker lost', 'maker lost', 'stuck']
+/** steps that need no chain of their own */
+const CHAINLESS = ['account', 'chain', 'approve', 'view']
 const STATUSES = ['open', 'partial', 'filled', 'cancelled', 'failed', 'unfunded']
-const KIND_OF: Record<string, string | undefined> = { account: 'account', chain: 'chain', launchAsset: 'asset', deploySwap: 'swap', makeOffer: 'offer', deployVenue: 'venue', placeOrder: 'order', deployPool: 'pool' }
+const KIND_OF: Record<string, string | undefined> = { account: 'account', chain: 'chain', launchAsset: 'asset', deploySwap: 'swap', makeOffer: 'offer', deployVenue: 'venue', placeOrder: 'order', deployPool: 'pool', deployHashLock: 'hashLock' }
 const isObj = (x: unknown): x is Record<string, any> => typeof x === 'object' && x !== null && !Array.isArray(x)
 const kindOf = (def: unknown) => (isObj(def) ? Object.keys(def)[0] : undefined)
 const names = (s: string) => [...s.matchAll(/\$(\w+)/g)].map(m => m[1])
@@ -23,6 +28,17 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
   const index = new Map<string, number>(steps.map((s, i) => [s?.id, i]))
   const filled = new Set<string>() // keys whose step came earlier
   const seen = new Set<string>()
+  const chainKeys = Object.keys(keys).filter(k => kindOf(keys[k]) === 'chain')
+  const w = json as unknown as Walkthrough
+  /** resolve helpers on a file not yet valid: undefined where its shape is off */
+  const safe = <T>(f: () => T) => { try { return f() } catch { return undefined } }
+  const stepChain = (s: any) => safe(() => chainKeyOf(w, s))
+  const assetChain = (text: unknown) => safe(() => assetChainKey(w, names(String(text ?? ''))[0]))
+  /** the opening lockFunds step `ref` names, if it comes before step i */
+  const openingAt = (ref: unknown, i: number) => {
+    const j = index.get(ref as string)
+    return j !== undefined && j < i && steps[j]?.do === 'lockFunds' && isObj(steps[j].args) && steps[j].args.swap === undefined ? steps[j] : undefined
+  }
 
   steps.forEach((s, i) => {
     const id = isObj(s) && typeof s.id === 'string' ? s.id : `#${i}`
@@ -64,11 +80,14 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
     switch (s.do) {
       case 'placeOrder': if (s.key === undefined) break // a taker filled in full rests nothing, so may have no key
       // falls through
-      case 'account': case 'deploySwap': case 'chain': case 'launchAsset': case 'makeOffer': case 'deployVenue': case 'deployPool':
+      case 'account': case 'deploySwap': case 'chain': case 'launchAsset': case 'makeOffer': case 'deployVenue': case 'deployPool': case 'deployHashLock':
         if (typeof s.key !== 'string' || !(s.key in keys)) e('key', 'Needs a declared key')
         else if (kindOf(keys[s.key]) !== KIND_OF[s.do]) e('key', `Key ${s.key} must be kind ${KIND_OF[s.do]}`)
         break
     }
+    if (args.chain !== undefined) kindArg('chain', 'chain')
+    else if (chainKeys.length > 1 && !CHAINLESS.includes(s.do))
+      e('chain', `Name the chain (${chainKeys.map(k => `$${k}`).join(' or ')}): this walkthrough has ${chainKeys.length === 2 ? 'two' : chainKeys.length}`)
     if (s.do === 'chain') {
       if (!Array.isArray(args.prefund)) e('args.prefund', 'prefund must be a list')
       else args.prefund.forEach((p: unknown) => use('args.prefund', p))
@@ -77,13 +96,20 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
       if (typeof args.supply !== 'string' || !/^\d+(\.\d+)?$/.test(args.supply)) e('args.supply', 'supply must be a number')
       kindArg('issuer', 'account')
     }
-    if (['deploySwap', 'approve', 'makeOffer', 'take', 'deployVenue', 'placeOrder', 'cancelOrder', 'transfer', 'deployPool', 'addLiquidity', 'removeLiquidity', 'poolSwap'].includes(s.do)) kindArg('from', 'account')
+    if (['deploySwap', 'approve', 'makeOffer', 'take', 'deployVenue', 'placeOrder', 'cancelOrder', 'transfer', 'deployPool', 'addLiquidity', 'removeLiquidity', 'poolSwap', 'deployHashLock', 'lockFunds', 'claimLock', 'refundLock'].includes(s.do)) kindArg('from', 'account')
     if (s.do === 'approve') {
       amountArg('amount', args.amount)
       const j = index.get(args.before)
       if (j === undefined || j <= i) e('before', 'before must be the id of a later step')
-      else if (!['makeOffer', 'take', 'placeOrder', 'addLiquidity', 'poolSwap'].includes(steps[j].do)) e('before', 'before must be a makeOffer, take, placeOrder, addLiquidity or poolSwap step')
-      else if (steps[j].do === 'placeOrder') {
+      else if (!['makeOffer', 'take', 'placeOrder', 'addLiquidity', 'poolSwap', 'lockFunds'].includes(steps[j].do)) e('before', 'before must be a makeOffer, take, placeOrder, addLiquidity, poolSwap or lockFunds step')
+      else if (steps[j].do === 'lockFunds') {
+        // what the lock gives: the opening its amount, an answer what the opening wants
+        const o = isObj(steps[j].args) ? steps[j].args : {}
+        const open = o.swap === undefined ? o : steps.find(x => x?.id === o.swap)?.args ?? {}
+        const give = names(String((o.swap === undefined ? open.amount : open.for) ?? ''))[0]
+        const got = typeof args.amount === 'string' ? names(args.amount)[0] : undefined
+        if (give && got && give !== got) e('amount', `amount must be in $${give}, what the lock gives`)
+      } else if (steps[j].do === 'placeOrder') {
         // what the order gives: the base for a sell, the quote for a buy
         const o = isObj(steps[j].args) ? steps[j].args : {}
         const give = o.side === 'buy' ? names(String(o.quote ?? ''))[0] : names(String(o.amount ?? ''))[0]
@@ -152,6 +178,39 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
       if (t && p && p in keys && !t.includes(p)) e('pay', "pay must be one of the pool's tokens")
       if (![10, 50, 100].includes(args.slippageBps)) e('slippageBps', 'slippageBps must be 10, 50 or 100 (the page offers 0.1%, 0.5%, 1%)')
     }
+    /** each of a swap's chains needs a HashLock deployed by an earlier step */
+    const hashLocks = (...ks: unknown[]) => {
+      for (const k of new Set(ks)) if (typeof k === 'string' && !steps.slice(0, i).some((x: any) => isObj(x) && x.do === 'deployHashLock' && stepChain(x) === k))
+        e('chain', `Deploy a HashLock on $${k} first (a deployHashLock step before this one)`)
+    }
+    if (s.do === 'lockFunds') {
+      if (!Number.isInteger(args.timeout) || args.timeout < 1 || args.timeout > 1e9) e('timeout', 'timeout must be a whole number of blocks (1 or more)')
+      if (args.swap !== undefined) {
+        const o = openingAt(args.swap, i)
+        if (!o) e('swap', 'swap must be the id of an earlier lockFunds that opens a swap')
+        else {
+          if (stepChain(s) !== assetChain(o.args.for)) e('chain', 'An answer locks on the chain of the asset the opening wants')
+          if (args.from !== o.args.to) e('from', `An answer comes from the account the opening lock is addressed to (${String(o.args.to)})`)
+          hashLocks(stepChain(o), assetChain(o.args.for))
+        }
+        if (args.unsafe !== undefined && args.unsafe !== true) e('unsafe', 'unsafe must be true (the page\'s "Lock anyway") or left out')
+      } else {
+        kindArg('to', 'account'); amountArg('amount', args.amount); amountArg('for', args.for)
+        if (args.unsafe !== undefined) e('unsafe', 'Only an answer can be unsafe')
+        if (assetChain(args.amount) && assetChain(args.amount) !== stepChain(s)) e('amount', 'amount must be an asset on this chain')
+        if (assetChain(args.for) && assetChain(args.for) === stepChain(s)) e('for', 'for must be an asset on the other chain')
+        hashLocks(stepChain(s), assetChain(args.for))
+      }
+    }
+    if (s.do === 'claimLock' || s.do === 'refundLock') {
+      const o = openingAt(args.swap, i)
+      if (!o) e('swap', 'swap must be the id of an earlier lockFunds that opens a swap')
+      else {
+        if (![stepChain(o), assetChain(o.args.for)].includes(stepChain(s))) e('chain', "chain must be one of the swap's two chains")
+        hashLocks(stepChain(o), assetChain(o.args.for))
+      }
+    }
+    if (s.do === 'advanceBlocks' && (!Number.isInteger(args.blocks) || args.blocks < 1 || args.blocks > 9999)) e('blocks', 'blocks must be a whole number from 1 to 9999 (the page\'s box)')
     if (s.do === 'view') {
       if (args.page === 'swap') { kindArg('base', 'asset'); kindArg('quote', 'asset') }
       else if (args.page === 'trade') { kindArg('venue', 'venue'); kindArg('base', 'asset'); kindArg('quote', 'asset') }
@@ -185,12 +244,19 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
       } else if ('kGrew' in c) {
         keyOf(c.pool, 'pool')
         if (c.kGrew !== true) e('expect', 'kGrew must be true')
+      } else if ('swap' in c) {
+        if (!openingAt(c.swap, i + 1)) e('expect', 'swap must be the id of a lockFunds that opens a swap, at or before this step')
+        if (!PHASES.includes(c.phase)) e('expect', `Unknown phase ${String(c.phase)}`)
+      } else if ('report' in c) {
+        if (!openingAt(c.report, i + 1)) e('expect', 'report must be the id of a lockFunds that opens a swap, at or before this step')
+        if (!OUTCOMES.includes(c.outcome)) e('expect', `Unknown outcome ${String(c.outcome)}`)
+        if (c.unsafe !== undefined && typeof c.unsafe !== 'boolean') e('expect', 'unsafe must be true or false')
       } else if ('outcome' in c) {
         if (!['taken', 'reverted'].includes(c.outcome)) e('expect', `Unknown outcome ${String(c.outcome)}`)
         if (c.error !== undefined && typeof c.error !== 'string') e('expect', 'error must be a string')
       } else e('expect', 'Unknown check')
     }
-    if (['approve', 'take', 'view', 'cancelOrder', 'transfer', 'addLiquidity', 'removeLiquidity', 'poolSwap'].includes(s.do) && s.key !== undefined) e('key', `${s.do} steps create nothing, so take no key`)
+    if (['approve', 'take', 'view', 'cancelOrder', 'transfer', 'addLiquidity', 'removeLiquidity', 'poolSwap', 'lockFunds', 'claimLock', 'refundLock', 'advanceBlocks'].includes(s.do) && s.key !== undefined) e('key', `${s.do} steps create nothing, so take no key`)
     if (typeof s.key === 'string') {
       if (filled.has(s.key)) e('key', `Key ${s.key} is filled twice`)
       filled.add(s.key)

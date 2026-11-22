@@ -4,7 +4,7 @@ import { useApp } from '../state'
 import { accounts } from '../store/accounts'
 import { registry } from '../chain/revm'
 import { install } from '../walkthrough/install'
-import { binding } from '../walkthrough/bindings'
+import { binding, pageChain } from '../walkthrough/bindings'
 import { checkText } from '../components/Ribbon'
 import type { Outputs } from '../walkthrough/types'
 import { bundled } from '../../walkthroughs'
@@ -76,7 +76,9 @@ export function Walkthroughs({ entries, onChange }: { entries: Entry[]; onChange
     app.countInstall(1) // it creates a chain, sends txs and saves a run: New/Open wait for it
     try {
       const { run, failed } = await install(w, { accounts, registry }, i => set(w.id, { at: i }))
-      const chain = run.values[Object.keys(w.keys).find(k => 'chain' in w.keys[k]!)!] as Outputs['chain'] | undefined
+      // the last step's page chain (chain A of a cross-chain swap), so "Open →" lands as the walkthrough ends
+      const last = w.steps.at(-1)!, id = pageChain(w, last, run)
+      const chain = Object.values(run.values).find(v => (v as Outputs['chain']).id === id && 'name' in v) as Outputs['chain'] | undefined
       await app.refresh()
       if (chain) await app.selectChain(chain.id)
       set(w.id, { ok: { chain: chain?.name ?? '', path: binding(w.steps.at(-1)!, w).path(run), failed: failed.map(f => `${f.step}: ${checkText(f.check)} — found ${f.actual}`) } })

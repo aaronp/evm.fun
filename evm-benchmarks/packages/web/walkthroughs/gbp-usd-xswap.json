@@ -1,0 +1,238 @@
+{
+  "id": "gbp-usd-xswap",
+  "title": "Swap pounds for dollars across two chains",
+  "summary": "Alice locks 1,000 GBP on chain dave for Bob; Bob locks 1,270 USD on chain sue under the same hash; Alice's claim on sue reveals the secret, and Bob uses it to claim on dave.",
+  "keys": {
+    "alice": {
+      "account": {
+        "label": "alice"
+      }
+    },
+    "bob": {
+      "account": {
+        "label": "bob"
+      }
+    },
+    "dave": {
+      "chain": {
+        "name": "dave"
+      }
+    },
+    "sue": {
+      "chain": {
+        "name": "sue"
+      }
+    },
+    "GBP": {
+      "asset": {
+        "symbol": "GBP",
+        "name": "Pound",
+        "decimals": 2
+      }
+    },
+    "USD": {
+      "asset": {
+        "symbol": "USD",
+        "name": "Dollar",
+        "decimals": 6
+      }
+    },
+    "lockDave": {
+      "hashLock": {}
+    },
+    "lockSue": {
+      "hashLock": {}
+    }
+  },
+  "steps": [
+    {
+      "id": "alice",
+      "do": "account",
+      "key": "alice",
+      "title": "Make Alice",
+      "text": "Every action on a blockchain is signed by a key. This creates Alice's. She will be the maker: she offers pounds and says what she wants back."
+    },
+    {
+      "id": "bob",
+      "do": "account",
+      "key": "bob",
+      "title": "Make Bob",
+      "text": "Bob gets his own key. He will be the taker: he answers Alice's offer with dollars."
+    },
+    {
+      "id": "dave",
+      "do": "chain",
+      "key": "dave",
+      "title": "Start chain dave",
+      "text": "A chain is a private practice network. This swap uses two chains that know nothing about each other: dave, where the pounds will live, and sue, where the dollars will live. Alice and Bob each get some of dave's own coin to pay fees.",
+      "args": {
+        "prefund": [
+          "$alice",
+          "$bob"
+        ]
+      }
+    },
+    {
+      "id": "sue",
+      "do": "chain",
+      "key": "sue",
+      "title": "Start chain sue",
+      "text": "The second chain. Both of them need coin here too: Alice will claim on sue, and Bob locks his dollars here.",
+      "args": {
+        "prefund": [
+          "$alice",
+          "$bob"
+        ]
+      }
+    },
+    {
+      "id": "gbp",
+      "do": "launchAsset",
+      "key": "GBP",
+      "title": "Alice creates pounds on dave",
+      "text": "A token is a made-up currency tracked by a program on one chain. Alice creates pounds (GBP, two decimal places) on dave and receives all one million of them.",
+      "args": {
+        "supply": "1000000",
+        "issuer": "$alice",
+        "chain": "$dave"
+      }
+    },
+    {
+      "id": "usd",
+      "do": "launchAsset",
+      "key": "USD",
+      "title": "Bob creates dollars on sue",
+      "text": "Bob creates dollars (USD, six decimal places) on sue and receives all one million. Pounds exist only on dave, dollars only on sue: no single program can see both.",
+      "args": {
+        "supply": "1000000",
+        "issuer": "$bob",
+        "chain": "$sue"
+      }
+    },
+    {
+      "id": "lockDave",
+      "do": "deployHashLock",
+      "key": "lockDave",
+      "title": "Put a HashLock on dave",
+      "text": "Since no program sees both chains, each chain gets its own HashLock: a program that holds tokens until someone shows a secret, or hands them back to the sender after a deadline. Alice puts one on dave.",
+      "args": {
+        "from": "$alice",
+        "chain": "$dave"
+      }
+    },
+    {
+      "id": "lockSue",
+      "do": "deployHashLock",
+      "key": "lockSue",
+      "title": "Put a HashLock on sue",
+      "text": "Bob puts the same program on sue. Anyone could have done it; one per chain is enough for every swap.",
+      "args": {
+        "from": "$bob",
+        "chain": "$sue"
+      }
+    },
+    {
+      "id": "aliceOk",
+      "do": "approve",
+      "title": "Alice allows dave's HashLock to move her pounds",
+      "text": "Before a program can move your tokens you must say it may, and how many. Alice allows the HashLock on dave to take the 1,000 pounds she will lock.",
+      "args": {
+        "from": "$alice",
+        "amount": "1000 $GBP",
+        "before": "offer"
+      }
+    },
+    {
+      "id": "offer",
+      "do": "lockFunds",
+      "title": "Alice locks 1,000 pounds on dave for Bob",
+      "text": "Her browser makes a secret: 32 random bytes only she knows, kept in this browser. The lock carries only its hash, a fingerprint anyone can check a secret against but nobody can turn back into the secret. Bob can take the pounds by showing the secret within 100 of dave's blocks; after that only Alice can take them back. The lock also states her terms: 1,270 dollars on sue.",
+      "args": {
+        "from": "$alice",
+        "chain": "$dave",
+        "to": "$bob",
+        "amount": "1000 $GBP",
+        "for": "1270 $USD",
+        "timeout": 100
+      },
+      "expect": [
+        {
+          "swap": "offer",
+          "phase": "offered"
+        }
+      ]
+    },
+    {
+      "id": "bobOk",
+      "do": "approve",
+      "title": "Bob allows sue's HashLock to move his dollars",
+      "text": "Bob will answer on sue, so he allows the HashLock there to take the 1,270 dollars Alice asked for.",
+      "args": {
+        "from": "$bob",
+        "amount": "1270 $USD",
+        "before": "answer"
+      }
+    },
+    {
+      "id": "answer",
+      "do": "lockFunds",
+      "title": "Bob locks 1,270 dollars on sue for Alice",
+      "text": "Bob locks his dollars under the same hash, so one secret opens both locks: whoever opens one shows the other the key. His timeout is shorter, 50 of sue's blocks against Alice's 100. Alice claims first; if his lock outlasted hers, she could wait until hers expired, take her pounds back and still claim his dollars. With his shorter, he always has time to use the secret on dave before Alice can take the pounds back.",
+      "args": {
+        "from": "$bob",
+        "chain": "$sue",
+        "swap": "offer",
+        "timeout": 50
+      },
+      "expect": [
+        {
+          "swap": "offer",
+          "phase": "answered"
+        }
+      ]
+    },
+    {
+      "id": "aliceClaims",
+      "do": "claimLock",
+      "title": "Alice claims the dollars on sue",
+      "text": "To claim, Alice sends her secret to the HashLock on sue. It checks the secret against the hash and pays her the 1,270 dollars, and the secret is now public on sue.",
+      "args": {
+        "from": "$alice",
+        "chain": "$sue",
+        "swap": "offer"
+      },
+      "expect": [
+        {
+          "balance": "$alice",
+          "has": "1270 $USD"
+        },
+        {
+          "swap": "offer",
+          "phase": "claimedB"
+        }
+      ]
+    },
+    {
+      "id": "bobClaims",
+      "do": "claimLock",
+      "title": "Bob claims the pounds on dave",
+      "text": "Bob reads the secret Alice revealed on sue and shows it to the HashLock on dave, which pays him the 1,000 pounds. Both locks are open: the swap is complete, and at no point could either of them have taken both sides.",
+      "args": {
+        "from": "$bob",
+        "chain": "$dave",
+        "swap": "offer"
+      },
+      "expect": [
+        {
+          "balance": "$bob",
+          "has": "1000 $GBP"
+        },
+        {
+          "report": "offer",
+          "outcome": "completed",
+          "unsafe": false
+        }
+      ]
+    }
+  ]
+}

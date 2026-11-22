@@ -10,7 +10,7 @@ const errs = (j: unknown) => ('errors' in validate(j) ? (validate(j) as any).err
 const has = (j: unknown, field: string, re: RegExp) => errs(j).some((e: any) => e.field === field && re.test(e.message))
 
 test('bundled files validate', () => {
-  expect(bundled.length).toBe(5)
+  expect(bundled.length).toBe(8)
   for (const w of bundled) expect(validate(w)).toEqual({ ok: w })
 })
 

@@ -8,6 +8,8 @@ export interface ChainHandle {
   info: ChainInfo
   send(raw: Hex): Promise<Receipt>
   request(m: string, p?: unknown[]): Promise<unknown>
+  /** mine `n` empty blocks; the new head */
+  mine(n: number): Promise<bigint>
   approach: Approach
   dispose(): Promise<void>
 }
@@ -21,6 +23,11 @@ export function makeHandle(info: ChainInfo, approach: Approach): ChainHandle {
       return (await approach.awaitSettled([keccak256(raw)]))[0]!
     },
     request: (m, p) => approach.request!(m, p),
+    async mine(n) {
+      if (!approach.mine) throw new Error("This chain can't advance blocks")
+      for (let i = 0; i < n; i++) await approach.mine()
+      return BigInt((await approach.request!('eth_blockNumber', [])) as string)
+    },
     dispose: () => approach.dispose(),
   }
 }

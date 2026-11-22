@@ -1,4 +1,4 @@
-import type { Address } from '@evmb/core'
+import type { Address, Hex } from '@evmb/core'
 import type { ChainFile } from '../chain/chainFile'
 import type { Snapshot } from '../chain/snapshots'
 import type { Run, Walkthrough } from '../walkthrough/types'
@@ -16,4 +16,8 @@ export type WorkspaceFile = {
   activeWalkthrough?: string
   /** every row of the off-chain order-book store */
   orderbook: { table: string; key: string; value: unknown }[]
+  /** the maker's cross-chain swap secrets (kv `secrets`); missing in older files = none */
+  secrets: { hash: Hex; secret: Hex; chain: string; lockId: string }[]
+  /** chain A's head (decimal) when the taker answered, by hash (kv `xswapAnswers`); missing in older files = none */
+  answers: { hash: Hex; headA: string }[]
 }

@@ -18,6 +18,8 @@ export const checkText = (c: Check) =>
   : 'order' in c ? `${c.order} is ${c.status}${c.filled ? `, ${c.filled} filled` : ''}`
   : 'trades' in c ? `${c.trades} has ${c.count} ${c.count === 1 ? 'trade' : 'trades'}`
   : 'kGrew' in c ? `k of ${c.pool} grew since the first deposit`
+  : 'swap' in c ? `The swap opened by ${c.swap} is ${c.phase}`
+  : 'report' in c ? `The swap report says ${c.outcome}${c.unsafe === true ? ', with unsafe timeouts' : c.unsafe === false ? ', timeouts safe' : ''}`
   : `The take was ${c.outcome}${c.error ? ` (${c.error})` : ''}`
 
 /** One-line summary of what a done step made: the account, chain, token, offer, venue, resting order or LP shares. */
@@ -29,6 +31,7 @@ export function made(v: Outputs[keyof Outputs] | undefined) {
   if ('offerId' in v) return `offer #${v.offerId}`
   if ('venue' in v) return v.venue === 'onchain' ? 'OrderBook' : 'Settlement'
   if ('orderId' in v && v.orderId) return `order ${idText(v.orderId)}`
+  if ('hash' in v) return `lock #${v.id}`
   if ('shares' in v) return `${lpText(BigInt(v.shares))} LP shares`
   return undefined
 }

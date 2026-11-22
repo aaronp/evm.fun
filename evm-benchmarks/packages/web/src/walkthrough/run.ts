@@ -3,6 +3,9 @@ import { approveCall, transferCall, type Asset } from '@evmb/assets'
 import { addLiquidityCall, orient, poolAbi, quoteAdd, quoteRemove, quoteSwap, readPool, removeLiquidityCall, swapCall } from '@evmb/pool'
 import { makeOfferCall, readOffer, swapAbi, takeCall, takeReport } from '@evmb/swap'
 import { parsePrice, type PlaceResult, type Store } from '@evmb/orderbook'
+import { canClaim, claimCall, hashOf, isSafe, lockCall, newSecret, readLock, refundCall, swapReport, swapState } from '@evmb/htlc'
+import { deployHashLock, headOf, lockedId, sidesFor } from '../htlc/locate'
+import { answers, secrets } from '../htlc/secrets'
 import type { createChainRegistry } from '../chain/registry'
 import type { ChainHandle } from '../chain/handle'
 import type { Account } from '../store/accounts'
@@ -16,7 +19,7 @@ import { deployPool } from '../pool/locate'
 import { DEFAULT_SLIPPAGE, minAt, percentOf } from '../pool/form'
 import { bookStore } from '../orderbook/store'
 import { walletOf } from '../orderbook/wallet'
-import { amount, ref, uniqueName } from './resolve'
+import { amount, answerOf, assetChainKey, chainKeyOf, chainsAB, keyName, ref, uniqueName } from './resolve'
 import type { Check, KeyDef, Outputs, Run, Step, StepType, Walkthrough } from './types'
 
 export type ChainRegistry = ReturnType<typeof createChainRegistry>
@@ -86,16 +89,51 @@ export function initialInputs(w: Walkthrough, step: Step, run: Run, taken: strin
       const { asset, raw } = amount(run, arg(step, 'pay'), step.id)
       return { 'pool.tab': 'swap', 'swap.pay': asset.address, 'swap.amount': formatUnits(raw, asset.decimals), 'swap.slippage': String(step.args?.slippageBps) }
     }
+    case 'lockFunds': {
+      if (step.args?.swap) return { 'xswap.answerTimeout': String(step.args.timeout) }
+      const give = amount(run, arg(step, 'amount'), step.id), get = amount(run, arg(step, 'for'), step.id)
+      return {
+        'xswap.amount': formatUnits(give.raw, give.asset.decimals), 'xswap.want': formatUnits(get.raw, get.asset.decimals),
+        'xswap.taker': addr(run, arg(step, 'to'), step.id), 'xswap.timeout': String(step.args?.timeout),
+      }
+    }
+    case 'advanceBlocks': return { [`xswap.blocks${sideOf(w, step)}`]: String(step.args?.blocks) }
     default: return {}
   }
 }
 
-const keyName = (ref: string) => /\$(\w+)/.exec(ref)?.[1]
 /** The deployPool step that filled `$pool`. */
 const deployOf = (w: Walkthrough, pool: string) => w.steps.find(s => s.do === 'deployPool' && s.key === keyName(pool))!
 const keyOfKind = (w: Walkthrough, kind: string) => Object.keys(w.keys).find(k => kind in w.keys[k]!)!
-const chainFor = (w: Walkthrough, env: Env, run: Run, stepId: string) =>
-  env.registry.open((ref(run, keyOfKind(w, 'chain'), stepId) as Outputs['chain']).id)
+/** A chain key's handle, through the run's actual chain. */
+const chainOf = (env: Env, run: Run, key: string | undefined, stepId: string) => env.registry.open((ref(run, `$${key}`, stepId) as Outputs['chain']).id)
+/** The chain the step acts on (`chainKeyOf`: its `args.chain`, else the only chain). */
+const chainFor = (w: Walkthrough, env: Env, run: Run, stepId: string) => chainOf(env, run, chainKeyOf(w, w.steps.find(s => s.id === stepId)), stepId)
+/** 'A' when the step acts on the swap's chain A, else 'B' (the page's two columns). */
+export const sideOf = (w: Walkthrough, step: Step): 'A' | 'B' => (chainKeyOf(w, step) === chainsAB(w)[0] ? 'A' : 'B')
+/** The HashLock the run deployed on chain key `k`. */
+const hashLockOn = (w: Walkthrough, run: Run, k: string | undefined, stepId: string) =>
+  addr(run, `$${w.steps.find(s => s.do === 'deployHashLock' && chainKeyOf(w, s) === k)?.key}`, stepId)
+/** A swap's opening lock (its step's outputs) and the answer's, once recorded. */
+function locksOf(w: Walkthrough, run: Run, swapId: string, stepId: string) {
+  const o = run.steps[swapId]?.outputs as Outputs['lockFunds'] | undefined
+  if (!o) throw new Error(`Step ${stepId}: swap ${swapId} has no lock yet`)
+  const ans = answerOf(w, swapId), a = ans && (run.steps[ans.id]?.outputs as Outputs['lockFunds'] | undefined)
+  return { opening: o, answer: a }
+}
+/** The lock a claim or refund step closes: the opening on chain A, the answer on B. */
+async function closing(w: Walkthrough, env: Env, run: Run, step: Step) {
+  const { opening, answer } = locksOf(w, run, arg(step, 'swap'), step.id), side = sideOf(w, step)
+  const lock = side === 'A' ? opening : answer
+  if (!lock) throw new Error(`Step ${step.id}: nobody has answered swap ${arg(step, 'swap')} yet`)
+  const c = await chainFor(w, env, run, step.id), address = hashLockOn(w, run, chainKeyOf(w, step), step.id)
+  return { c, address, id: BigInt(lock.id), side, opening, answer }
+}
+/** Both sides of a swap, as the page reads them (`sidesFor`), by the opening step's id. */
+async function sides(w: Walkthrough, env: Env, run: Run, swapId: string, stepId: string) {
+  const [kA, kB] = chainsAB(w), { opening } = locksOf(w, run, swapId, stepId)
+  return { ...await sidesFor(await chainOf(env, run, kA, stepId), await chainOf(env, run, kB, stepId), opening.hash), hash: opening.hash }
+}
 const swapOf = (w: Walkthrough, run: Run, stepId: string) => addr(run, keyOfKind(w, 'swap'), stepId)
 const request = (c: ChainHandle) => (m: string, p: unknown[]) => c.request(m, p)
 const token = (address: Address) => ({ kind: 'erc20', address }) as Asset
@@ -138,6 +176,7 @@ const orderRef = (w: Walkthrough, run: Run, name: string, stepId: string) =>
 /** Who an approve is for: the venue of a placeOrder it comes before, the pool of a pool step, else the Swap. */
 const spenderOf = (w: Walkthrough, run: Run, step: Step) => {
   const before = w.steps.find(s => s.id === arg(step, 'before'))
+  if (before?.do === 'lockFunds') return hashLockOn(w, run, chainKeyOf(w, before), step.id)
   return before?.do === 'placeOrder' ? addr(run, arg(before, 'venue'), step.id)
     : before?.do === 'addLiquidity' || before?.do === 'poolSwap' ? addr(run, arg(before, 'pool'), step.id)
     : swapOf(w, run, step.id)
@@ -262,6 +301,57 @@ export async function perform(w: Walkthrough, step: Step, env: Env, run: Run): P
       const { minOut } = quoteSwap(raw, pay.asset.address, pay.raw, Number(step.args!.slippageBps))
       return poolOutputs(c, 'poolSwap', await sent(c, signer(env, run, arg(step, 'from'), id), swapCall(raw.address, pay.asset.address, pay.raw, minOut)))
     }
+    case 'deployHashLock': return { address: await deployHashLock(await chainFor(w, env, run, id), signer(env, run, arg(step, 'from'), id)) }
+    case 'lockFunds': {
+      const c = await chainFor(w, env, run, id), from = signer(env, run, arg(step, 'from'), id), blocks = BigInt(step.args!.timeout as number)
+      if (!step.args?.swap) {
+        // the maker's opening lock, as the page's Make: a new secret kept in kv before the lock is sent; the run keeps only its hash
+        const give = amount(run, arg(step, 'amount'), id), get = amount(run, arg(step, 'for'), id)
+        const kB = assetChainKey(w, keyName(arg(step, 'for'))), cB = ref(run, `$${kB}`, id) as Outputs['chain']
+        const secret = newSecret(), hash = hashOf(secret)
+        await secrets.put(hash, { secret, chain: c.info.id, lockId: '' })
+        const tx = await sent(c, from, lockCall(hashLockOn(w, run, chainKeyOf(w, step), id), {
+          token: give.asset.address, amount: give.raw, recipient: addr(run, arg(step, 'to'), id), hash, timeoutBlock: (await headOf(c)) + blocks,
+          wantChain: cB.id, wantLock: hashLockOn(w, run, kB, id), wantToken: get.asset.address, wantAmount: get.raw,
+        }))
+        const lockId = await lockedId(c, tx)
+        await secrets.put(hash, { secret, chain: c.info.id, lockId: String(lockId) })
+        return { tx, id: String(lockId), hash }
+      }
+      // the taker's answer, as the page's Accept: the opening's terms, A's head kept for the report; unsafe only when the step says so ("Lock anyway")
+      const { opening: o } = locksOf(w, run, arg(step, 'swap'), id), [kA] = chainsAB(w), cA = await chainOf(env, run, kA, id)
+      const open = await readLock(request(cA), hashLockOn(w, run, kA, id), BigInt(o.id))
+      const headA = await headOf(cA), headB = await headOf(c), timeoutBlock = headB + blocks
+      if (!isSafe(open.timeoutBlock, headA, timeoutBlock, headB) && step.args.unsafe !== true)
+        throw new Error(`Step ${id}: unsafe timeouts: the maker's lock has ${open.timeoutBlock - headA} blocks left, this one would have ${blocks}; add "unsafe": true to lock anyway`)
+      await answers.put(o.hash, headA)
+      const tx = await sent(c, from, lockCall(open.wantLock, { token: open.wantToken, amount: open.wantAmount, recipient: open.sender, hash: o.hash, timeoutBlock }))
+      return { tx, id: String(await lockedId(c, tx)), hash: o.hash }
+    }
+    case 'claimLock': {
+      const { c, address, id: lockId, side, opening, answer } = await closing(w, env, run, step)
+      // as the page: a claim that would mine at or past the timeout reverts with the secret in its calldata, so it isn't sent
+      const l = await readLock(request(c), address, lockId)
+      if (!canClaim(l, await headOf(c))) throw new Error(`Step ${id}: lock #${lockId} on ${c.info.name} can no longer be claimed (timeout block ${l.timeoutBlock}, status ${l.status})`)
+      // on B the maker's own secret (kv); on A the one the maker's claim revealed on B
+      let secret: Hex | undefined
+      if (side === 'B') secret = (await secrets.get(opening.hash))?.secret
+      else {
+        const [, kB] = chainsAB(w)
+        const b = await readLock(request(await chainOf(env, run, kB, id)), hashLockOn(w, run, kB, id), BigInt(answer!.id))
+        if (b.status === 'claimed') secret = b.secret
+      }
+      if (!secret) throw new Error(`Step ${id}: ${side === 'B' ? 'the secret is not in this browser' : 'the secret is not revealed on chain B yet'}`)
+      return { tx: await sent(c, signer(env, run, arg(step, 'from'), id), claimCall(address, lockId, secret)) }
+    }
+    case 'refundLock': {
+      const { c, address, id: lockId } = await closing(w, env, run, step)
+      return { tx: await sent(c, signer(env, run, arg(step, 'from'), id), refundCall(address, lockId)) }
+    }
+    case 'advanceBlocks': {
+      const c = await chainFor(w, env, run, id)
+      return { head: String(await c.mine(Number(step.args!.blocks))) }
+    }
     case 'view': return {}
   }
 }
@@ -281,13 +371,13 @@ export async function done(w: Walkthrough, step: Step, env: Env, run: Run): Prom
   switch (step.do) {
     case 'account': return !!val && env.accounts.list().some(a => a.address === (val as Outputs['account']).address)
     case 'chain': return !!val && (await env.registry.list()).some(c => c.id === (val as Outputs['chain']).id)
-    case 'view': return !!rec
+    case 'view': case 'advanceBlocks': return !!rec
   }
   const c = await chainFor(w, env, run, step.id)
   switch (step.do) {
     case 'transfer': case 'addLiquidity': case 'removeLiquidity': case 'poolSwap':
       return !!rec && landed(c, (rec.outputs as { tx: Hex }).tx)
-    case 'launchAsset': case 'deploySwap': case 'deployVenue': case 'deployPool': return !!val && hasCode(c, (val as { address: Address }).address)
+    case 'launchAsset': case 'deploySwap': case 'deployVenue': case 'deployPool': case 'deployHashLock': return !!val && hasCode(c, (val as { address: Address }).address)
     case 'approve': {
       // a spent approval (the offer or take used it) still counts once its tx landed
       if (rec && await landed(c, (rec.outputs as Outputs['approve']).tx)) return true
@@ -307,6 +397,18 @@ export async function done(w: Walkthrough, step: Step, env: Env, run: Run): Prom
       const out = rec.outputs as Outputs['placeOrder']
       return out.orderId === undefined ? !!out.tx && landed(c, out.tx) : !!(await orderNow(w, env, run, step, out.orderId, c))
     }
+    case 'lockFunds': {
+      const out = rec?.outputs as Outputs['lockFunds'] | undefined
+      return !!out && (await readLock(request(c), hashLockOn(w, run, chainKeyOf(w, step), step.id), BigInt(out.id))).status !== 'none'
+    }
+    case 'claimLock': case 'refundLock': {
+      if (!run.steps[arg(step, 'swap')]) return false
+      const want = step.do === 'claimLock' ? 'claimed' : 'refunded'
+      try {
+        const l = await closing(w, env, run, step)
+        return (await readLock(request(l.c), l.address, l.id)).status === want
+      } catch { return false } // not answered yet
+    }
     case 'cancelOrder': return (await orderNow(w, env, run, ...orderRef(w, run, arg(step, 'order'), step.id), c))?.status === 'cancelled'
   }
   return false
@@ -322,7 +424,8 @@ export async function checks(w: Walkthrough, step: Step, env: Env, run: Run): Pr
   return Promise.all(step.expect.map(async check => {
     if ('balance' in check) {
       const { asset, raw } = amount(run, check.has, step.id)
-      const has = await balanceOf(c, asset.address, addr(run, check.balance, step.id))
+      const on = await chainOf(env, run, assetChainKey(w, keyName(check.has)), step.id) // the asset's own chain
+      const has = await balanceOf(on, asset.address, addr(run, check.balance, step.id))
       return { check, pass: has >= raw, actual: shown(has, asset) }
     }
     if ('escrowed' in check) {
@@ -357,6 +460,20 @@ export async function checks(w: Walkthrough, step: Step, env: Env, run: Run): Pr
       const p = await readPool(request(c), addr(run, check.pool, step.id))
       const k = p.reserveBase * p.reserveQuote, n = (v: bigint) => v.toLocaleString('en-US')
       return { check, pass: k > k0, actual: `k ${k > k0 ? 'grew' : 'did not grow'}: ${n(k0)} after the first deposit, ${n(k)} now` }
+    }
+    if ('swap' in check) {
+      const s = await sides(w, env, run, check.swap, step.id)
+      if (!s.a) return { check, pass: false, actual: 'no HashLock on chain A' }
+      const { phase } = await swapState(s.a, s.b, s.hash)
+      return { check, pass: phase === check.phase, actual: phase }
+    }
+    if ('report' in check) {
+      const s = await sides(w, env, run, check.report, step.id)
+      if (!s.a) return { check, pass: false, actual: 'no HashLock on chain A' }
+      const at = await answers.get(s.hash) // as the report page: A's head when B answered, when this browser saw it
+      const r = await swapReport(s.a, s.b, s.hash, at ? { headAAtAnswer: BigInt(at) } : {})
+      const pass = r.outcome === check.outcome && (check.unsafe === undefined || r.unsafe === check.unsafe)
+      return { check, pass, actual: `${r.outcome}${r.unsafe ? ', unsafe timeouts' : ''}` }
     }
     const out = run.steps[step.id]?.outputs as Outputs['take'] | undefined
     if (!out) return { check, pass: false, actual: 'not run yet' }
