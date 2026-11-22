@@ -10,6 +10,42 @@ effects.complete: random
 
 ## Backlog
 
+### Invites: single-use or multi-use within a TTL
+- id: t-133
+- parent: t-112
+- owner:
+- tags: chains, access, size-S
+- history:
+  - Backlog @ 2026-11-22T22:32:43Z
+
+```md
+One invite mechanism `{hash, expiry, usesLeft, grants}`: the creator commits hash(code); a claimer reveals the code. Single-use (usesLeft = 1, a captured code is worthless after the claim) or multi-use until expiry (a group joins with one code). Grants a role: a device/key on a chain's access contract, or a slot to create a new chain in the root registry.
+```
+
+### Chain registry: who may create chains
+- id: t-134
+- parent: t-112
+- owner:
+- tags: chains, access, size-M
+- history:
+  - Backlog @ 2026-11-22T22:32:43Z
+
+```md
+A root chain holds a chain-access registry: invites grant chain-creation slots; the Worker checks the registry before creating a DO; the registry records whose chain is whose. Each chain then has its own access/governance contract.
+```
+
+### Views: readable current state per contract (aliases + recipes)
+- id: t-135
+- parent: t-112
+- owner:
+- tags: chains, views, size-M
+- history:
+  - Backlog @ 2026-11-22T22:32:43Z
+
+```md
+`GET /<chain>/<alias>/latest` → the contract's current state as JSON, under the alias's own read rules (separate from raw chain access; e.g. `GET /<chain>/access-controls/latest` → {read, write}). Aliases live in an on-chain registry (name → address, recipe, access contract). Recipes: contracts we design expose state via read functions (e.g. readers(), writers()); standard contracts get a recipe too (e.g. ERC-20 → balances by address, holders found from Transfer events, balances read now). A full event-folding indexer is later.
+```
+
 ### Remote chain: incremental state storage
 - id: t-129
 - parent: t-112
@@ -32,6 +68,8 @@ From the t-128 spike: the DO rewrites a full `dumpState` (with history) every bl
 
 ```md
 From t-128: the block timestamp is the only nondeterminism between the DO and replicas, pinned today through a webevm internal. Upstream `mine({timestamp})` and a dump without state history.
+
+Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps accounts absent from the snapshot, so rolling back a refused block left the new sender's nonce behind (DO/replica drift). The spike rebuilds the node on rollback (~10 ms); fix upstream.
 ```
 
 ### Remote chain: device enrolment and auth hardening
@@ -44,6 +82,8 @@ From t-128: the block timestamp is the only nondeterminism between the DO and re
 
 ```md
 From t-128: real device enrolment (pairing / owner-signed invites — see the access-control brainstorm), owner key rotation, multiple owners or thresholds, tx-sender ↔ device binding, rate limits.
+
+Access spike (branch spike-cf-chain, 129e7fd, `bun spike/cf-chain/access.ts` → ALL PASS, 49 checks; report .superpowers/spike-cf-access-report.md): `ChainAccess.sol` in genesis at 0xacce55… (admin, readOpen, reader/writer sets); the DO checks canRead/canWrite from its own state on every request (~15–20 µs); tx senders must be writers; changes apply next block and close revoked sockets; plain GET when reads are open, self-signed short-TTL bearer tokens otherwise (~1 ms verify); gas-free chains; `invite(hash, ttl)` + `claim(code)`.
 ```
 
 ### Playground ChainHandle over a remote (Durable Object) chain
