@@ -6,24 +6,13 @@ theme: ledger
 
 ## To Do
 
-### Signed orders and off-chain matching
-- id: t-65
-- history:
-  - To Do @ 2026-11-20T08:48:16.886Z
-
-```md
-Folded into t-64 (ADR-0018): the off-chain venue builds signed orders and off-chain matching on one chain. What remains for step 7 is a book spanning two chains.
-
-This is the hybrid model. It’s required for step 7, because a single contract can’t hold a book that spans two chains.
-```
-
 ### Cross-chain order book
 - id: t-66
 - history:
   - To Do @ 2026-11-20T08:48:39.324Z
 
 ```md
-Off-chain matching (step 6) with HTLC settlement (step 3): matched pairs whose legs are on different chains settle by hash-lock.
+Next on the roadmap: steps 3 (t-62, ADR-0021) and 6 (t-64's off-chain venue) are done. Off-chain matching (step 6) with HTLC settlement (step 3): matched pairs whose legs are on different chains settle by hash-lock.
 
 Later: netting, auctions, the vault, and the full market wizard. By then each is an option added to pieces that already work.
 
@@ -301,9 +290,31 @@ ADR-0021, R48: `locksFor` reads every `Locked` log from the HashLock's deploy bl
 ADR-0021, R50: `sidesFor` reads only chain A's newest HashLock, so an opening lock on an earlier one isn't found after a redeploy; search every HashLock record on A.
 ```
 
+### Benchmark: order book versus pool on the same trade
+- id: t-95
+- tags: benchmark, backlog
+- history:
+  - To Do @ 2026-11-22T11:10:41Z
+
+```md
+Roadmap step 5 named two scenarios: book-match (done as book-match-onchain / book-match-offchain) and "book versus pool on the same trade" (not built). Run the same GBP/USD trade through OrderBook.sol and Pool.sol and compare gas, throughput and price.
+```
+
 ## Doing
 
 ## Done
+
+### Signed orders and off-chain matching
+- id: t-65
+- history:
+  - To Do @ 2026-11-20T08:48:16.886Z
+  - Done @ 2026-11-22T11:10:41Z
+
+```md
+Folded into t-64 (ADR-0018): the off-chain venue builds signed orders and off-chain matching on one chain. What remains (a book spanning two chains) is t-66.
+
+This is the hybrid model. It’s required for step 7, because a single contract can’t hold a book that spans two chains.
+```
 
 ### Cross-chain swap (HTLC)
 - id: t-62
