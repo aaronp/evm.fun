@@ -7,6 +7,7 @@ import { Button } from '../../ui/button'
 import { Input } from '../../ui/input'
 import { card, solid } from '../TakePanel'
 import { Shortfall } from '../Shortfall'
+import { orThrow, useWizardAction, useWizardField, useWizardMark } from '../../walkthrough/wizard'
 
 type Chains = { id: string; name: string }[]
 const row = (on: boolean) => `flex w-full flex-col gap-0.5 rounded-[10px] border px-3 py-2 text-left text-[13px] focus-visible:outline-2 focus-visible:outline-accent ${on ? 'border-accent bg-selected' : 'border-line hover:bg-surface-hover'}`
@@ -66,12 +67,14 @@ export function AcceptLock({ opening, chainA, chainB, headA, headB, amtB, quote,
   amtB: string; quote: string
   /** the acting account's balance and allowance of the wanted token for B's HashLock */
   funds: { bal?: bigint; alw?: bigint }; fix?: Fix; busy: boolean
-  onApprove(): void
+  onApprove(): Promise<string | undefined>
   /** resolves to the error message when it failed */
   onLock(timeoutBlock: bigint): Promise<string | undefined>
 }) {
   const [blocks, setBlocks] = useState(String(defaults.b))
   const [error, setError] = useState<string>()
+  useWizardField('xswap.answerTimeout', blocks, setBlocks)
+  const mark = useWizardMark()
   const n = parseBlocks(blocks)
   const ready = typeof n === 'bigint' && headA !== undefined && headB !== undefined
   const check = ready ? safety(opening.timeoutBlock, headA, headB + n, headB, chainA, chainB) : undefined
@@ -79,25 +82,32 @@ export function AcceptLock({ opening, chainA, chainB, headA, headB, amtB, quote,
   const short = bal !== undefined && bal < need
   const needsApprove = !short && alw !== undefined && alw < need
   const text = actionText('accept', { amtA: '', base: '', chainA, amtB, quote, chainB })
+  /** resolves to the error message when it failed */
   async function lock() {
-    if (typeof n !== 'bigint') return setError(n.error)
-    if (!ready) return setError('Still reading both chains’ heads.')
-    if (short) return setError(`Not enough ${quote} on ${chainB}.`)
-    setError(await onLock(headB + n))
+    const fail = (e: string) => (setError(e), e)
+    if (typeof n !== 'bigint') return fail(n.error)
+    if (!ready) return fail('Still reading both chains’ heads.')
+    if (short) return fail(`Not enough ${quote} on ${chainB}.`)
+    const e = await onLock(headB + n)
+    setError(e)
+    return e
   }
+  // Next presses what the page shows: Approve while short of allowance, then the lock ("Lock anyway" when unsafe)
+  useWizardAction('xswap.acceptApprove', needsApprove && !busy ? () => orThrow(onApprove()) : undefined)
+  useWizardAction('xswap.accept', !needsApprove && !busy && ready ? () => orThrow(lock()) : undefined)
   return (
-    <section aria-labelledby="ac-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
+    <section {...mark('xswap.acceptCard')} aria-labelledby="ac-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
       <h2 id="ac-h" className="text-sm font-semibold">Accept #{String(opening.id)} · answer on {chainB}</h2>
       <div className="flex flex-col gap-1.5"><label htmlFor="xtb" className="text-xs font-medium text-muted">Your timeout (blocks on {chainB})</label>
-        <Input id="xtb" inputMode="numeric" className="min-h-11 rounded-[10px] px-3 font-mono font-medium" value={blocks} onChange={e => { setBlocks(e.target.value); setError(undefined) }} /></div>
+        <Input {...mark('xswap.answerTimeout')} id="xtb" inputMode="numeric" className="min-h-11 rounded-[10px] px-3 font-mono font-medium" value={blocks} onChange={e => { setBlocks(e.target.value); setError(undefined) }} /></div>
       {check && <div role={check.safe ? 'status' : 'alert'} className={`rounded-[10px] border px-3 py-2.5 text-xs leading-normal ${check.safe ? 'border-line bg-panel text-text-2' : 'border-warn bg-warn-soft text-warn-text'}`}>{check.text}</div>}
       {error && (short ? <Shortfall fix={fix}><span role="alert" className="text-xs text-danger">{error}</span></Shortfall> : <span role="alert" className="text-xs text-danger">{error}</span>)}
       {short && !error && <Shortfall fix={fix}><span className="text-xs text-danger">Not enough {quote} on {chainB} to answer.</span></Shortfall>}
       <div className="mt-auto flex flex-col gap-2">
-        {needsApprove && <Button className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={onApprove}>1 · Approve {amtB} {quote}</Button>}
+        {needsApprove && <Button {...mark('xswap.acceptApprove')} className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={() => void onApprove()}>1 · Approve {amtB} {quote}</Button>}
         {check && !check.safe
-          ? <Button variant="danger" className="min-h-12 rounded-[10px] text-[15px] font-semibold" disabled={needsApprove || busy} onClick={lock}>{needsApprove ? '2 · ' : ''}Lock anyway</Button>
-          : <button className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={needsApprove || busy || !ready} onClick={lock}>{needsApprove ? '2 · ' : ''}{text}</button>}
+          ? <Button {...mark('xswap.accept')} variant="danger" className="min-h-12 rounded-[10px] text-[15px] font-semibold" disabled={needsApprove || busy} onClick={lock}>{needsApprove ? '2 · ' : ''}Lock anyway</Button>
+          : <button {...mark('xswap.accept')} className={`${solid} min-h-12 bg-bid text-[15px]`} disabled={needsApprove || busy || !ready} onClick={lock}>{needsApprove ? '2 · ' : ''}{text}</button>}
       </div>
     </section>
   )

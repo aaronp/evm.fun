@@ -1,6 +1,6 @@
-import { isAddressEqual, type Address, type Hex } from 'viem'
+import { isAddressEqual, parseEventLogs, type Address, type Hex } from 'viem'
 import { HashLock } from '@evmb/contracts'
-import { locksFor, type Side } from '@evmb/htlc'
+import { hashLockAbi, locksFor, type Side } from '@evmb/htlc'
 import type { ChainHandle } from '../chain/handle'
 import { contractsRegistry } from '../contracts/registry'
 import type { Account } from '../store/accounts'
@@ -39,3 +39,11 @@ export async function sidesFor(a: ChainHandle, b: ChainHandle | undefined, hash:
 
 /** Deploy HashLock.sol from `from` and save its contract record. Refused on benchmark chains. */
 export const deployHashLock = (chain: ChainHandle, from: Account, onSent?: () => void) => deployContract(chain, from, 'HashLock', HashLock, onSent)
+
+/** The id of the lock `tx` made, from its Locked event; throws when the receipt has none. */
+export async function lockedId(chain: ChainHandle, tx: Hex): Promise<bigint> {
+  const rc = (await chain.request('eth_getTransactionReceipt', [tx])) as { logs: Parameters<typeof parseEventLogs>[0]['logs'] }
+  const id = parseEventLogs({ abi: hashLockAbi, eventName: 'Locked', logs: rc.logs })[0]?.args.id
+  if (id === undefined) throw new Error(`No Locked event in ${tx}`)
+  return id
+}

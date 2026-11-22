@@ -5,7 +5,7 @@ import { accounts } from '../store/accounts'
 import { registry } from '../chain/revm'
 import { kv } from '../store/kv'
 import { bundled } from '../../walkthroughs'
-import { binding, lastRegistered, type Binding } from './bindings'
+import { binding, lastRegistered, pageChain, type Binding } from './bindings'
 import { checks, done, initialInputs, newRun, record, type Env } from './run'
 import { sameRoute, setAutoDelay, withAuto } from './auto'
 import { activeId, loadRun, saveRun, setActiveId } from './runs'
@@ -74,10 +74,6 @@ const message = (e: unknown) => e instanceof Error ? e.message : String(e)
 export const firstOpen = (w: Walkthrough, run: Run, done?: Record<string, boolean>) =>
   (i => i === -1 ? w.steps.length - 1 : i)(w.steps.findIndex(s => !(done ? done[s.id] : run.steps[s.id])))
 const addressOf = (run: Run, ref: unknown) => (run.values[String(ref).replace(/^\$/, '')] as { address?: string } | undefined)?.address
-const chainOf = (w: Walkthrough, run: Run) => {
-  const key = Object.keys(w.keys).find(k => 'chain' in w.keys[k]!)
-  return key ? run.values[key] as Outputs['chain'] | undefined : undefined
-}
 
 /** pass ✓; fail red; fail after the user changed a value amber ("Differs from the walkthrough"). */
 export const checkTone = (pass: boolean, edited: boolean) => pass ? 'pass' : edited ? 'differs' : 'fail'
@@ -245,7 +241,8 @@ export function WizardProvider({ children, seed, env = defaultEnv }: { children?
       }
       // chain and acting account first, and wait until the app (and so the page) has them: an action already
       // registered must not be pressed with the closure of the previous account
-      const chain = chainOf(w, run)
+      // the step's page chain: chain A on /xswap (both columns show there), else the chain the step acts on
+      const chain = (id => id ? { id } : undefined)(pageChain(w, step, run))
       const from = step.args?.from ? addressOf(run, step.args.from) : undefined
       const ready = () => {
         const a = latest.current.app

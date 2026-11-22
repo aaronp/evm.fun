@@ -254,7 +254,7 @@ test('Claim/Refund panel: the taker never sees the secret (Review Focus 2); the 
   const { ClaimRefund } = await import('../src/components/xswap/ClaimRefund')
   const secret = newSecret()
   const copy = { amtA: '10.00', base: 'GBP', chainA: 'dave', amtB: '12.70', quote: 'USD', chainB: 'sue' }
-  const props = { copy, busy: false, onAction: () => {}, secret }
+  const props = { copy, busy: false, onAction: async () => undefined, secret }
   const taker = await ssr(h => h(ClaimRefund, { ...props, role: 'taker', actions: ['claimA', 'refundB'] }))
   expect(taker.toLowerCase()).not.toContain(secret.slice(2).toLowerCase())
   for (const t of ['Claim 10.00 GBP on dave', 'Refund']) expect(taker).toContain(t)
@@ -274,4 +274,34 @@ test('links: the URL sync keeps chainB (and the swap) when it rewrites chain/as;
   expect(fix.label).toBe('Request 5 USD from alice')
   const sp = new URLSearchParams(fix.href.split('?')[1])
   expect([sp.get('chain'), sp.get('back')]).toEqual(['B', '/xswap?chain=A&chainB=B&as=bob'])
+})
+
+test('M4: a tx report\'s crumb returns to the swap through its safe `back`, as the fix link does', async () => {
+  const { crumbTo } = await import('../src/pages/XSwapReport')
+  const back = '/xswap?chain=A&chainB=B&hash=0x12&as=bob'
+  expect(crumbTo(new URLSearchParams({ tx: '0xab', chain: 'B', back }))).toBe(back)
+  expect(crumbTo(new URLSearchParams({ tx: '0xab', chain: 'B', back: '//evil.example' }))).toBe('/xswap')
+  expect(crumbTo(new URLSearchParams({ hash: '0x12', chain: 'A', chainB: 'B' }))).toBe('/xswap?hash=0x12&chainB=B')
+})
+
+test('M6 (Review Focus 2): the page reads the secret only for the maker — the taker\'s view never asks kv, and so never shows it', async () => {
+  const { makerSecret, XSwapPanels } = await import('../src/pages/XSwap')
+  const secret = newSecret(), hash = hashOf(secret), asked: string[] = []
+  const kv = async (h: Hex) => { asked.push(h); return { secret, chain: 'A', lockId: '1' } } // a mock secrets kv that has it
+  expect(await makerSecret('taker', hash, kv)).toBeUndefined()
+  expect(await makerSecret(undefined, hash, kv)).toBeUndefined()
+  expect(asked).toEqual([])
+  expect(await makerSecret('maker', hash, kv)).toBe(secret)
+  expect(asked).toEqual([hash])
+  // the page's panels as the taker sees them, even when handed the secret: never rendered
+  const opening = lock({ hash, sender: MAKER, recipient: TAKER }), answer = answerOf({ hash, status: 'claimed', secret })
+  const st = { ...state(opening, answer, 10n, 60n), b: true }
+  const asTaker = { label: 'bob', address: TAKER }
+  const html = await ssr(h => h(XSwapPanels, {
+    chainA: { info: { id: 'A', name: 'dave' } }, chainB: { info: { id: 'B', name: 'sue' } }, chains: [{ id: 'A', name: 'dave' }, { id: 'B', name: 'sue' }],
+    people: [{ label: 'alice', address: MAKER }, asTaker], acting: asTaker, tokA: [], tokB: [], lockA: { address: a(9), block: 1n }, lockB: { address: a(8), block: 1n },
+    headA: 10n, headB: 60n, st, walletA: {}, walletB: {}, secret, working: false, mineErr: {}, on: {},
+  } as any))
+  expect(html).toContain('You are the taker')
+  expect(html.toLowerCase()).not.toContain(secret.slice(2).toLowerCase())
 })

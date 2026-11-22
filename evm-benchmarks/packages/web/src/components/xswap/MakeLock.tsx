@@ -9,6 +9,7 @@ import { Button } from '../../ui/button'
 import { Input, Select } from '../../ui/input'
 import { card, solid } from '../TakePanel'
 import { Shortfall, useRequestFix } from '../Shortfall'
+import { orThrow, useWizardAction, useWizardField, useWizardMark } from '../../walkthrough/wizard'
 
 const label = 'text-xs font-medium text-muted'
 const input = 'min-h-11 rounded-[10px] px-3 font-mono font-medium'
@@ -21,7 +22,7 @@ export function MakeLock({ base, quote, chainA, chainB, headA, takers, funds, bu
   takers: { label: string; address: string }[]
   /** the acting account's base balance and HashLock allowance on A */
   funds: { bal?: bigint; alw?: bigint }; busy: boolean
-  onApprove(amount: bigint): void
+  onApprove(amount: bigint): Promise<string | undefined>
   /** resolves to the error message when it failed */
   onLock(t: Terms): Promise<string | undefined>
 }) {
@@ -32,6 +33,11 @@ export function MakeLock({ base, quote, chainA, chainB, headA, takers, funds, bu
   const [error, setError] = useState<string>()
   useEffect(() => setError(undefined), [base, quote])
   const to = takers.find(t => t.address === taker) ?? takers[0]
+  useWizardField('xswap.amount', amount, setAmount)
+  useWizardField('xswap.want', want, setWant)
+  useWizardField('xswap.taker', to?.address ?? '', setTaker)
+  useWizardField('xswap.timeout', blocks, setBlocks)
+  const mark = useWizardMark()
 
   const a = amount.trim() ? parseAmount(amount.replace(/,/g, ''), base.decimals) : undefined
   const w = want.trim() ? parseAmount(want.replace(/,/g, ''), quote.decimals) : undefined
@@ -55,21 +61,24 @@ export function MakeLock({ base, quote, chainA, chainB, headA, takers, funds, bu
     if (!e) { setAmount(''); setWant(''); setError(undefined) }
     return e
   }
+  // Next presses what the form shows: Approve while short of allowance, then the lock
+  useWizardAction('xswap.approve', needsApprove && !busy ? () => orThrow(onApprove(amt!)) : undefined)
+  useWizardAction('xswap.lock', !needsApprove && !busy ? () => orThrow(lock()) : undefined)
 
   return (
-    <section aria-labelledby="mk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
+    <section {...mark('xswap.make')} aria-labelledby="mk-h" className={`${card} flex flex-[1_1_300px] flex-col gap-3.5 p-[18px]`}>
       <h2 id="mk-h" className="text-sm font-semibold">Make · lock {base.symbol} for {quote.symbol}</h2>
       <div className="grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1.5"><label htmlFor="xa" className={label}>You lock ({base.symbol} on {chainA})</label>
-          <Input id="xa" className={input} value={amount} placeholder="10.00" onChange={e => { setAmount(e.target.value); setError(undefined) }} /></div>
+          <Input {...mark('xswap.amount')} id="xa" className={input} value={amount} placeholder="10.00" onChange={e => { setAmount(e.target.value); setError(undefined) }} /></div>
         <div className="flex flex-col gap-1.5"><label htmlFor="xw" className={label}>You want ({quote.symbol} on {chainB})</label>
-          <Input id="xw" className={input} value={want} placeholder="12.70" onChange={e => { setWant(e.target.value); setError(undefined) }} /></div>
+          <Input {...mark('xswap.want')} id="xw" className={input} value={want} placeholder="12.70" onChange={e => { setWant(e.target.value); setError(undefined) }} /></div>
         <div className="flex flex-col gap-1.5"><label htmlFor="xt" className={label}>Taker</label>
-          <Select id="xt" value={to?.address ?? ''} onChange={e => setTaker(e.target.value)}>
+          <Select {...mark('xswap.taker')} id="xt" value={to?.address ?? ''} onChange={e => setTaker(e.target.value)}>
             {takers.map(t => <option key={t.address} value={t.address}>{t.label}</option>)}
           </Select></div>
         <div className="flex flex-col gap-1.5"><label htmlFor="xb" className={label}>Timeout (blocks on {chainA})</label>
-          <Input id="xb" inputMode="numeric" className={input} value={blocks} onChange={e => { setBlocks(e.target.value); setError(undefined) }} /></div>
+          <Input {...mark('xswap.timeout')} id="xb" inputMode="numeric" className={input} value={blocks} onChange={e => { setBlocks(e.target.value); setError(undefined) }} /></div>
       </div>
       <div className="flex flex-col gap-2 rounded-[10px] bg-panel p-3 text-[13px]">
         <div className="flex justify-between"><span className="text-muted">Price</span><span className="font-mono">{price} {quote.symbol}/{base.symbol}</span></div>
@@ -80,8 +89,8 @@ export function MakeLock({ base, quote, chainA, chainB, headA, takers, funds, bu
         ? <Shortfall fix={fix}><span role="alert" className="text-xs text-danger">{error}</span></Shortfall>
         : <span role="alert" className="text-xs text-danger">{error}</span>)}
       <div className="mt-auto flex flex-col gap-2">
-        {needsApprove && <Button className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={() => onApprove(amt!)}>1 · Approve {amtText} {base.symbol}</Button>}
-        <button className={`${solid} min-h-12 bg-accent text-[15px]`} disabled={needsApprove || busy} onClick={lock}>
+        {needsApprove && <Button {...mark('xswap.approve')} className="min-h-11 rounded-[10px] text-sm font-semibold" disabled={busy} onClick={() => void onApprove(amt!)}>1 · Approve {amtText} {base.symbol}</Button>}
+        <button {...mark('xswap.lock')} className={`${solid} min-h-12 bg-accent text-[15px]`} disabled={needsApprove || busy} onClick={lock}>
           {needsApprove ? '2 · ' : ''}{actionText('make', { amtA: amtText, base: base.symbol, chainA, amtB: '', quote: quote.symbol, chainB })}
         </button>
       </div>

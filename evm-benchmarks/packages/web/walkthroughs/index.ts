@@ -4,6 +4,9 @@ import takeWithoutApproval from './take-without-approval.json'
 import bookOnchain from './gbp-usd-book-onchain.json'
 import bookOffchain from './gbp-usd-book-offchain.json'
 import pool from './gbp-usd-pool.json'
+import xswap from './gbp-usd-xswap.json'
+import xswapRefund from './gbp-usd-xswap-refund.json'
+import xswapUnsafe from './gbp-usd-xswap-unsafe.json'
 
 // Validated by test/walkthrough-format.test.ts, so a cast is enough here.
-export const bundled = [gbpUsd, takeWithoutApproval, bookOnchain, bookOffchain, pool] as unknown as Walkthrough[]
+export const bundled = [gbpUsd, takeWithoutApproval, bookOnchain, bookOffchain, pool, xswap, xswapRefund, xswapUnsafe] as unknown as Walkthrough[]

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
-import { erc20Abi, encodeFunctionData, parseEventLogs, type Address, type Hex } from 'viem'
+import { erc20Abi, encodeFunctionData, type Address, type Hex } from 'viem'
 import { readTokenInfo, type Asset } from '@evmb/assets'
-import { claimCall, hashLockAbi, hashOf, lockCall, locksFor, newSecret, refundCall, swapState, type LockView, type SwapState } from '@evmb/htlc'
+import { claimCall, hashOf, lockCall, locksFor, newSecret, refundCall, swapState, type LockView, type SwapState } from '@evmb/htlc'
 import { useApp } from '../state'
 import { useAppBar } from '../state/appBar'
 import type { ChainHandle } from '../chain/handle'
@@ -15,9 +15,10 @@ import { contractsRegistry } from '../contracts/registry'
 import { readContract, signAndSend } from '../tx/send'
 import { NO_RECORDS } from '../swap/locate'
 import { withParams } from '../links'
-import { deployHashLock, hashLockAt, headOf, sidesFor } from '../htlc/locate'
-import { answers, secrets } from '../htlc/secrets'
-import { actionText, actionsFor, chainLabel, roleOf, titleOf, type Action } from '../htlc/ui'
+import { deployHashLock, hashLockAt, headOf, lockedId, sidesFor } from '../htlc/locate'
+import { answers, secrets, type SecretEntry } from '../htlc/secrets'
+import { actionText, actionsFor, chainLabel, roleOf, titleOf, type Action, type Role } from '../htlc/ui'
+import { useWizardReport } from '../walkthrough/wizard'
 import { amountText, same } from '../swap/ui'
 import { ChainColumn } from '../components/xswap/ChainColumn'
 import { MakeLock } from '../components/xswap/MakeLock'
@@ -35,14 +36,98 @@ const approve = (token: Address, spender: Address, amount: bigint) =>
   ({ to: token, data: encodeFunctionData({ abi: erc20Abi, functionName: 'approve', args: [spender, amount] }) })
 
 /** A chain's ERC-20s, adopting tokens deployed elsewhere first (as Swap does; never on benchmark chains). */
-async function tokensOf(h: ChainHandle) {
+export async function tokensOf(h: ChainHandle) {
   if (!h.info.ephemeral) await reconcileAssets(h.info.id, await contractsRegistry.list(h.info.id), assetRegistry, a => readTokenInfo(h.request, a))
   return (await assetRegistry.list(h.info.id)).filter(a => a.kind === 'erc20')
 }
-async function walletOf(h: ChainHandle, token: Address, who: Address, spender: Address): Promise<Wallet> {
+export async function walletOf(h: ChainHandle, token: Address, who: Address, spender: Address): Promise<Wallet> {
   const read = (fn: 'balanceOf' | 'allowance', args: Address[]) => readContract(h, token, erc20Abi, fn, args).then(v => v as bigint, () => undefined)
   const [bal, alw] = await Promise.all([read('balanceOf', [who]), read('allowance', [who, spender])])
   return { bal, alw }
+}
+
+/** The secret is read only for the maker's own view: any other role never asks the secrets kv (Review Focus 2). */
+export async function makerSecret(role: Role | undefined, hash: Hex | undefined, get: (h: Hex) => Promise<SecretEntry | undefined>): Promise<Hex | undefined> {
+  return role === 'maker' && hash ? (await get(hash))?.secret : undefined
+}
+
+type Res = Promise<string | undefined>
+type Side = 'A' | 'B'
+type Terms = Parameters<Parameters<typeof MakeLock>[0]['onLock']>[0]
+type Person = { label: string; address: string }
+/** Amount text for a lock (or its terms) from the tokens of both chains. */
+const amountOf = (toks: Asset[]) => (c: string, v: bigint, a: Address) => {
+  const t = toks.find(x => x.chainId === c && same(x.address, a))
+  return t ? `${amountText(v, t.decimals)} ${t.symbol}` : `${v} ${shortAddress(a)}`
+}
+/** The button copy for a swap (`actionText`). */
+function swapCopy(toks: Asset[], opening: LockView | undefined, answer: LockView | undefined, nameA: string, nameB: string, chains: { id: string; name: string }[]) {
+  const tok = (c: string, a: Address) => toks.find(x => x.chainId === c && same(x.address, a))
+  return {
+    amtA: opening ? amountText(opening.amount, tok(opening.chain, opening.token)?.decimals ?? 0) : '', base: opening ? tok(opening.chain, opening.token)?.symbol ?? '' : '', chainA: nameA,
+    amtB: opening ? amountText(answer?.amount ?? opening.wantAmount, tok(opening.wantChain, opening.wantToken)?.decimals ?? 0) : '',
+    quote: opening ? tok(opening.wantChain, opening.wantToken)?.symbol ?? shortAddress(opening.wantToken) : '', chainB: opening ? chainLabel(opening.wantChain, chains) : nameB,
+  }
+}
+
+export type PanelsProps = {
+  chainA: ChainHandle; chainB?: ChainHandle; chains: { id: string; name: string }[]
+  people: Person[]; acting?: Person
+  tokA: Asset[]; tokB: Asset[]; base?: Asset; quote?: Asset
+  /** undefined: none recorded; null: still looking */
+  lockA: Lock | null | undefined; lockB: Lock | null | undefined
+  headA?: bigint; headB?: bigint
+  st?: SwapState & { b: boolean }
+  walletA: Wallet; walletB: Wallet
+  /** the maker's secret (`makerSecret`) */
+  secret?: Hex
+  working: boolean; deploying?: Side; mining?: Side; mineErr: { A?: string; B?: string }
+  /** the page's handlers; each resolves to its error message when it failed */
+  on: {
+    deploy(s: Side): Res; mine(s: Side, n: number): Res
+    approveMake(n: bigint): Res; make(t: Terms): Res
+    approveAccept(): Res; accept(timeoutBlock: bigint): Res
+    act(a: Action): Res
+  }
+}
+
+/** The page's two chain columns and its Make / Accept / Claim-refund panels, from what the page has read. The
+ * walkthrough's fields and buttons are these (Review Focus 1: the wizard presses the page's own buttons). */
+export function XSwapPanels(p: PanelsProps) {
+  const { chainA, chainB, chains, acting, base, quote, lockA, lockB, st, on } = p
+  const nameA = chainA.info.name, nameB = chainB?.info.name ?? ''
+  const opening = st?.opening, answer = st?.answer, role = roleOf(opening, acting?.address)
+  const toks = [...p.tokA, ...p.tokB], amt = amountOf(toks)
+  const lockAmount = (l: LockView) => amt(l.chain, l.amount, l.token)
+  const people = p.people
+  const who = (a: string) => (same(a, acting?.address) ? 'you' : people.find(x => same(x.address, a))?.label ?? shortAddress(a))
+  const copy = swapCopy(toks, opening, answer, nameA, nameB, chains)
+  const actions = st ? actionsFor(st, acting?.address, { secret: !!p.secret, b: st.b }) : []
+  const wantTok = opening && chainB ? toks.find(t => t.chainId === chainB.info.id && same(t.address, opening.wantToken)) : undefined
+  const pending = (h?: ChainHandle) => (h?.approach?.pending?.() ?? 0) > 0
+  const handle = (s: Side) => (s === 'A' ? chainA : chainB)
+  const mineProps = (s: Side) => ({ disabled: p.working || pending(handle(s)), busy: p.mining === s, error: p.mineErr[s], onMine: (n: number) => on.mine(s, n) })
+  const deployProps = (h: ChainHandle | undefined, s: Side) => (h && !h.info.ephemeral && acting ? { busy: p.deploying === s, onDeploy: () => on.deploy(s) } : undefined)
+  const others = people.filter(x => !same(x.address, acting?.address))
+  return <>
+    <div className="flex flex-wrap items-stretch gap-4">
+      <ChainColumn role="A" name={nameA} hashLock={lockA === null ? null : lockA?.address} head={p.headA} locks={opening ? [opening] : []}
+        amount={lockAmount} who={who} deploy={deployProps(chainA, 'A')} mine={mineProps('A')} />
+      {chainB && <ChainColumn role="B" name={nameB} hashLock={lockB === null ? null : lockB?.address} head={p.headB} locks={answer ? [answer] : []}
+        amount={lockAmount} who={who} deploy={deployProps(chainB, 'B')} mine={mineProps('B')} />}
+    </div>
+    <div className="flex flex-wrap items-stretch gap-4">
+      {base && quote && lockA && lockB && chainB && (
+        <MakeLock base={base} quote={quote} chainA={nameA} chainB={nameB} headA={p.headA} takers={others} funds={p.walletA} busy={p.working || !acting}
+          onApprove={on.approveMake} onLock={on.make} />
+      )}
+      {opening && actions.includes('accept') && (
+        <AcceptPanel opening={opening} chainA={nameA} chainB={nameB} headA={p.headA} headB={p.headB} amtB={copy.amtB} quote={copy.quote} funds={p.walletB}
+          asset={wantTok} on={chainB} busy={p.working} onApprove={on.approveAccept} onLock={on.accept} />
+      )}
+      {opening && <ClaimRefund role={role} actions={actions.filter(a => a !== 'accept')} copy={copy} secret={role === 'maker' ? p.secret : undefined} busy={p.working} onAction={on.act} />}
+    </div>
+  </>
 }
 
 /** `/xswap?chain=<A>&chainB=<B>&base=&quote=&hash=`: a hash-locked swap between two chains, playing both parties (`?as=`). */
@@ -146,9 +231,8 @@ export function XSwap() {
   // the secret is read only for the maker's own view
   useEffect(() => {
     setSecret(undefined)
-    if (role !== 'maker' || !hash) return
     let live = true
-    secrets.get(hash).then(e => live && setSecret(e?.secret))
+    makerSecret(role, hash, secrets.get).then(s => live && setSecret(s), () => {})
     return () => { live = false }
   }, [role, hash])
 
@@ -164,11 +248,11 @@ export function XSwap() {
   })
   const working = busy || !!deploying || !!mining
   useEffect(() => { lockChain(working); return () => lockChain(false) }, [working, lockChain])
+  const wzReport = useWizardReport()
 
   if (!chain) return <p className="text-sm text-muted">Select a chain first.</p>
 
-  const tokenOf = (c: string, a: Address) => [...tokA, ...tokB].find(t => t.chainId === c && same(t.address, a))
-  const amt = (c: string, v: bigint, a: Address) => { const t = tokenOf(c, a); return t ? `${amountText(v, t.decimals)} ${t.symbol}` : `${v} ${shortAddress(a)}` }
+  const amt = amountOf([...tokA, ...tokB])
   const lockAmount = (l: LockView) => amt(l.chain, l.amount, l.token)
   const wantAmount = (l: LockView) => amt(l.wantChain, l.wantAmount, l.wantToken)
   const who = (a: string) => (same(a, acting?.address) ? 'you' : people.find(p => same(p.address, a))?.label ?? shortAddress(a))
@@ -178,58 +262,81 @@ export function XSwap() {
     return sp
   }, { replace: true })
 
-  async function deploy(s: 'A' | 'B') {
+  // each handler resolves to its error message when it failed (a walkthrough's Next shows it), and reports what it made
+  async function deploy(s: Side): Res {
     const h = handle(s)
-    if (!h || !acting || deploying) return
+    if (!h || !acting) return 'Pick a chain and who acts first.'
+    if (deploying) return 'A deploy is still in flight.'
     setDeploying(s); setErr(undefined)
     try {
-      await deployHashLock(h, acting, bumpBalance)
+      const address = await deployHashLock(h, acting, bumpBalance)
       const l = await hashLockAt(h)
       ;(s === 'A' ? setLockA : setLockB)(l)
-    } catch (e) { setErr({ text: msg(e), on: h }) } finally { setDeploying(undefined) }
+      wzReport(`xswap.deploy${s}`, { address })
+    } catch (e) { setErr({ text: msg(e), on: h }); return msg(e) } finally { setDeploying(undefined) }
   }
-  async function advance(s: 'A' | 'B', n: number) {
+  async function advance(s: Side, n: number): Res {
     const h = handle(s)
-    if (!h || mining || busy) return
+    if (!h) return 'Pick chain B first.'
+    if (mining || busy) return 'Another transaction is still in flight.'
     setMining(s); setMineErr(m => ({ ...m, [s]: undefined }))
-    try { await h.mine(n) } catch (e) { setMineErr(m => ({ ...m, [s]: msg(e) })) } finally { setMining(undefined); bumpBalance() }
+    try { wzReport(`xswap.advance${s}`, { head: String(await h.mine(n)) }) }
+    catch (e) { setMineErr(m => ({ ...m, [s]: msg(e) })); return msg(e) }
+    finally { setMining(undefined); bumpBalance() }
   }
-  /** Sign and send on `h` from the acting account; a revert flashes with its report link. */
-  async function send(h: ChainHandle, tx: { to: Address; data: Hex }, done: string) {
-    if (!acting || busy) return
+  /** Sign and send on `h` from the acting account; a revert flashes with its report link. The result, or the error message. */
+  async function send(h: ChainHandle, tx: { to: Address; data: Hex }, done: string): Promise<{ hash: Hex } | string> {
+    if (!acting) return 'Pick who acts first.'
+    if (busy) return 'Another transaction is still in flight.'
     setBusy(true); setErr(undefined); setFlash(undefined)
     try {
       const r = await signAndSend(h, acting, tx, bumpBalance)
       // back to this swap on this chain A, whichever chain the tx was on
       const href = withParams('/xswap/report', { tx: r.hash, chain: h.info.id, back: withParams(pathname + search, { chain: chain!.info.id }) })
       if (r.status === 'success') { setFlash({ text: done, tone: 'success', href }); return r }
-      if (r.status === 'reverted') setFlash({ text: `The transaction reverted on ${h.info.name}.`, tone: 'danger', href })
-      else setErr({ text: `Transaction ${r.status}${r.error ? `: ${r.error}` : ''}`, on: h })
-    } catch (e) { setErr({ text: msg(e), on: h }) } finally { setBusy(false) }
+      if (r.status === 'reverted') { setFlash({ text: `The transaction reverted on ${h.info.name}.`, tone: 'danger', href }); return `The transaction reverted on ${h.info.name}: see its report.` }
+      const text = `Transaction ${r.status}${r.error ? `: ${r.error}` : ''}`
+      setErr({ text, on: h }); return text
+    } catch (e) { setErr({ text: msg(e), on: h }); return msg(e) } finally { setBusy(false) }
+  }
+  /** a send's tx, reported to a walkthrough under `id` */
+  const sent = async (r: Promise<{ hash: Hex } | string>, id: string): Res => {
+    const x = await r
+    if (typeof x === 'string') return x
+    wzReport(id, { tx: x.hash })
   }
 
-  async function make(t: { amount: bigint; want: bigint; taker: Address; timeoutBlock: bigint }) {
+  async function make(t: Terms): Res {
     if (!lockA || !lockB || !chainB || !base || !quote) return 'Both chains need a HashLock and a token first.'
     const s = newSecret(), h = hashOf(s)
     // kept before the lock is sent: a lock whose secret is lost could only be refunded
     await secrets.put(h, { secret: s, chain: chain!.info.id, lockId: '' })
     const r = await send(chain!, lockCall(lockA.address, { token: base.address as Address, amount: t.amount, recipient: t.taker, hash: h, timeoutBlock: t.timeoutBlock,
       wantChain: chainB.info.id, wantLock: lockB.address, wantToken: quote.address as Address, wantAmount: t.want }), `Locked ${amountText(t.amount, base.decimals)} ${base.symbol} on ${chain!.info.name}.`)
-    if (!r) return 'The lock was not made.'
-    const rc = (await chain!.request('eth_getTransactionReceipt', [r.hash])) as { logs: Parameters<typeof parseEventLogs>[0]['logs'] }
-    const id = parseEventLogs({ abi: hashLockAbi, eventName: 'Locked', logs: rc.logs })[0]?.args.id
-    if (id !== undefined) await secrets.put(h, { secret: s, chain: chain!.info.id, lockId: String(id) })
-    set({ hash: h })
+    if (typeof r === 'string') return r
+    try {
+      const id = await lockedId(chain!, r.hash)
+      await secrets.put(h, { secret: s, chain: chain!.info.id, lockId: String(id) })
+      set({ hash: h })
+      wzReport('xswap.lock', { tx: r.hash, id: String(id), hash: h })
+    } catch (e) {
+      // the lock is on chain and its secret kept: show the swap anyway, and say what failed
+      set({ hash: h })
+      const text = `Locked, but reading the lock back failed: ${msg(e)}`
+      setErr({ text, on: chain! }); return text
+    }
   }
-  async function accept(timeoutBlock: bigint) {
+  async function accept(timeoutBlock: bigint): Res {
     if (!opening || !chainB || !hash) return 'Pick an incoming lock first.'
     await answers.put(hash, await headOf(chain!)) // A's head as the taker locks: the report judges `unsafe` from it
     const r = await send(chainB, lockCall(opening.wantLock, { token: opening.wantToken, amount: opening.wantAmount, recipient: opening.sender, hash, timeoutBlock }),
       `Locked ${wantAmount(opening)} on ${chainB.info.name}.`)
-    return r ? undefined : 'The lock was not made.'
+    if (typeof r === 'string') return r
+    try { wzReport('xswap.accept', { tx: r.hash, id: String(await lockedId(chainB, r.hash)), hash }) }
+    catch (e) { const text = `Locked, but reading the lock back failed: ${msg(e)}`; setErr({ text, on: chainB }); return text }
   }
-  function act(a: Action) {
-    if (!opening) return
+  async function act(a: Action): Res {
+    if (!opening) return 'Pick a swap first.'
     const tx = {
       claimB: () => answer && secret && [chainB!, claimCall(answer.address, answer.id, secret)] as const,
       claimA: () => answer && [chain!, claimCall(opening.address, opening.id, answer.secret)] as const,
@@ -237,24 +344,20 @@ export function XSwap() {
       refundB: () => answer && [chainB!, refundCall(answer.address, answer.id)] as const,
       accept: () => undefined,
     }[a]()
-    if (tx) void send(tx[0], tx[1], `${actionText(a, copy)}: done.`)
+    if (!tx) return 'That is not possible for this swap now.'
+    return sent(send(tx[0], tx[1], `${actionText(a, copy)}: done.`), `xswap.${a}`)
   }
 
-  const copy = {
-    amtA: opening ? amountText(opening.amount, tokenOf(opening.chain, opening.token)?.decimals ?? 0) : '', base: opening ? tokenOf(opening.chain, opening.token)?.symbol ?? '' : '', chainA: nameA,
-    amtB: opening ? amountText(answer?.amount ?? opening.wantAmount, tokenOf(opening.wantChain, opening.wantToken)?.decimals ?? 0) : '',
-    quote: opening ? tokenOf(opening.wantChain, opening.wantToken)?.symbol ?? shortAddress(opening.wantToken) : '', chainB: opening ? chainLabel(opening.wantChain, chains) : nameB,
-  }
-  const actions = st ? actionsFor(st, acting?.address, { secret: !!secret, b: st.b }) : []
-  const wantTok = opening && chainB ? tokenOf(chainB.info.id, opening.wantToken) : undefined
-  const pending = (h?: ChainHandle) => (h?.approach.pending?.() ?? 0) > 0
+  const copy = swapCopy([...tokA, ...tokB], opening, answer, nameA, nameB, chains)
   const disabled = !!chain.info.ephemeral
-  const mineProps = (s: 'A' | 'B') => ({ disabled: working || pending(handle(s)), busy: mining === s, error: mineErr[s], onMine: (n: number) => void advance(s, n) })
-  const deployProps = (h?: ChainHandle, s?: 'A' | 'B') => (h && !h.info.ephemeral && acting ? { busy: deploying === s, onDeploy: () => void deploy(s!) } : undefined)
+  const on: PanelsProps['on'] = {
+    deploy, mine: advance, make, accept, act,
+    approveMake: n => sent(send(chain, approve(base!.address as Address, lockA!.address, n), `HashLock may now spend ${amountText(n, base!.decimals)} ${base!.symbol}.`), 'xswap.approve'),
+    approveAccept: () => sent(send(chainB!, approve(opening!.wantToken, opening!.wantLock, opening!.wantAmount), `HashLock on ${nameB} may now spend ${copy.amtB} ${copy.quote}.`), 'xswap.acceptApprove'),
+  }
   const incoming = mine.filter(l => same(l.recipient, acting?.address) && l.status === 'locked')
   const pick = (l: LockView) => set({ hash: l.hash, ...(chains.some(c => c.id === l.wantChain && c.id !== chainId) && { chainB: l.wantChain }) })
   const reportHref = opening ? `/xswap/report?hash=${opening.hash}&chain=${chainId}&chainB=${opening.wantChain}` : undefined
-  const others = people.filter(p => !same(p.address, acting?.address))
   const otherChains = chains.filter(c => c.id !== chainId)
 
   return (
@@ -294,27 +397,9 @@ export function XSwap() {
       {st?.phase === 'expiring' && <Notice>A lock of this swap is within 10 blocks of its timeout. Blocks are only a proxy for time across chains: act before the other chain moves on.</Notice>}
 
       <div inert={disabled} className={`flex flex-col gap-[18px] ${disabled ? 'opacity-45' : ''}`}>
-        <div className="flex flex-wrap items-stretch gap-4">
-          <ChainColumn role="A" name={nameA} hashLock={lockA === null ? null : lockA?.address} head={headA} locks={opening ? [opening] : []}
-            amount={lockAmount} who={who} deploy={deployProps(chain, 'A')} mine={mineProps('A')} />
-          {chainB && <ChainColumn role="B" name={nameB} hashLock={lockB === null ? null : lockB?.address} head={headB} locks={answer ? [answer] : []}
-            amount={lockAmount} who={who} deploy={deployProps(chainB, 'B')} mine={mineProps('B')} />}
-        </div>
-
-        <div className="flex flex-wrap items-stretch gap-4">
-          {base && quote && lockA && lockB && chainB && (
-            <MakeLock base={base} quote={quote} chainA={nameA} chainB={nameB} headA={headA} takers={others} funds={walletA} busy={working || !acting}
-              onApprove={n => void send(chain, approve(base.address as Address, lockA.address, n), `HashLock may now spend ${amountText(n, base.decimals)} ${base.symbol}.`)}
-              onLock={make} />
-          )}
-          {opening && actions.includes('accept') && (
-            <AcceptPanel opening={opening} chainA={nameA} chainB={nameB} headA={headA} headB={headB} amtB={copy.amtB} quote={copy.quote} funds={walletB}
-              asset={wantTok} on={chainB} busy={working}
-              onApprove={() => void send(chainB!, approve(opening.wantToken, opening.wantLock, opening.wantAmount), `HashLock on ${nameB} may now spend ${copy.amtB} ${copy.quote}.`)}
-              onLock={accept} />
-          )}
-          {opening && <ClaimRefund role={role} actions={actions.filter(a => a !== 'accept')} copy={copy} secret={secret} busy={working} onAction={act} />}
-        </div>
+        <XSwapPanels chainA={chain} chainB={chainB} chains={chains} people={people} acting={acting} tokA={tokA} tokB={tokB} base={base} quote={quote}
+          lockA={lockA} lockB={lockB} headA={headA} headB={headB} st={st} walletA={walletA} walletB={walletB} secret={secret}
+          working={working} deploying={deploying} mining={mining} mineErr={mineErr} on={on} />
 
         <div className="flex flex-wrap items-start gap-4">
           <SwapTimeline opening={opening} answer={answer} chainName={id => chainLabel(id, chains)} who={who} amount={lockAmount} reportHref={reportHref} />

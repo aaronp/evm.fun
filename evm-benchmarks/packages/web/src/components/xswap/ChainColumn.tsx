@@ -6,6 +6,7 @@ import { countdown } from '../../htlc/ui'
 import { Badge } from '../../ui/badge'
 import { Button } from '../../ui/button'
 import { Input } from '../../ui/input'
+import { orThrow, useWizardAction, useWizardField, useWizardMark } from '../../walkthrough/wizard'
 import { card } from '../TakePanel'
 
 const TONE = { locked: 'accent', claimed: 'success', refunded: 'neutral', none: 'neutral' } as const
@@ -19,12 +20,17 @@ export function ChainColumn({ role, name, hashLock, head, locks, amount, who, de
   locks: LockView[]
   amount(l: LockView): string; who(a: string): string
   /** omitted where nothing can be deployed (benchmark chains, no account) */
-  deploy?: { busy: boolean; onDeploy(): void }
+  deploy?: { busy: boolean; onDeploy(): Promise<string | undefined> }
   /** `disabled` while a send is in flight or txs are pending (the sequencer refuses to mine then) */
-  mine: { disabled: boolean; busy: boolean; error?: string; onMine(n: number): void }
+  mine: { disabled: boolean; busy: boolean; error?: string; onMine(n: number): Promise<string | undefined> }
 }) {
   const [n, setN] = useState('10')
   const count = /^[1-9]\d{0,3}$/.test(n.trim()) ? Number(n) : undefined
+  // a walkthrough fills the count and presses this column's Advance / Deploy (`xswap.blocksA`, `xswap.advanceA`, …)
+  useWizardField(`xswap.blocks${role}`, n, setN)
+  const mark = useWizardMark()
+  useWizardAction(`xswap.deploy${role}`, hashLock === undefined && deploy && !deploy.busy ? () => orThrow(deploy.onDeploy()) : undefined)
+  useWizardAction(`xswap.advance${role}`, !mine.disabled && !mine.busy && count ? () => orThrow(mine.onMine(count)) : undefined)
   return (
     <section aria-label={`Chain ${role}: ${name}`} className={`${card} flex min-w-0 flex-[1_1_300px] flex-col gap-3 p-[18px]`}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -35,13 +41,13 @@ export function ChainColumn({ role, name, hashLock, head, locks, amount, who, de
       {hashLock === undefined && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="flex-1 text-[13px] text-text-2">{name} has no HashLock contract yet.</span>
-          {deploy && <Button size="field" disabled={deploy.busy} onClick={deploy.onDeploy}>{deploy.busy ? 'Deploying…' : 'Deploy HashLock.sol?'}</Button>}
+          {deploy && <Button {...mark(`xswap.deploy${role}`)} size="field" disabled={deploy.busy} onClick={deploy.onDeploy}>{deploy.busy ? 'Deploying…' : 'Deploy HashLock.sol?'}</Button>}
         </div>
       )}
       {hashLock && <span className="font-mono text-xs text-text-2">HashLock.sol {shortAddress(hashLock)}</span>}
       <div className="flex flex-wrap items-center gap-2">
-        <Input aria-label={`Blocks to advance ${name}`} inputMode="numeric" className="min-h-9 w-20 font-mono" value={n} onChange={e => setN(e.target.value)} />
-        <Button variant="outline" size="field" disabled={mine.disabled || mine.busy || count === undefined} onClick={() => count && mine.onMine(count)}>
+        <Input {...mark(`xswap.blocks${role}`)} aria-label={`Blocks to advance ${name}`} inputMode="numeric" className="min-h-9 w-20 font-mono" value={n} onChange={e => setN(e.target.value)} />
+        <Button {...mark(`xswap.advance${role}`)} variant="outline" size="field" disabled={mine.disabled || mine.busy || count === undefined} onClick={() => count && mine.onMine(count)}>
           {mine.busy ? 'Advancing…' : `Advance ${count ?? n} blocks`}
         </Button>
       </div>
