@@ -11,8 +11,8 @@
       },
       "devDependencies": {
         "@pritzlaff/adr": "^1.2.0",
-        "@pritzlaff/agile": "^1.1.0",
-        "@pritzlaff/gantt": "^1.0.1",
+        "@pritzlaff/agile": "^1.2.0",
+        "@pritzlaff/gantt": "^1.0.2",
         "@pritzlaff/project": "^0.1.1",
         "@pritzlaff/risk-register": "^0.2.0",
         "@types/bun": "^1.4.4",
@@ -338,9 +338,9 @@
 
     "@pritzlaff/adr": ["@pritzlaff/adr@1.2.0", "", { "bin": { "adr": "bin/adr.mjs" } }, "sha512-nuwLQQ2blU7EJvPHEwtSOiDmtaVP/+DJGhrL8MAAIsv3NLJEf/5KosSW1WO92ke7arG9L2QWITULlGk/zh92IQ=="],
 
-    "@pritzlaff/agile": ["@pritzlaff/agile@1.1.0", "", { "bin": { "agile": "bin/agile.mjs" } }, "sha512-Id8IfkILi6Q+0CE37IA/FWB4mpCCMADiFqND2xFgz7CdZdjE/LpONnEAkUzT+usFdVThq9h/F/j03LflJjlmWQ=="],
+    "@pritzlaff/agile": ["@pritzlaff/agile@1.2.0", "", { "bin": { "agile": "bin/agile.mjs" } }, "sha512-pTDNWEFucrTpkMduVi1S5GkSWxadEJ93k+lYraMDfVfSv/NLCCIY3cxY/LyFNjw6vUIW1ncPGnDA2gRFWUYPKQ=="],
 
-    "@pritzlaff/gantt": ["@pritzlaff/gantt@1.0.1", "", { "bin": { "gantt": "bin/gantt.mjs" } }, "sha512-GUb4DnOCqFPEoEJaoX8UxQrXdZvrPQ9/Nv3cZ77FImQY5a4oJvUsdziAR7aquXvbpcDl9MPegbVU8lC7WlL7fQ=="],
+    "@pritzlaff/gantt": ["@pritzlaff/gantt@1.0.2", "", { "bin": { "gantt": "bin/gantt.mjs" } }, "sha512-JUGGkq659IUdsMxzIqJYhzOrZuR3Dke9te6ZGJWt87id3PhAs/s9Ob9UtPrF5nAactiURMM57DnFJycMVfifhw=="],
 
     "@pritzlaff/project": ["@pritzlaff/project@0.1.1", "", { "bin": { "project": "bin/project.mjs" } }, "sha512-UZVyOpS2Jt2WakEMp1ZaY1ed3hh4gKCd217Hjlnm1v8SDVE8ARmli/7v712tbebRzQlunDNFo9VTKFSDp74yvQ=="],
 
