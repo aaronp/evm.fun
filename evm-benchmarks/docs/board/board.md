@@ -10,21 +10,64 @@ effects.complete: random
 
 ## Backlog
 
-### Marketplace app: Launch Site
-- id: t-104
-- tags: outcome, marketplace
+### Client API & private chains
+- id: t-103
+- tags: outcome, api
 - history:
   - To Do @ 2026-11-22T11:40:00Z
+  - Next @ 2026-11-22T11:41:31.076Z
+  - Backlog @ 2026-11-22T11:50:41Z
 
 ```md
-A friendly app on top of the playground for issuers and traders. "Launch Site" takes a name (advanced: on its own chain or an existing one). The owner uploads inventory as digital assets (e.g. "chairs", 10 for the shop owner) and can launch currencies (a stablecoin is just a currency asset). Buyers pay a price in a currency, or swap another asset ("2 hours sweeping for 1 chair"). Underneath: assets, balances and an order book or swap, on chain. Examples to model: a flight booker, an Airbnb or eBay clone, a local coin.
+On hold (2026-11-22): the deployment model is undecided — a chain behind a REST API, or a device-local chain that settles with a deployed one (t-111). An operations API designed for REST may not fit the second, so wait until that is clearer.
+
+Every user operation (accounts, issue assets, transfer, approve, swap offers, orders, pool, cross-chain locks) behind one typed TypeScript client, so pages, walkthroughs and bots call the client instead of building transactions. A minimal wrapper: the point is that the same client could later talk to a chain deployed behind a REST API (a "private chain").
 ```
 
 ```dod
-- [ ] Launch Site with only a name
-- [ ] Upload inventory as assets; launch a currency
-- [ ] List items for a currency price or for a swap; a buyer completes a purchase
-- [ ] Issuer and trader personas; uses the client API
+- [ ] One client interface covering the user operations, with an in-browser implementation over today's chains
+- [ ] Pages, walkthroughs and Install use it (no page builds a tx itself)
+- [ ] An Elysia REST server + Eden client implementation exists and passes the same tests (see child)
+```
+
+### Private chain behind REST ("deploy")
+- id: t-109
+- parent: t-103
+- tags: api, deploy
+- history:
+  - To Do @ 2026-11-22T11:40:00Z
+  - Next @ 2026-11-22T11:41:34.413Z
+  - Backlog @ 2026-11-22T11:50:41Z
+
+```md
+After using the playground, "deploy" a chain: run it behind a REST API (Bun server) that implements the client API, so the same client works against it. Done when the client test suite passes against the REST implementation.
+
+Doing this with an Elysia service which can 'front' the same revm machinery would be idea.
+
+That is, we're taking the exact (or near enough) same code / packages we run in the playground and put them behind REST routes with Elysia CORS/Swagger and an Eden client we can call
+```
+
+### Device-local chain that settles with a deployed chain
+- id: t-111
+- tags: idea, deploy
+- history:
+  - Backlog @ 2026-11-22T11:50:41Z
+
+```md
+An alternative to t-103/t-109: each user runs their own private chain on their device (laptop, phone), and an ETL pipeline or integration settles it with a shared deployed chain. Open questions: what is reconciled (balances, trades), what counts as final, and how conflicts are resolved. Decide this before designing a client or REST API.
+```
+
+### Add Governance.sol
+- id: t-110
+- history:
+  - Backlog @ 2026-11-22T11:44:29.041Z
+  - Next @ 2026-11-22T11:44:43.189Z
+  - Backlog @ 2026-11-22T11:44:47.610Z
+
+```md
+We have a Governancel.sol in another project which white-lists (allow-lists) addresses, and can be added to an e.g. ERC20 which checks it with 'canTransfer'. This lets us onboard (KYC) people in some process, so we know who holds what addresses.
+
+We'll want to show this on one chain, in the Uniswap example too (we'd have to ensure KYC's addresses are taken into account in the liquidity pool), and also cover our cross-chain transfers
 ```
 
 ### Bots & live markets
@@ -428,37 +471,22 @@ Publish the playground (Vite build, `base: './'`) to GitHub Pages from CI on eve
 
 ## Next
 
-### Client API & private chains
-- id: t-103
-- tags: outcome, api
+### Marketplace app: Launch Site
+- id: t-104
+- tags: outcome, marketplace
 - history:
   - To Do @ 2026-11-22T11:40:00Z
-  - Next @ 2026-11-22T11:41:31.076Z
+  - Next @ 2026-11-22T11:50:41Z
 
 ```md
-Every user operation (accounts, issue assets, transfer, approve, swap offers, orders, pool, cross-chain locks) behind one typed TypeScript client, so pages, walkthroughs and bots call the client instead of building transactions. A minimal wrapper: the point is that the same client could later talk to a chain deployed behind a REST API (a "private chain").
+A friendly app on top of the playground for issuers and traders. "Launch Site" takes a name (advanced: on its own chain or an existing one). The owner uploads inventory as digital assets (e.g. "chairs", 10 for the shop owner) and can launch currencies (a stablecoin is just a currency asset). Buyers pay a price in a currency, or swap another asset ("2 hours sweeping for 1 chair"). Underneath: assets, balances and an order book or swap, on chain. Examples to model: a flight booker, an Airbnb or eBay clone, a local coin.
 ```
 
 ```dod
-- [ ] One client interface covering the user operations, with an in-browser implementation over today's chains
-- [ ] Pages, walkthroughs and Install use it (no page builds a tx itself)
-- [ ] An Elysia REST server + Eden client implementation exists and passes the same tests (see child)
-```
-
-### Private chain behind REST ("deploy")
-- id: t-109
-- parent: t-103
-- tags: api, deploy
-- history:
-  - To Do @ 2026-11-22T11:40:00Z
-  - Next @ 2026-11-22T11:41:34.413Z
-
-```md
-After using the playground, "deploy" a chain: run it behind a REST API (Bun server) that implements the client API, so the same client works against it. Done when the client test suite passes against the REST implementation.
-
-Doing this with an Elysia service which can 'front' the same revm machinery would be idea.
-
-That is, we're taking the exact (or near enough) same code / packages we run in the playground and put them behind REST routes with Elysia CORS/Swagger and an Eden client we can call
+- [ ] Launch Site with only a name
+- [ ] Upload inventory as assets; launch a currency
+- [ ] List items for a currency price or for a swap; a buyer completes a purchase
+- [ ] Issuer and trader personas; calls the trading packages directly (the client API, t-103, is on hold)
 ```
 
 ## Doing
