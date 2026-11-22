@@ -10,6 +10,54 @@ effects.complete: random
 
 ## Backlog
 
+### Remote chain: incremental state storage
+- id: t-129
+- parent: t-112
+- owner:
+- tags: chains, cloudflare, size-M
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+
+```md
+From the t-128 spike: the DO rewrites a full `dumpState` (with history) every block. Persist only changed accounts/code/slots per block (webevm PersistenceAdapter diff, or a revm StateStore over DO SQLite), keep history in the blocks table, add checkpoints.
+```
+
+### webevm: per-block timestamp and history-free dump
+- id: t-130
+- parent: t-112
+- owner:
+- tags: chains, upstream, size-S
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+
+```md
+From t-128: the block timestamp is the only nondeterminism between the DO and replicas, pinned today through a webevm internal. Upstream `mine({timestamp})` and a dump without state history.
+```
+
+### Remote chain: device enrolment and auth hardening
+- id: t-131
+- parent: t-112
+- owner:
+- tags: chains, cloudflare, size-M
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+
+```md
+From t-128: real device enrolment (pairing / owner-signed invites — see the access-control brainstorm), owner key rotation, multiple owners or thresholds, tx-sender ↔ device binding, rate limits.
+```
+
+### Playground ChainHandle over a remote (Durable Object) chain
+- id: t-132
+- parent: t-112
+- owner:
+- tags: chains, web, size-M
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+
+```md
+From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
+```
+
 ### Later: multi-node cluster (phone, laptop, worker)
 - id: t-119
 - parent: t-112
@@ -699,10 +747,13 @@ The owner sees and edits the chain's policy: gas mode, deployers. Done when the 
 
 ## Doing
 
+## Done
+
 ### Cloudflare evm worker
 - id: t-128
 - history:
   - Doing @ 2026-11-22T20:12:04.505Z
+  - Done @ 2026-11-22T21:41:18Z
 
 ```md
 Spike. I'd like "my personal blockchain", where I can add devices I approve, i.e.:
@@ -736,7 +787,16 @@ For each submission: verify authorisation → check expected head → execute �
 Related: We could have the chain access / allowance governed by an initial 'identity' or 'permission' contract where existing admin keys and signing thresholds can determine which nodes can contribute to the revm chain
 ```
 
-## Done
+```dod
+Spike result (branch spike-cf-chain, commit 1c24e48, `bun spike/cf-chain/demo.ts` → ALL PASS, 26 checks; report .superpowers/spike-cf-chain-report.md):
+- [x] webevm + revm runs unchanged in a Durable Object under wrangler dev (bundle 2.5 MB / 711 KiB gz; cold request ~30 ms)
+- [x] create / submit(expectedHead → 409 when stale) / fetch / hibernating WebSocket subscribe; submissions serialised
+- [x] snapshot + block + receipts persisted in one SQLite transaction; a new DO instance continues at the same head
+- [x] EIP-191 signed requests with single-use nonce; non-members 403, owner adds/removes devices
+- [x] device replicas (Bun) replay accepted blocks: same state root and block hash every block; fresh replay of 24 blocks matches in 45 ms
+- [ ] replica in a real browser (bundles, not run); playground ChainHandle over the remote chain (not attempted)
+Findings: snapshot holds full history (~2.8 KB per small block, rewritten every block); block/genesis timestamp is the only nondeterminism and is pinned via a webevm internal.
+```
 
 ## Archive <!-- archive -->
 
