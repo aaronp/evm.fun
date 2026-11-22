@@ -63,6 +63,16 @@ export async function recheck(a: ChainHandle, b: ChainHandle | undefined, hash: 
 }
 
 type Res = Promise<string | undefined>
+
+/** Runs each handler alone: the flag is taken before the first await, so a second press (or an Advance) while one is
+ * re-checking or sending is refused rather than racing it. `onBusy` mirrors the flag for the buttons. */
+export function exclusive(flag: { current: boolean }, onBusy: (b: boolean) => void) {
+  return async (fn: () => Res): Res => {
+    if (flag.current) return 'Another transaction is still in flight.'
+    flag.current = true; onBusy(true)
+    try { return await fn() } finally { flag.current = false; onBusy(false) }
+  }
+}
 type Side = 'A' | 'B'
 type Terms = Parameters<Parameters<typeof MakeLock>[0]['onLock']>[0]
 type Person = { label: string; address: string }
@@ -168,6 +178,7 @@ export function XSwap() {
   const chainId = chain?.info.id
   const okB = !!infoB && !infoB.ephemeral && infoB.id !== chainId
   const seq = useRef(0)
+  const inFlight = useRef(false) // one handler (re-check + send, or an Advance) at a time: see `exclusive`
 
   useEffect(() => { setErr(undefined); setFlash(undefined) }, [chainId, bId, acting?.address])
   useEffect(() => {
@@ -281,7 +292,6 @@ export function XSwap() {
   async function deploy(s: Side): Res {
     const h = handle(s)
     if (!h || !acting) return 'Pick a chain and who acts first.'
-    if (deploying) return 'A deploy is still in flight.'
     setDeploying(s); setErr(undefined)
     try {
       const address = await deployHashLock(h, acting, bumpBalance)
@@ -293,7 +303,6 @@ export function XSwap() {
   async function advance(s: Side, n: number): Res {
     const h = handle(s)
     if (!h) return 'Pick chain B first.'
-    if (mining || busy) return 'Another transaction is still in flight.'
     setMining(s); setMineErr(m => ({ ...m, [s]: undefined }))
     try { wzReport(`xswap.advance${s}`, { head: String(await h.mine(n)) }) }
     catch (e) { setMineErr(m => ({ ...m, [s]: msg(e) })); return msg(e) }
@@ -302,8 +311,7 @@ export function XSwap() {
   /** Sign and send on `h` from the acting account; a revert flashes with its report link. The result, or the error message. */
   async function send(h: ChainHandle, tx: { to: Address; data: Hex }, done: string): Promise<{ hash: Hex } | string> {
     if (!acting) return 'Pick who acts first.'
-    if (busy) return 'Another transaction is still in flight.'
-    setBusy(true); setErr(undefined); setFlash(undefined)
+    setErr(undefined); setFlash(undefined)
     try {
       const r = await signAndSend(h, acting, tx, bumpBalance)
       // back to this swap on this chain A, whichever chain the tx was on
@@ -312,7 +320,7 @@ export function XSwap() {
       if (r.status === 'reverted') { setFlash({ text: `The transaction reverted on ${h.info.name}.`, tone: 'danger', href }); return `The transaction reverted on ${h.info.name}: see its report.` }
       const text = `Transaction ${r.status}${r.error ? `: ${r.error}` : ''}`
       setErr({ text, on: h }); return text
-    } catch (e) { setErr({ text: msg(e), on: h }); return msg(e) } finally { setBusy(false) }
+    } catch (e) { setErr({ text: msg(e), on: h }); return msg(e) }
   }
   /** a send's tx, reported to a walkthrough under `id` */
   const sent = async (r: Promise<{ hash: Hex } | string>, id: string): Res => {
@@ -371,10 +379,12 @@ export function XSwap() {
 
   const copy = swapCopy([...tokA, ...tokB], opening, answer, nameA, nameB, chains)
   const disabled = !!chain.info.ephemeral
+  const one = exclusive(inFlight, setBusy)
   const on: PanelsProps['on'] = {
-    deploy, mine: advance, make, accept, act,
-    approveMake: n => sent(send(chain, approve(base!.address as Address, lockA!.address, n), `HashLock may now spend ${amountText(n, base!.decimals)} ${base!.symbol}.`), 'xswap.approve'),
-    approveAccept: () => sent(send(chainB!, approve(opening!.wantToken, opening!.wantLock, opening!.wantAmount), `HashLock on ${nameB} may now spend ${copy.amtB} ${copy.quote}.`), 'xswap.acceptApprove'),
+    deploy: s => one(() => deploy(s)), mine: (s, n) => one(() => advance(s, n)), make: t => one(() => make(t)),
+    accept: tb => one(() => accept(tb)), act: a => one(() => act(a)),
+    approveMake: n => one(() => sent(send(chain, approve(base!.address as Address, lockA!.address, n), `HashLock may now spend ${amountText(n, base!.decimals)} ${base!.symbol}.`), 'xswap.approve')),
+    approveAccept: () => one(() => sent(send(chainB!, approve(opening!.wantToken, opening!.wantLock, opening!.wantAmount), `HashLock on ${nameB} may now spend ${copy.amtB} ${copy.quote}.`), 'xswap.acceptApprove')),
   }
   const incoming = mine.filter(l => same(l.recipient, acting?.address) && l.status === 'locked')
   const pick = (l: LockView) => set({ hash: l.hash, ...(chains.some(c => c.id === l.wantChain && c.id !== chainId) && { chainB: l.wantChain }) })

@@ -255,6 +255,37 @@ test('recheck at fresh heads: a second accept is refused; a claim at T − 1 is 
   } finally { await s.dispose() }
 }, 60_000)
 
+test('exclusive: two accepts started back to back mine one answer; an Advance during an accept is refused', async () => {
+  const s = await setup()
+  const { exclusive, recheck } = await import('../src/pages/XSwap')
+  const { locksFor } = await import('@evmb/htlc')
+  try {
+    const secret = newSecret(), hash = hashOf(secret)
+    await signAndSend(s.A, maker, tokenCall(s.gbp, 'approve', [s.lockA, 1000n]))
+    await signAndSend(s.A, maker, lockCall(s.lockA, { token: s.gbp, amount: 1000n, recipient: taker.address, hash, timeoutBlock: (await head(s.A)) + 100n,
+      wantChain: s.B.info.id, wantLock: s.lockB, wantToken: s.usd, wantAmount: 1270n }))
+    await signAndSend(s.B, taker, tokenCall(s.usd, 'approve', [s.lockB, 2540n]))
+    const flag = { current: false }, busy: boolean[] = [], one = exclusive(flag, b => busy.push(b))
+    // the page's accept: re-check, then send
+    const accept = () => one(async () => {
+      const now = await recheck(s.A, s.B, hash, 'accept', taker.address, false)
+      if (typeof now === 'string') return now
+      const r = await signAndSend(s.B, taker, lockCall(s.lockB, { token: s.usd, amount: 1270n, recipient: maker.address, hash, timeoutBlock: (await head(s.B)) + 20n }))
+      return r.status === 'success' ? undefined : r.status
+    })
+    const inFlight = 'Another transaction is still in flight.'
+    expect(await Promise.all([accept(), accept()])).toEqual([undefined, inFlight])
+    const h0 = await head(s.B), again = accept()
+    expect(await one(async () => void await s.B.mine(1))).toBe(inFlight)
+    expect(await again).toMatch(/not possible/) // answered already
+    expect(await head(s.B)).toBe(h0)
+    const at = await hashLockAt(s.B)
+    expect((await locksFor(s.B.request, s.lockB, at!.block, { hash, chain: s.B.info.id })).length).toBe(1)
+    expect(busy).toEqual([true, false, true, false])
+    expect(flag.current).toBe(false)
+  } finally { await s.dispose() }
+}, 60_000)
+
 // ---------- page ----------
 
 test('Cross-chain swap sits under Markets after Swap; without a chain both pages say "Select a chain first."', async () => {
