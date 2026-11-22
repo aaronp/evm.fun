@@ -1,48 +1,82 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// Per-chain access list, injected into genesis at a fixed address (no constructor runs:
-/// the DO writes admin/readOpen/initial members straight into storage, see src/chain.ts).
+/// Per-chain access list. Two ways it comes to exist:
+///  - injected into genesis at 0xacce55… (no constructor runs: the DO writes admin/readOpen/initial
+///    members straight into storage, see src/chain.ts accessGenesis; build-access.ts asserts the layout)
+///  - deployed by a chain admin as a separate access contract for a view alias (constructor sets admin)
 /// The chain DO calls canRead/canWrite against its own head state on every request.
+/// Members are enumerable (readers()/writers()) so the contract can be served as a view.
 contract ChainAccess {
-    address public admin;                       // slot 0 (offset 0)
-    bool public readOpen;                       // slot 0 (offset 20)
-    mapping(address => bool) public isReader;   // slot 1
-    mapping(address => bool) public isWriter;   // slot 2
-    mapping(bytes32 => uint64) public inviteExpiry; // slot 3: keccak256(code) => expiry (unix s)
+    address public admin;                          // slot 0 (offset 0)
+    bool public readOpen;                          // slot 0 (offset 20)
+    address[] private _readers;                    // slot 1
+    address[] private _writers;                    // slot 2
+    mapping(address => uint256) private readerIdx; // slot 3: 1-based index into _readers, 0 = absent
+    mapping(address => uint256) private writerIdx; // slot 4
+    struct Invite { uint64 expiry; uint32 usesLeft; uint8 grants; }
+    mapping(bytes32 => Invite) public invites;     // slot 5: keccak256(code) => invite
+    uint8 public constant GRANT_READER = 1;
+    uint8 public constant GRANT_WRITER = 2;
 
     event ReadOpen(bool open);
     event Reader(address indexed who, bool allowed);
     event Writer(address indexed who, bool allowed);
     event Admin(address indexed admin);
-    event Invite(bytes32 indexed codeHash, uint64 expiry);
-    event Claimed(bytes32 indexed codeHash, address indexed who);
+    event Invited(bytes32 indexed codeHash, uint64 expiry, uint32 uses, uint8 grants);
+    event Claimed(bytes32 indexed codeHash, address indexed who, uint32 usesLeft);
 
+    constructor() { admin = msg.sender; }
     modifier onlyAdmin() { require(msg.sender == admin, "admin only"); _; }
 
-    function canRead(address a) external view returns (bool) { return readOpen || isReader[a] || isWriter[a] || a == admin; }
-    function canWrite(address a) external view returns (bool) { return isWriter[a] || a == admin; }
+    function isReader(address a) public view returns (bool) { return readerIdx[a] != 0; }
+    function isWriter(address a) public view returns (bool) { return writerIdx[a] != 0; }
+    function canRead(address a) external view returns (bool) { return readOpen || isReader(a) || isWriter(a) || a == admin; }
+    function canWrite(address a) external view returns (bool) { return isWriter(a) || a == admin; }
+    function readers() external view returns (address[] memory) { return _readers; }
+    function writers() external view returns (address[] memory) { return _writers; }
 
     function setReadOpen(bool open) external onlyAdmin { readOpen = open; emit ReadOpen(open); }
-    function addReader(address a) external onlyAdmin { isReader[a] = true; emit Reader(a, true); }
-    function removeReader(address a) external onlyAdmin { isReader[a] = false; emit Reader(a, false); }
-    function addWriter(address a) external onlyAdmin { isWriter[a] = true; emit Writer(a, true); }
-    function removeWriter(address a) external onlyAdmin { isWriter[a] = false; emit Writer(a, false); }
+    function addReader(address a) external onlyAdmin { _add(_readers, readerIdx, a); emit Reader(a, true); }
+    function removeReader(address a) external onlyAdmin { _remove(_readers, readerIdx, a); emit Reader(a, false); }
+    function addWriter(address a) external onlyAdmin { _add(_writers, writerIdx, a); emit Writer(a, true); }
+    function removeWriter(address a) external onlyAdmin { _remove(_writers, writerIdx, a); emit Writer(a, false); }
     function setAdmin(address a) external onlyAdmin { admin = a; emit Admin(a); }
 
-    /// Join code: admin commits keccak256(code) with a short TTL; a joiner reveals the code.
-    function invite(bytes32 codeHash, uint64 ttl) external onlyAdmin {
-        uint64 exp = uint64(block.timestamp) + ttl;
-        inviteExpiry[codeHash] = exp;
-        emit Invite(codeHash, exp);
+    function _add(address[] storage list, mapping(address => uint256) storage idx, address a) private {
+        if (idx[a] != 0) return;
+        list.push(a);
+        idx[a] = list.length;
     }
+    function _remove(address[] storage list, mapping(address => uint256) storage idx, address a) private {
+        uint256 i = idx[a];
+        if (i == 0) return;
+        address last = list[list.length - 1];
+        list[i - 1] = last; // swap-and-pop: order is not stable
+        idx[last] = i;
+        list.pop();
+        delete idx[a];
+    }
+
+    /// Invite: admin commits keccak256(code). uses = 1 is single-use (the claim deletes it, a captured
+    /// code is worthless afterwards); uses > 1 lets several keys join with one code until expiry or used up.
+    /// grants is a bitmask of GRANT_READER | GRANT_WRITER on this contract.
+    function invite(bytes32 codeHash, uint64 ttl, uint32 uses, uint8 grants) external onlyAdmin {
+        require(uses > 0 && grants != 0 && grants <= 3, "bad invite");
+        uint64 exp = uint64(block.timestamp) + ttl;
+        invites[codeHash] = Invite(exp, uses, grants);
+        emit Invited(codeHash, exp, uses, grants);
+    }
+    function revokeInvite(bytes32 codeHash) external onlyAdmin { delete invites[codeHash]; }
     function claim(string calldata code) external {
         bytes32 h = keccak256(bytes(code));
-        uint64 exp = inviteExpiry[h];
-        require(exp != 0 && block.timestamp <= exp, "bad or expired code");
-        delete inviteExpiry[h]; // single use
-        isWriter[msg.sender] = true;
-        emit Writer(msg.sender, true);
-        emit Claimed(h, msg.sender);
+        Invite storage inv = invites[h];
+        require(inv.usesLeft != 0 && block.timestamp <= inv.expiry, "bad, used up or expired code");
+        uint8 g = inv.grants;
+        uint32 left = inv.usesLeft - 1;
+        if (left == 0) delete invites[h]; else inv.usesLeft = left;
+        if (g & GRANT_READER != 0) { _add(_readers, readerIdx, msg.sender); emit Reader(msg.sender, true); }
+        if (g & GRANT_WRITER != 0) { _add(_writers, writerIdx, msg.sender); emit Writer(msg.sender, true); }
+        emit Claimed(h, msg.sender, left);
     }
 }

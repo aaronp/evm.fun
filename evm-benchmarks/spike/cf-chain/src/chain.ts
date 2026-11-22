@@ -4,9 +4,13 @@ import { createNode, type SlimNode } from 'webevm'
 import { createRevmEngine } from 'webevm/revm'
 import { decodeFunctionResult, encodeAbiParameters, encodeFunctionData, keccak256, recoverMessageAddress, type Hex, type LocalAccount } from 'viem'
 import ACCESS_ARTIFACT from './ChainAccess.json'
+import ALIASES_ARTIFACT from './Aliases.json'
 
 export const ACCESS = '0xacce550000000000000000000000000000000000' as const
 export const ACCESS_ABI = ACCESS_ARTIFACT.abi as any[]
+export const ACCESS_BYTECODE = ACCESS_ARTIFACT.bytecode as Hex // for deploying a separate access contract (constructor: admin = deployer)
+export const ALIASES = '0xa11a500000000000000000000000000000000000' as const
+export const ALIASES_ABI = ALIASES_ARTIFACT.abi as any[]
 export interface AccessConfig { admin: string; readOpen?: boolean; readers?: string[]; writers?: string[] }
 export interface Genesis { chainId: number; timestamp: number; alloc: Record<string, string>; access?: AccessConfig }
 
@@ -15,13 +19,21 @@ const mapSlot = (key: string, slot: number) => keccak256(encodeAbiParameters([{ 
 /** ChainAccess pre-deployed in genesis: runtime code + storage written directly (layout checked by build-access.ts). */
 export function accessGenesis(a: AccessConfig) {
   const storage: Record<string, string> = { [word(0n)]: word((a.readOpen ? 1n << 160n : 0n) | BigInt(a.admin)) }
-  for (const r of a.readers ?? []) storage[mapSlot(r, 1)] = word(1n)
-  for (const w of a.writers ?? []) storage[mapSlot(w, 2)] = word(1n)
+  // enumerable set: address[] at slot `arr` (length there, items at keccak(arr)+i), 1-based index mapping at slot `idx`
+  const set = (list: string[], arr: number, idx: number) => {
+    const uniq = [...new Set(list.map((x) => x.toLowerCase()))]
+    if (!uniq.length) return
+    storage[word(BigInt(arr))] = word(BigInt(uniq.length))
+    const base = BigInt(keccak256(word(BigInt(arr)) as Hex))
+    uniq.forEach((x, i) => { storage[word(base + BigInt(i))] = word(BigInt(x)); storage[mapSlot(x, idx)] = word(BigInt(i + 1)) })
+  }
+  set(a.readers ?? [], 1, 3)
+  set(a.writers ?? [], 2, 4)
   return { code: ACCESS_ARTIFACT.runtime, storage }
 }
 export const accessCall = (fn: string, args: unknown[]) => encodeFunctionData({ abi: ACCESS_ABI, functionName: fn, args })
-export async function accessView(node: SlimNode, fn: string, args: unknown[]) {
-  const ret = await node.request({ method: 'eth_call', params: [{ to: ACCESS, data: accessCall(fn, args) }, 'latest'] })
+export async function accessView(node: SlimNode, fn: string, args: unknown[], to: string = ACCESS) {
+  const ret = await node.request({ method: 'eth_call', params: [{ to, data: accessCall(fn, args) }, 'latest'] })
   return decodeFunctionResult({ abi: ACCESS_ABI, functionName: fn, data: ret as Hex })
 }
 export interface BlockRecord {
@@ -45,7 +57,7 @@ export async function makeChain(g: Genesis, wasm: Wasm): Promise<Chain> {
     genesisTimestamp: BigInt(g.timestamp),
     initialState: {
       ...Object.fromEntries(Object.entries(g.alloc).map(([a, b]) => [a.toLowerCase(), { balance: BigInt(b) }])),
-      ...(g.access ? { [ACCESS]: accessGenesis(g.access) } : {}),
+      ...(g.access ? { [ACCESS]: accessGenesis(g.access), [ALIASES]: { code: ALIASES_ARTIFACT.runtime } } : {}),
     },
     blockEnv: env,
     engine: await createRevmEngine({ wasm }),

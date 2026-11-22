@@ -3,9 +3,10 @@ import { DurableObject } from 'cloudflare:workers'
 import wasm from 'revm-wasm/revm.wasm'
 import { decodeFunctionResult, encodeFunctionData, erc20Abi, parseTransaction, recoverTransactionAddress, toFunctionSelector, type Hex } from 'viem'
 import {
-  ACCESS, AUTH_PARAMS, accessView, applyBlock, makeChain, recoverSigner, verifyReadToken,
+  ACCESS, ALIASES, ALIASES_ABI, AUTH_PARAMS, accessView, applyBlock, makeChain, recoverSigner, verifyReadToken,
   type AccessConfig, type BlockRecord, type Chain, type Genesis,
 } from './chain'
+import { ACCESS_VIEWS, RECIPES, counted } from './recipes'
 
 interface Env { CHAIN: DurableObjectNamespace<ChainDO> }
 
@@ -123,6 +124,8 @@ export class ChainDO extends DurableObject<Env> {
       return this.serial(() => this.submit(c.addr!, JSON.parse(body)))
     }
     if (req.method !== 'GET') return json({ error: 'not found' }, 404)
+    // GET /chains/:id/:alias/latest -> a view, guarded by the alias's own access contract, not the chain's
+    if (parts.length === 2 && parts[1] === 'latest') return this.serial(() => this.view(parts[0]!, c))
 
     // every GET is a read: anonymous only while readOpen, otherwise canRead(caller) from chain state
     const t0 = performance.now()
@@ -141,9 +144,10 @@ export class ChainDO extends DurableObject<Env> {
     switch (what ?? '') {
       case '': return {
         chainId: this.meta('chainId'), genesis: JSON.parse(this.meta('genesis')!), head: this.head(), bootMs: this.bootMs, instance: this.instance, engine: node.engine.id,
-        access: { address: ACCESS, admin: await accessView(node, 'admin', []), readOpen: await accessView(node, 'readOpen', []) }, caller: c.addr, via: c.via,
+        aliases: ALIASES, access: { address: ACCESS, admin: await accessView(node, 'admin', []), readOpen: await accessView(node, 'readOpen', []) }, caller: c.addr, via: c.via,
       }
       case 'head': return this.head()
+      case 'aliases': return (await this.aliasCall('all', []) as any[]).map(this.aliasJson)
       case 'blocks': {
         const after = Number(url.searchParams.get('after') ?? -1)
         const rows = this.sql.exec<any>('SELECT * FROM blocks WHERE number > ? ORDER BY number LIMIT 100', after).toArray()
@@ -186,6 +190,35 @@ export class ChainDO extends DurableObject<Env> {
       }
     }
     return json({ error: 'not found' }, 404)
+  }
+
+  aliasCall(fn: string, args: unknown[]) {
+    return this.chain!.node.request({ method: 'eth_call', params: [{ to: ALIASES, data: encodeFunctionData({ abi: ALIASES_ABI, functionName: fn, args }) }, 'latest'] })
+      .then((ret) => decodeFunctionResult({ abi: ALIASES_ABI, functionName: fn, data: ret as Hex }))
+  }
+  aliasJson = (a: { name: string; target: string; recipe: string; params: string; access: string }) => ({
+    alias: a.name, contract: a.target.toLowerCase(), recipe: a.recipe, params: a.params, access: (a.access === ZERO ? ACCESS : a.access).toLowerCase(),
+  })
+
+  /** Run under serial(): every eth_call of one view sees the same head block. */
+  async view(name: string, c: Caller) {
+    const t0 = performance.now()
+    const a = name === 'access-controls'
+      ? { alias: name, contract: ACCESS, recipe: 'self-describing', params: ACCESS_VIEWS, access: ACCESS }
+      : this.aliasJson(await this.aliasCall('get', [name]) as any)
+    if (a.contract === ZERO) return json({ error: 'no such alias', alias: name }, 404)
+    const recipe = RECIPES[a.recipe]
+    if (!recipe) return json({ error: 'unknown recipe', recipe: a.recipe }, 500)
+    const ok = await accessView(this.chain!.node, 'canRead', [c.addr ?? ZERO], a.access)
+    const aclMs = performance.now() - t0
+    if (!ok) return c.addr ? json({ error: 'not a reader of this view', alias: name, caller: c.addr }, 403) : json({ error: 'view is restricted: send a bearer token', alias: name }, 401)
+    const { rpc, cost } = counted(this.chain!.node)
+    const t1 = performance.now()
+    let state: unknown
+    try { state = await recipe(rpc, a.contract as Hex, a.params) } catch (e) { return json({ error: `recipe failed: ${(e as Error).message}` }, 500) }
+    const ms = performance.now() - t1
+    return json({ alias: name, contract: a.contract, recipe: a.recipe, access: a.access, block: this.head().number, state, cost: { ...cost, ms } }, 200,
+      `auth;dur=${c.authMs.toFixed(3)}, acl;dur=${aclMs.toFixed(3)}, recipe;dur=${ms.toFixed(3)}`)
   }
 
   async create(chainId: string, owner: string, { genesis, access }: { genesis: Genesis; access?: Omit<AccessConfig, 'admin'> }) {

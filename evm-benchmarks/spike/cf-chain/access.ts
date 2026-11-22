@@ -149,7 +149,7 @@ try {
 
   console.log('\n== 6. join code: invite(keccak256(code), ttl) by admin, claim(code) by a fresh key ==')
   const CODE = 'blue-otter-42'
-  check((await admin('invite', [keccak256(toHex(CODE)), 120n]))!.status === 200, 'admin invite(hash, 120 s) tx -> 200')
+  check((await admin('invite', [keccak256(toHex(CODE)), 120n, 1, 2]))!.status === 200, 'admin invite(hash, 120 s) tx -> 200')
   r = await submit(J, [await sign(J, ACCESS, accessCall('claim', ['wrong-code']))]); unsign(J)
   check(r!.status === 403, `J claim("wrong-code") -> ${r!.status} ${r!.data.error}`)
   r = await submit(J, [await sign(J, ACCESS, accessCall('addWriter', [J.address]))]); unsign(J)
@@ -161,7 +161,7 @@ try {
   check(r!.status === 200, `J submits an ordinary tx -> ${r!.status}`)
   r = await submit(X, [await sign(X, ACCESS, accessCall('claim', [CODE]))]); unsign(X)
   check(r!.status === 403, `X reuses the revealed code -> ${r!.status} (single use)`)
-  check((await admin('invite', [keccak256(toHex('short')), 1n]))!.status === 200, 'admin invite("short", 1 s)')
+  check((await admin('invite', [keccak256(toHex('short')), 1n, 1, 2]))!.status === 200, 'admin invite("short", 1 s)')
   await Bun.sleep(2100)
   r = await submit(X, [await sign(X, ACCESS, accessCall('claim', ['short']))]); unsign(X)
   check(r!.status === 403, `X claims "short" after 2.1 s -> ${r!.status} (expired)`)
