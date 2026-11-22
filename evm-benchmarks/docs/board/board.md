@@ -10,6 +10,213 @@ effects.complete: random
 
 ## Backlog
 
+### Later: multi-node cluster (phone, laptop, worker)
+- id: t-119
+- parent: t-112
+- tags: chains, later, size-L
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+A chain's nodes run on several devices and agree on its state and policy. Relates to t-111 (device-local chain settling with a deployed one) and approach 04 (durable, replayable log).
+```
+
+### Cross-chain transactions (orchestration)
+- id: t-113
+- tags: outcome, crosschain, size-L
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+A general **distributed transaction** across chains: e.g. an inventory chain, a sales/tickets chain and stablecoin chains in one business. HTLC is the first strategy (step 3, ADR-0021); explore others. A coordination layer runs each party's part automatically so a trade is one action, not four manual steps.
+
+**Seam:** a **settlement strategy** interface — a trade is a set of legs (chain, asset, from, to, amount) → a plan of steps → status/outcome. Strategies (HTLC, …) implement it; consumers (payments, barter, the cross-chain order book) only call it.
+```
+
+```dod
+- [ ] A strategy interface with HTLC as the first implementation
+- [ ] An orchestrator completes a two-chain trade end to end without manual steps
+- [ ] At least one other strategy explored and compared
+```
+
+### Settlement strategy interface + HTLC strategy
+- id: t-120
+- parent: t-113
+- tags: crosschain, size-M
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+Define legs → steps → status/outcome; wrap `@evmb/htlc` as the first strategy. Done when a two-leg trade runs through the interface on two chains with today's report.
+```
+
+### Orchestrator: act for each party automatically
+- id: t-121
+- parent: t-113
+- tags: crosschain, size-M
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+Watches both chains and performs each party's next step (lock, answer, claim, refund) for accounts in this browser, so a trade completes in one action. Done when a trade completes and a stalled one refunds without clicks.
+```
+
+### Explore other strategies (escrow agent, two-phase commit)
+- id: t-122
+- parent: t-113
+- tags: crosschain, size-M
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+Compare HTLC with e.g. a trusted escrow agent or a coordinator-driven two-phase commit: latency, failure cases, trust. Done when one more strategy runs behind the interface and an ADR compares them.
+```
+
+### Cross-chain order book
+- id: t-66
+- parent: t-113
+- tags: outcome, markets, size-L
+- history:
+  - To Do @ 2026-11-20T08:48:39.324Z
+
+```md
+Next on the roadmap: steps 3 (t-62, ADR-0021) and 6 (t-64's off-chain venue) are done. Off-chain matching (step 6) with HTLC settlement (step 3): matched pairs whose legs are on different chains settle by hash-lock.
+
+Later: netting, auctions, the vault, and the full market wizard. By then each is an option added to pieces that already work.
+
+Why this order: steps 2 and 3 are the same feature, first on one chain and then across two. That gets you cross-chain settlement by step 3 without first building an order book. The pool is independent, so you could swap it with step 5 if order books matter more to you.
+```
+
+```dod
+- [ ] An off-chain-matched order whose legs are on two chains settles by hash lock
+- [ ] Report and walkthrough for a cross-chain fill
+```
+
+### Per-contract permissions (governance)
+- id: t-114
+- tags: outcome, permissions, size-M
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+Who may hold or move an asset, decided by a governance contract the asset consults (allow-lists, KYC onboarding). Independent of chain-level policy (t-112): a chain may be open while an asset on it is restricted.
+
+**Seam:** an asset's transfer hook `canTransfer(from, to)` answered by a governance contract; launching an asset optionally names one. Contracts that hold assets (pool, order book, HTLC) must be allowed holders.
+```
+
+```dod
+- [ ] A governed asset refuses transfers to non-allowed addresses
+- [ ] Pool, order book and HTLC work with governed assets
+```
+
+### Add Governance.sol
+- id: t-110
+- parent: t-114
+- history:
+  - Backlog @ 2026-11-22T11:44:29.041Z
+  - Next @ 2026-11-22T11:44:43.189Z
+  - Backlog @ 2026-11-22T11:44:47.610Z
+
+```md
+We have a Governancel.sol in another project which white-lists (allow-lists) addresses, and can be added to an e.g. ERC20 which checks it with 'canTransfer'. This lets us onboard (KYC) people in some process, so we know who holds what addresses.
+
+We'll want to show this on one chain, in the Uniswap example too (we'd have to ensure KYC's addresses are taken into account in the liquidity pool), and also cover our cross-chain transfers
+```
+
+### Governed assets in pool, order book and HTLC
+- id: t-123
+- parent: t-114
+- tags: permissions, size-M
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+Contracts that escrow or pool assets must be allowed holders; the pages explain a refusal. Done when each venue works with a governed asset and refuses a non-allowed trader clearly.
+```
+
+### Application layer: assets, payments, barter
+- id: t-115
+- tags: outcome, app, size-L
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+The abstractions a shop (or a flight booker, a local coin…) needs, built on the three workstreams below: **inventory** and **currency** assets, **payments** (pay with a currency, possibly on another chain), **barter** (item for item, make an offer), and later auctions. UI-free; the Shop (t-104) is one veneer over it.
+
+**Seam:** application primitives — Asset (inventory | currency), Listing (for a price or a barter), Offer, Purchase — each mapped onto chains (t-112), settlement (t-113) and permissions (t-114).
+```
+
+```dod
+- [ ] Inventory and currency assets with a catalogue (Site)
+- [ ] Pay for a listing with a currency on the same or another chain
+- [ ] Barter: offer one item for another and accept
+```
+
+### Site: a catalogue of inventory and currencies
+- id: t-124
+- parent: t-115
+- tags: app, size-S
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+`Site.sol`: name, owner, inventory and currency entries (possibly on other chains). Spec draft: docs/superpowers/specs/2026-11-22-shop-design.md (to revise for multiple chains).
+```
+
+### Payments: buy now with a currency
+- id: t-125
+- parent: t-115
+- tags: app, size-M
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+A purchase settles item and payment, on one chain via the order book or across chains via t-113.
+```
+
+### Barter: item-for-item offers
+- id: t-126
+- parent: t-115
+- tags: app, size-M
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+Offer k of one asset for another; the other side accepts or counters. Same chain or across chains.
+```
+
+### Later: auctions
+- id: t-127
+- parent: t-115
+- tags: app, later, size-M
+- history:
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+An auction model for listings (e.g. timed, highest bid), as another Listing kind.
+```
+
+### Shop: the friendly veneer
+- id: t-104
+- tags: outcome, shop, size-L
+- history:
+  - To Do @ 2026-11-22T11:40:00Z
+  - Next @ 2026-11-22T11:50:41Z
+  - Backlog @ 2026-11-22T17:12:28Z
+
+```md
+The user-facing layer over the application layer (t-115): owners see "Launch Site" and "Add inventory"; buyers see "Buy now", pay with a stablecoin, or make a barter offer — the Trade page's machinery shown in a familiar way. Built after t-112, t-113, t-114 and t-115.
+
+A friendly app on top of the playground for issuers and traders. "Launch Site" takes a name (advanced: on its own chain or an existing one). The owner uploads inventory as digital assets (e.g. "chairs", 10 for the shop owner) and can launch currencies (a stablecoin is just a currency asset). Buyers pay a price in a currency, or swap another asset ("2 hours sweeping for 1 chair"). Underneath: assets, balances and an order book or swap, on chain. Examples to model: a flight booker, an Airbnb or eBay clone, a local coin.
+```
+
+```dod
+- [ ] Launch Site with only a name
+- [ ] Upload inventory as assets; launch a currency
+- [ ] List items for a currency price or for a swap; a buyer completes a purchase
+- [ ] Issuer and trader personas; calls the trading packages directly (the client API, t-103, is on hold)
+```
+
 ### Client API & private chains
 - id: t-103
 - tags: outcome, api
@@ -57,19 +264,6 @@ That is, we're taking the exact (or near enough) same code / packages we run in 
 An alternative to t-103/t-109: each user runs their own private chain on their device (laptop, phone), and an ETL pipeline or integration settles it with a shared deployed chain. Open questions: what is reconciled (balances, trades), what counts as final, and how conflicts are resolved. Decide this before designing a client or REST API.
 ```
 
-### Add Governance.sol
-- id: t-110
-- history:
-  - Backlog @ 2026-11-22T11:44:29.041Z
-  - Next @ 2026-11-22T11:44:43.189Z
-  - Backlog @ 2026-11-22T11:44:47.610Z
-
-```md
-We have a Governancel.sol in another project which white-lists (allow-lists) addresses, and can be added to an e.g. ERC20 which checks it with 'canTransfer'. This lets us onboard (KYC) people in some process, so we know who holds what addresses.
-
-We'll want to show this on one chain, in the Uniswap example too (we'd have to ensure KYC's addresses are taken into account in the liquidity pool), and also cover our cross-chain transfers
-```
-
 ### Bots & live markets
 - id: t-86
 - tags: outcome, bots
@@ -84,25 +278,6 @@ ADR-0017, ADR-0018. Extend walkthroughs with personas: a setup that deploys asse
 - [ ] Bots install from Get started like walkthroughs (market maker, random taker at least)
 - [ ] A running bot trades on a venue through the client API, and trades appear live on the Trade/Pool pages
 - [ ] Bots can be started, paused and stopped; their activity is visible
-```
-
-### Cross-chain order book
-- id: t-66
-- tags: outcome, markets
-- history:
-  - To Do @ 2026-11-20T08:48:39.324Z
-
-```md
-Next on the roadmap: steps 3 (t-62, ADR-0021) and 6 (t-64's off-chain venue) are done. Off-chain matching (step 6) with HTLC settlement (step 3): matched pairs whose legs are on different chains settle by hash-lock.
-
-Later: netting, auctions, the vault, and the full market wizard. By then each is an option added to pieces that already work.
-
-Why this order: steps 2 and 3 are the same feature, first on one chain and then across two. That gets you cross-chain settlement by step 3 without first building an order book. The pool is independent, so you could swap it with step 5 if order books matter more to you.
-```
-
-```dod
-- [ ] An off-chain-matched order whose legs are on two chains settles by hash lock
-- [ ] Report and walkthrough for a cross-chain fill
 ```
 
 ### Markets: scale & robustness
@@ -471,25 +646,95 @@ Publish the playground (Vite build, `base: './'`) to GitHub Pages from CI on eve
 
 ## Next
 
-### Marketplace app: Launch Site
-- id: t-104
-- tags: outcome, marketplace
+### Permissioned chains (ad-hoc, gas-free)
+- id: t-112
+- tags: outcome, chains, size-L
 - history:
-  - To Do @ 2026-11-22T11:40:00Z
-  - Next @ 2026-11-22T11:50:41Z
+  - Next @ 2026-11-22T17:12:28Z
 
 ```md
-A friendly app on top of the playground for issuers and traders. "Launch Site" takes a name (advanced: on its own chain or an existing one). The owner uploads inventory as digital assets (e.g. "chairs", 10 for the shop owner) and can launch currencies (a stablecoin is just a currency asset). Buyers pay a price in a currency, or swap another asset ("2 hours sweeping for 1 chair"). Underneath: assets, balances and an order book or swap, on chain. Examples to model: a flight booker, an Airbnb or eBay clone, a local coin.
+Anyone can create an ad-hoc chain they own (in the browser for now). Options: **gas-free** (no ETH needed to transact) and **owner-controlled deploys** (only allowed addresses may deploy contracts). Later a chain is a cluster whose nodes run on several devices (phone, laptop, Cloudflare Worker).
+
+**Seam:** a chain is `ChainHandle` + a **chain policy** (owner, gas mode, allowed deployers) held in chain state, so every node enforces the same rules. Workstreams above never care where the nodes run.
 ```
 
 ```dod
-- [ ] Launch Site with only a name
-- [ ] Upload inventory as assets; launch a currency
-- [ ] List items for a currency price or for a swap; a buyer completes a purchase
-- [ ] Issuer and trader personas; calls the trading packages directly (the client API, t-103, is on hold)
+- [ ] Create a chain as its owner, gas-free or not
+- [ ] Only allowed addresses can deploy; the owner manages the list
+- [ ] Policy survives snapshots, forks and workspace files
+```
+
+### Gas-free chains
+- id: t-116
+- parent: t-112
+- tags: chains, size-S
+- history:
+  - Next @ 2026-11-22T17:12:28Z
+
+```md
+A chain option where transactions cost nothing (zero gas price, no prefund needed). Done when a fresh account with 0 ETH can transact on a gas-free chain, on both approaches.
+```
+
+### Owner-controlled deploy allow-list
+- id: t-117
+- parent: t-112
+- tags: chains, size-M
+- history:
+  - Next @ 2026-11-22T17:12:28Z
+
+```md
+Contract creation is refused unless the sender is on the chain's deployer list (held in chain state, enforced at admission on approaches 01 and 02). Done when a non-listed account's deploy is refused with a clear error and a listed one succeeds.
+```
+
+### Chain owner admin view
+- id: t-118
+- parent: t-112
+- tags: chains, web, size-S
+- history:
+  - Next @ 2026-11-22T17:12:28Z
+
+```md
+The owner sees and edits the chain's policy: gas mode, deployers. Done when the owner can add/remove a deployer from the Chains page and the change applies immediately.
 ```
 
 ## Doing
+
+### Cloudflare evm worker
+- id: t-128
+- history:
+  - Doing @ 2026-11-22T20:12:04.505Z
+
+```md
+Spike. I'd like "my personal blockchain", where I can add devices I approve, i.e.:
+
+1. laptop (i.e. via the evm playground/browser tab, or a bun app, etc)
+2. add another device (phone, ipad, etc)
+3. Have one Cloudflare Durable Object per ad-hoc chain
+
+The terse POC would be:
+Piece	Responsibility
+Worker	Route /chains/:id to the corresponding Durable Object
+Durable Object	Authorise requests, sequence transactions, own the canonical head
+revm compiled to WASM	Execute transactions
+Durable Object SQLite	Persist EVM state, blocks, receipts and membership
+Device replica	Execute locally; push proposals and fetch accepted blocks
+
+
+Durable Objects support WASM; building a working revm WASM module and storage adapter is the first technical spike, rather than something I’d assume already works unchanged.
+
+[durable objects](https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/?cf_page=deno-joins-cloudflare%2F&utm_source=chatgpt.com)
+
+Minimal API:
+create(genesis, accessPolicy) → chainId
+submit(chainId, expectedHead, signedTransactions) → block
+fetch(chainId, afterBlock) → blocks
+subscribe(chainId) → updates
+
+For each submission: verify authorisation → check expected head → execute → atomically persist state and block → notify devices. Explicitly serialise submissions across asynchronous work.
+
+
+Related: We could have the chain access / allowance governed by an initial 'identity' or 'permission' contract where existing admin keys and signing thresholds can determine which nodes can contribute to the revm chain
+```
 
 ## Done
 
