@@ -1147,3 +1147,8 @@ Claude's calls (spec "Settled after the builder check" 3-4): `wantLock` added to
 - `locksFor` reads `Locked` logs from the contract's deploy block (the same unbounded read as ADR-0019's activity); logged as a risk and backlog card.
 - The secret is in the workspace file while unclaimed.
 - Fee-on-transfer and rebasing tokens are not supported: the recorded amount is paid out, not the amount received.
+- `eth_call` simulates at the head, but a transaction mines at head + 1, so the buttons use `canClaim` / `canRefund` (blocksLeft ≥ 2 / ≤ 1) instead of simulating at the timeout edge.
+- Outcomes needed more than completed/refunded: `taker lost` (A refunded, B claimed) and `maker lost` (A claimed, B refunded) cover a mixed result, beside `refunded (maker | both)` and `stuck`.
+- `unsafe` in a report is a proxy: A's head when B answered is not recorded anywhere (two chains share no clock), so it is judged from each lock's own block unless the page passes `headAAtAnswer` (kept in the workspace file as `answers`).
+- The core `Approach` gains an optional `mine(n)` so the page can advance blocks; the sequencer's mine refuses while transactions are pending, so Advance is disabled then.
+- Older HashLocks on chain A are not searched after a redeploy (risk R50, card t-94); the secret in the browser and in files is risk R47.

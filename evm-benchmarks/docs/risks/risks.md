@@ -863,3 +863,67 @@ With 8 live chains, Save opens one extra dump-only engine at a time, so memory b
 | Control | Type | Effectiveness |
 |---|---|---|
 | One transient chain at a time, closed right after; normal opens keep the cap | Preventive | Partial |
+
+## R47 · The maker's swap secret is stored in the browser and in saved files
+- impact: 3
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+Until the maker claims, the secret sits in the browser's key-value store and in workspace files (`secrets`); anyone with the file or browser profile can claim the taker's lock first. (ADR-0021)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Shown only to the maker, never in URLs or reports before the claim; the workspace file already warns it holds keys; playground chains only | Preventive | Partial |
+
+## R48 · locksFor scans Locked logs from the deploy block
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Performance
+- driver: Claude
+- approver: Aaron
+
+Finding locks reads every `Locked` log since the HashLock's deploy block, so each page load grows with the number of locks on the chain. (ADR-0021)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Filtered by indexed sender/recipient and hash; card t-93 for an index or bounded window | Corrective | Partial |
+
+## R49 · Blocks are only a proxy for time across chains
+- impact: 3
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+Two chains share no clock, so the safety margin (10 blocks) and the report's `unsafe` verdict compare block counts, not time; a chain advanced unevenly can misflag or miss an unsafe swap. (ADR-0021)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Warning with explicit Lock anyway; report passes A's head at the answer when known and says it is a proxy | Detective | Partial |
+
+## R50 · Older HashLocks on chain A are not searched after a redeploy
+- impact: 2
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+The page reads only the newest HashLock on chain A, so an opening lock on an earlier HashLock is not found after a redeploy and its funds can only be refunded by a direct call. (ADR-0021)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Documented limit; the contract itself still allows refund; card t-94 | Corrective | Partial |
