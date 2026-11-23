@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { keccak256, toBytes } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { ChainHost, handle, type ChainHandleLike } from '../src/router'
-import { NodeClient, accessTx, claimTx, inviteTx, setupTxs, GRANT_READER } from '../src/client'
+import { NodeClient, NodeError, accessTx, claimTx, inviteTx, setupTxs, GRANT_READER } from '../src/client'
 import { Follower, FollowerRemoved } from '../src/follower'
 import { bunSql } from './bunSql'
 import { wasm } from './workload'
@@ -58,10 +58,10 @@ describe('Follower', () => {
     await mineBlocks(130)
     const head = await f.sync() // two pages, past the second rebuild
     expect(head).toEqual(await cloudHead())
-    expect(head.number).toBeGreaterThanOrEqual(251)
+    expect(head.number).toBe(251) // setup block + 250
     expect(await f.read((n) => n.getStateRoot())).toBe(head.stateRoot)
     expect(f.status).toBe('following')
-    expect((hosts.get(cid)!.service as any).node.blocksSinceRebuild).toBeLessThan(100) // the cloud node did rebuild
+    expect((hosts.get(cid)!.service as any).node.blocksSinceRebuild).toBe(51) // rebuilt before blocks 101 and 201
   }, 120_000)
 
   let reader: Follower
@@ -83,6 +83,33 @@ describe('Follower', () => {
     expect(f.status).toBe('removed')
     expect(await f.sync().catch((x) => x)).toBe(e)
     await expect(f.read((n) => n.getStateRoot())).rejects.toBe(e)
+    // reopening as the removed device: the same error type
+    expect(await Follower.open(as(phone), cid, wasm).catch((x) => x)).toBeInstanceOf(FollowerRemoved)
+  })
+
+  test('a 500 or 404 from blocks leaves the follower following; the next sync succeeds', async () => {
+    const real = as(admin)
+    let fail: number | undefined
+    const stub = {
+      state: (id: string) => real.state(id),
+      blocks: (id: string, after: number) => (fail ? Promise.reject(new NodeError(fail, 'boom')) : real.blocks(id, after)),
+    } as unknown as NodeClient
+    const f = await open(stub)
+    await mineBlocks(1)
+    for (const s of [500, 404]) {
+      fail = s
+      expect(await f.sync().catch((x) => x)).toMatchObject({ status: s })
+      expect(f.status).toBe('following')
+    }
+    fail = undefined
+    expect(await f.sync()).toEqual(await cloudHead())
+  })
+
+  test('after dispose, read and sync fail clearly', async () => {
+    const f = await Follower.open(as(admin), cid, wasm)
+    await f.dispose()
+    await expect(f.read((n) => n.getStateRoot())).rejects.toThrow('follower disposed')
+    await expect(f.sync()).rejects.toThrow('follower disposed')
   })
 
   test('a tampered block (test stub returning a wrong stateRoot) → mismatch', async () => {

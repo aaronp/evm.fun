@@ -11,7 +11,7 @@ export class FollowerRemoved extends Error {
 
 /**
  * Keeps a local webevm node in step with a cloud chain. `sync` and `read` run one at a time.
- * After a removal or a mismatch the follower is stopped: `sync` and `read` throw that error again.
+ * After a removal or a mismatch the follower is stopped: `sync` and `read` throw that error again (after `dispose`, a "disposed" error).
  */
 export class Follower {
   status: 'following' | 'removed' | 'mismatch' = 'following'
@@ -21,7 +21,9 @@ export class Follower {
   private constructor(private client: NodeClient, readonly chainId: string, private node: SlimNode, private env: { timestamp?: bigint }, public head: BlockSummary) {}
 
   static async open(client: NodeClient, chainId: string, wasm: NodeConfig['wasm']): Promise<Follower> {
-    const { head, dump } = await client.state(chainId)
+    const { head, dump } = await client.state(chainId).catch((e) => {
+      throw e instanceof NodeError && e.status === 403 ? new FollowerRemoved(chainId) : e
+    })
     const env = {}
     const node = await createNode({ chainId: dump.chainId, ...nodeOptions(env), engine: await createRevmEngine({ wasm }) })
     try {
@@ -72,10 +74,10 @@ export class Follower {
       for (const raw of txs) await this.node.request({ method: 'eth_sendRawTransaction', params: [raw] })
       mined = { blockHash: (await this.node.mine()).blockHash, stateRoot: await this.node.getStateRoot() }
     } catch (e) {
-      return this.#stop('mismatch', new Error(`${at}: replay failed: ${e instanceof Error ? e.message : e}`))
+      return this.#stop('mismatch', new Error(`${at}: replay failed (cloud root ${header.stateRoot}): ${e instanceof Error ? e.message : e}`))
     }
     if (mined.stateRoot !== header.stateRoot) this.#stop('mismatch', new Error(`${at}: local root ${mined.stateRoot}, cloud root ${header.stateRoot}`))
-    if (mined.blockHash !== header.hash) this.#stop('mismatch', new Error(`${at}: local hash ${mined.blockHash}, cloud hash ${header.hash}`))
+    if (mined.blockHash !== header.hash) this.#stop('mismatch', new Error(`${at}: local hash ${mined.blockHash}, cloud hash ${header.hash} (roots match: ${header.stateRoot})`))
     this.head = { number: header.number, hash: header.hash, stateRoot: header.stateRoot }
   }
 
@@ -85,7 +87,10 @@ export class Follower {
   }
 
   dispose(): Promise<void> {
-    const run = this.#queue.then(() => this.node.dispose())
+    const run = this.#queue.then(() => {
+      this.#failure ??= new Error('follower disposed')
+      return this.node.dispose()
+    })
     this.#queue = run.catch(() => {})
     return run
   }
