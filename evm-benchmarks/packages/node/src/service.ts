@@ -5,13 +5,15 @@ import { ChainAccess } from '@evmb/contracts'
 import type { Sql } from './sql'
 import { ChainStore, type SerializedBlock } from './store'
 import { ChainNode, type NodeConfig } from './node'
-import { codeHash, GRANT_CREATE_CHAIN, type BlockSummary, type CodeRecord, type RemoteChainInfo } from './client'
+import { codeHash, GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, type BlockRecord, type BlockSummary, type CodeRecord, type Member, type NodesView, type RemoteChainInfo } from './client'
 
 export class ServiceError extends Error {
   constructor(readonly status: number, message: string) { super(message) }
 }
 
 const BAD_CODE = 'bad, used or expired code'
+/** An idle device's cursor is rewritten at most this often (seconds). */
+const CURSOR_REFRESH_S = 60
 const summary = (h: SerializedBlock): BlockSummary => ({ number: h.number, hash: h.hash, stateRoot: h.stateRoot })
 const sender = (raw: Hex) => recoverTransactionAddress({ serializedTransaction: raw as never }).then((a) => a.toLowerCase())
 const meta = (sql: Sql, k: string) => sql.exec('SELECT v FROM meta WHERE k = ?', k)[0]?.v as Address | undefined
@@ -144,10 +146,32 @@ export class ChainService {
   }
 
   async #redeem(signer: string, claim: Hex, timestamp: number): Promise<{ codeHash: Hex }> {
+    const { hash, grants } = await this.#invite(signer, claim, timestamp)
+    // a reader/writer invite on root is a valid claim on-chain, but not a deploy code
+    if ((grants & GRANT_CREATE_CHAIN) === 0) throw new ServiceError(403, 'not a deploy code')
+    await this.#claim(claim, timestamp)
+    return { codeHash: hash }
+  }
+
+  /**
+   * A device joins: mine `claim` (a `claim(code)` to this chain's ChainAccess sent by `signer`) as its own block,
+   * only if the invite grants reader or writer (a deploy code adds no role). Same precheck as `redeem`.
+   */
+  join(signer: string, claim: Hex, timestamp: number): Promise<{ head: BlockSummary; role: 'reader' | 'writer' }> {
+    return this.#write(async () => {
+      const { grants } = await this.#invite(signer, claim, timestamp)
+      if ((grants & (GRANT_READER | GRANT_WRITER)) === 0) throw new ServiceError(403, BAD_CODE)
+      const head = await this.#claim(claim, timestamp)
+      return { head, role: grants & GRANT_WRITER ? 'writer' : 'reader' }
+    })
+  }
+
+  /** Parse and check a claim tx against its live invite; throws before anything is mined. Call inside the write queue. */
+  async #invite(signer: string, claim: Hex, timestamp: number): Promise<{ hash: Hex; grants: number }> {
     let code: string
     try {
       const tx = parseTransaction(claim)
-      if (tx.to?.toLowerCase() !== this.access.toLowerCase()) throw new Error('not sent to the root ChainAccess')
+      if (tx.to?.toLowerCase() !== this.access.toLowerCase()) throw new Error("not sent to this chain's ChainAccess")
       const d = decodeFunctionData({ abi: ChainAccess.abi, data: tx.data! })
       if (d.functionName !== 'claim') throw new Error('not a claim(code) call')
       code = d.args[0] as string
@@ -159,11 +183,13 @@ export class ChainService {
     const [expiry, usesLeft, grants] = await this.call(ChainAccess.abi, 'invites', [hash])
     // mirrors ChainAccess.claim's require (block.timestamp <= expiry); writes are serialised, so the state can't change before the block
     if (usesLeft === 0 || timestamp > Number(expiry)) throw new ServiceError(403, BAD_CODE)
-    // a reader/writer invite on root is a valid claim on-chain, but not a deploy code
-    if ((Number(grants) & GRANT_CREATE_CHAIN) === 0) throw new ServiceError(403, 'not a deploy code')
+    return { hash, grants: Number(grants) }
+  }
+
+  async #claim(claim: Hex, timestamp: number): Promise<BlockSummary> {
     const blk = await this.node.apply(timestamp, [claim]).catch((e) => { throw new ServiceError(400, `claim rejected: ${msg(e)}`) })
     if ((blk.receipts[0] as { status: number }).status !== 1) throw new ServiceError(403, BAD_CODE)
-    return { codeHash: hash }
+    return summary(blk.header)
   }
 
   recordRedeem(hash: Hex, by: string, chainId: string, at: number): void {
@@ -185,6 +211,55 @@ export class ChainService {
       out.push({ hash, expiry: exp, usesLeft: Number(usesLeft), redeemed })
     }
     return out
+  }
+
+  /** Current state and the last 256 headers, enough to start a follower at `head`. */
+  async state(): Promise<{ head: BlockSummary; dump: SerializedState }> {
+    const dump = this.store.stateDump() // synchronous, so head and dump are the same block
+    return { head: summary(dump.blocks.at(-1)!), dump }
+  }
+
+  /** Up to `limit` blocks after `after`, and the head. */
+  blocks(after: number, limit = 100): { head: BlockSummary; blocks: BlockRecord[] } {
+    const head = this.store.head()
+    return { head: summary(head), blocks: this.store.blocks(after + 1, Math.min(after + limit, head.number)) }
+  }
+
+  #cursors(): Sql {
+    this.sql.exec('CREATE TABLE IF NOT EXISTS cursors (address TEXT PRIMARY KEY, name TEXT, block INTEGER NOT NULL, seenAt INTEGER NOT NULL)')
+    return this.sql
+  }
+
+  /** Record a device's position: only when `block` is past the stored one, or the stored one is a minute old. */
+  touch(address: string, name: string | undefined, block: number, at: number): void {
+    const sql = this.#cursors()
+    const addr = address.toLowerCase()
+    const [row] = sql.exec('SELECT block, seenAt FROM cursors WHERE address = ?', addr)
+    if (row && block <= Number(row.block) && at - Number(row.seenAt) < CURSOR_REFRESH_S) return
+    sql.exec('INSERT OR REPLACE INTO cursors VALUES (?, ?, ?, ?)', addr, name ?? null, block, at)
+  }
+
+  /** The access list (admin, writers, readers; each once, with its highest role) joined with the devices' cursors. */
+  async nodes(): Promise<NodesView> {
+    const [admin, readOpen, writers, readers] = await Promise.all([
+      this.call(ChainAccess.abi, 'admin'), this.call(ChainAccess.abi, 'readOpen'),
+      this.call(ChainAccess.abi, 'writers'), this.call(ChainAccess.abi, 'readers'),
+    ]) as [Address, boolean, Address[], Address[]]
+    const head = summary(this.store.head())
+    const cursors = new Map(this.#cursors().exec('SELECT * FROM cursors').map((r) => [r.address as string, r]))
+    const members: Member[] = []
+    const seen = new Set<string>()
+    for (const [role, list] of [['admin', [admin]], ['writer', writers], ['reader', readers]] as const)
+      for (const address of list) {
+        const key = address.toLowerCase()
+        if (seen.has(key)) continue
+        seen.add(key)
+        const c = cursors.get(key)
+        members.push(c
+          ? { address, role, ...(c.name == null ? {} : { name: c.name as string }), block: Number(c.block), behind: head.number - Number(c.block), seenAt: Number(c.seenAt) }
+          : { address, role })
+      }
+    return { head, admin, readOpen, members }
   }
 
   dump(): Promise<SerializedState> {

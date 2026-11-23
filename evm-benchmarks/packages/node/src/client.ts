@@ -3,8 +3,11 @@ import { encodeAbiParameters, encodeDeployData, encodeFunctionData, getContractA
 import type { SerializedState } from 'webevm'
 import { Aliases, ChainAccess } from '@evmb/contracts'
 import { signRequest } from './auth'
+import type { StoredBlock } from './store'
 import { WORDS } from './words'
 
+export const GRANT_READER = 1
+export const GRANT_WRITER = 2
 export const GRANT_CREATE_CHAIN = 4
 /**
  * Largest POST /chains body the worker takes (413 above it; checked before auth). The root DO forwards the dump to the
@@ -19,6 +22,10 @@ export interface CreateChainRequest { dump: SerializedState; setup: [Hex, Hex]; 
 export interface CreateChainResult { chainId: string; url: string; head: BlockSummary; dump: SerializedState }
 export interface RemoteChainInfo { chainId: string; head: BlockSummary; admin: Address; access: Address; aliases: Address }
 export interface CodeRecord { hash: Hex; expiry: number; usesLeft: number; redeemed: { by: Address; chainId: string; at: number }[] }
+/** A block as GET /chains/:id/blocks serves it: header, raw txs, receipts. */
+export type BlockRecord = StoredBlock
+export interface Member { address: Address; role: 'admin' | 'writer' | 'reader'; name?: string; block?: number; behind?: number; seenAt?: number }
+export interface NodesView { head: BlockSummary; admin: Address; readOpen: boolean; members: Member[] }
 type RootInfo = { chainId: 'root'; admin: Address; access: Address; head: number }
 
 export const codeHash = (code: string): Hex => keccak256(toBytes(code))
