@@ -64,7 +64,8 @@ describe('ChainNode over 350 workload blocks', () => {
 
   test('rebuild resets history', async () => {
     expect(live.blocksSinceRebuild).toBeLessThan(100)
-    expect((await live.node.dumpState()).blocks.length).toBeLessThanOrEqual(HEADERS_KEPT + 100)
+    // last rebuild at 300: the node holds HEADERS_KEPT headers + the 51 blocks since (a never-rebuilt node holds 352)
+    expect((await live.node.dumpState()).blocks.length).toBeLessThanOrEqual(HEADERS_KEPT + (351 % 100) + 1)
     expect(live.head().number).toBe(351)
   })
 })

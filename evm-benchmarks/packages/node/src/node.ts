@@ -84,11 +84,19 @@ export class ChainNode {
       if (left.length) throw new Error(`txs not mined: ${left.join(', ')}`)
       const after = await this.#node.dumpState()
       const header = after.blocks.at(-1)!
-      block = { header, txs, receipts: header.transactions.map((h) => after.receipts[h]) }
+      const receipts = header.transactions.map((h) => {
+        if (!after.receipts[h]) throw new Error(`no receipt for ${h}`)
+        return after.receipts[h]
+      })
+      block = { header, txs, receipts }
       this.store.commit(block, diffState(this.#dump, after))
       this.#dump = after
     } catch (e) {
-      await this.rebuild()
+      try {
+        await this.rebuild()
+      } catch (r) {
+        throw new AggregateError([e, r], 'apply failed, and the rebuild from the store failed too')
+      }
       throw e
     }
     if (++this.blocksSinceRebuild >= (this.cfg.rebuildEvery ?? 1000)) await this.rebuild()
