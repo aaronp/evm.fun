@@ -62,17 +62,6 @@ From t-128: real device enrolment (pairing / owner-signed invites — see the ac
 Access spike (branch spike-cf-chain, 129e7fd, `bun spike/cf-chain/access.ts` → ALL PASS, 49 checks; report [docs/spikes/cf-access.md](../spikes/cf-access.md)): `ChainAccess.sol` in genesis at 0xacce55… (admin, readOpen, reader/writer sets); the DO checks canRead/canWrite from its own state on every request (~15–20 µs); tx senders must be writers; changes apply next block and close revoked sockets; plain GET when reads are open, self-signed short-TTL bearer tokens otherwise (~1 ms verify); gas-free chains; `invite(hash, ttl)` + `claim(code)`.
 ```
 
-### Playground ChainHandle over a remote (Durable Object) chain
-- id: t-132
-- parent: t-112
-- tags: chains, web, size-M
-- history:
-  - Backlog @ 2026-11-22T21:41:18Z
-
-```md
-From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
-```
-
 ### Later: multi-node cluster (phone, laptop, worker)
 - id: t-119
 - parent: t-112
@@ -733,10 +722,12 @@ I think we want:
 a. A user creates a chain in their browser (evm.fun).
 b. They deploy a contract on it (a wizard, an ERC-20, …).
 c. They ask to deploy it to CF; Aaron gives them a deploy code.
-d. They click Deploy: their CF node comes up with the same state (a 2-node cluster). — t-134 (sync after deploy: t-132)
+d. They click Deploy: their CF node comes up with the same state (a 2-node cluster). — t-134, then t-132 (the browser node follows)
 e. On another device/browser they create a key, choose their deployed chain, and enter a code they issued for their own chain, sending it with their public key. — t-131, t-133
 f. That browser starts a revm node that joins the cluster and syncs.
 g. They deploy/update contracts on their chain from either device.
+
+**Demo cut (Aaron, 2026-11-23):** local `make dev-services` → root chain → issue a code and deploy chains (t-134) → browser follows (t-132) → add/remove a device in the UI (t-138) → key/value contract + its views (t-139) → each node's cursor (t-140) → the whole run as a walkthrough (t-141).
 ```
 
 ### Chain store: incremental state storage
@@ -818,6 +809,93 @@ Roadmap item 1: turn the CF spike (`spike/cf-chain`, [docs/spikes](../spikes/)) 
 - [ ] End-to-end test against the local worker; nothing deploys from CI
 - [ ] Then live: `make deploy` puts the worker on your Cloudflare account and creates the root chain; prints the worker URL and root chain id; evm.fun can target it
 - [ ] Docs updated (t-137): how to deploy, issue and redeem a code
+```
+
+### Playground ChainHandle over a remote (Durable Object) chain
+- id: t-132
+- parent: t-136
+- tags: chains, web, size-M
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+  - Next @ 2026-11-23T15:00:21Z
+
+```md
+From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
+
+Demo (t-136): after Deploy (t-134), the browser chain follows the cloud node, so they form a 2-node cluster; needed for node cursors (t-140). Uses t-129's `ChainNode` for replay.
+```
+
+```dod
+- [ ] A deployed chain in evm.fun submits to the cloud node and follows its blocks; existing pages work against it
+- [ ] Same state root as the cloud node after each block, in a real browser
+- [ ] Docs updated (t-137)
+```
+
+### Chain access list in evm.fun
+- id: t-138
+- parent: t-136
+- tags: chains, web, access, size-M
+- history:
+  - Next @ 2026-11-23T15:00:21Z
+
+```md
+Demo step d. For a deployed chain, see and edit its access list (`ChainAccess`): readers, writers, open reads; add or remove a device key. Builds on the access spike (`docs/spikes/cf-access.md`) and t-134; device invites by code are t-133.
+```
+
+```dod
+- [ ] The chain admin sees readers/writers and open-reads for a deployed chain
+- [ ] Add and remove a device key from evm.fun; the change applies from the next block (a removed key's reads/writes are refused)
+- [ ] Docs updated (t-137)
+```
+
+### Key/value contract and its views in evm.fun
+- id: t-139
+- parent: t-136
+- tags: chains, web, views, size-M
+- history:
+  - Next @ 2026-11-23T15:00:21Z
+
+```md
+Demo steps e–f, the indexer demo. A simple key/value contract that describes its own views (self-describing recipe), deployed and updated from evm.fun on a deployed chain, registered as an alias, and its JSON view (`/chains/:id/<alias>/latest`) shown in evm.fun under the alias's own access rules. Builds on t-135 views (`docs/spikes/cf-views.md`).
+```
+
+```dod
+- [ ] Deploy and update the key/value contract from evm.fun; register its alias
+- [ ] Its view shows the current keys/values; a key without access is refused, open reads make it a plain GET
+- [ ] Docs updated (t-137)
+```
+
+### Node cursors: where each node is
+- id: t-140
+- parent: t-136
+- tags: chains, cloudflare, web, size-S
+- history:
+  - Next @ 2026-11-23T15:00:21Z
+
+```md
+Demo step g. The cloud node records the block it last delivered to each device key and serves `GET /chains/:id/nodes/latest`; evm.fun shows a Nodes panel ("phone: block 412, 6 behind, 2 min ago"). Show only, for now. Design: [node cursors](../superpowers/specs/2026-11-23-node-cursors-design.md). Needs t-132.
+```
+
+```dod
+- [ ] Two device keys following a deployed chain show their blocks and last-seen times in the view and the panel
+- [ ] A device that stops fetching falls behind as the chain advances; a key without read access gets 403
+- [ ] Docs updated (t-137)
+```
+
+### Demo walkthrough: deploy, permission, publish, observe
+- id: t-141
+- parent: t-136
+- tags: chains, walkthroughs, size-S
+- history:
+  - Next @ 2026-11-23T15:00:21Z
+
+```md
+The end-to-end demo as a guided run: (a) `make dev-services`, (b) the root chain, (c) issue a code (single or multi-use, TTL) and deploy chains with it, (d) add/remove a device, (e) deploy/update the key/value contract, (f) see its published values per the access list, (g) see each node's cursor. Steps a–b are commands; c–g run in evm.fun.
+```
+
+```dod
+- [ ] A walkthrough (or scripted checklist) runs a–g against the local worker
+- [ ] Docs (t-137): the demo, start to finish
 ```
 
 ### Permissioned chains (ad-hoc, gas-free)
