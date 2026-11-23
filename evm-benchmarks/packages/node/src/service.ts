@@ -14,6 +14,8 @@ export class ServiceError extends Error {
 const BAD_CODE = 'bad, used or expired code'
 /** An idle device's cursor is rewritten at most this often (seconds). */
 const CURSOR_REFRESH_S = 60
+/** Most blocks one `blocks()` call returns. */
+const MAX_BLOCKS = 100
 const summary = (h: SerializedBlock): BlockSummary => ({ number: h.number, hash: h.hash, stateRoot: h.stateRoot })
 const sender = (raw: Hex) => recoverTransactionAddress({ serializedTransaction: raw as never }).then((a) => a.toLowerCase())
 const meta = (sql: Sql, k: string) => sql.exec('SELECT v FROM meta WHERE k = ?', k)[0]?.v as Address | undefined
@@ -25,11 +27,12 @@ const creating = new WeakSet<Sql>()
 function initTables(sql: Sql) {
   new ChainStore(sql) // creates its tables, incl. meta
   sql.exec('CREATE TABLE IF NOT EXISTS redeems (hash TEXT, by TEXT, chainId TEXT, at INTEGER)')
+  sql.exec('CREATE TABLE IF NOT EXISTS cursors (address TEXT PRIMARY KEY, name TEXT, block INTEGER NOT NULL, seenAt INTEGER NOT NULL)')
 }
 
 /** Drop every row, so a refused create leaves no chain behind and a retry starts clean. */
 function wipe(sql: Sql) {
-  sql.tx(() => { for (const t of ['meta', 'accounts', 'code', 'storage', 'blocks', 'redeems']) sql.exec(`DELETE FROM ${t}`) })
+  sql.tx(() => { for (const t of ['meta', 'accounts', 'code', 'storage', 'blocks', 'redeems', 'cursors']) sql.exec(`DELETE FROM ${t}`) })
 }
 
 /** The stateless set-up checks (exactly two contract creations sent by `signer`); the root runs them before spending a code. */
@@ -169,9 +172,11 @@ export class ChainService {
   /** Parse and check a claim tx against its live invite; throws before anything is mined. Call inside the write queue. */
   async #invite(signer: string, claim: Hex, timestamp: number): Promise<{ hash: Hex; grants: number }> {
     let code: string
+    let tx: ReturnType<typeof parseTransaction>
     try {
-      const tx = parseTransaction(claim)
+      tx = parseTransaction(claim)
       if (tx.to?.toLowerCase() !== this.access.toLowerCase()) throw new Error("not sent to this chain's ChainAccess")
+      if (tx.value) throw new Error('claim tx must send no value')
       const d = decodeFunctionData({ abi: ChainAccess.abi, data: tx.data! })
       if (d.functionName !== 'claim') throw new Error('not a claim(code) call')
       code = d.args[0] as string
@@ -183,6 +188,12 @@ export class ChainService {
     const [expiry, usesLeft, grants] = await this.call(ChainAccess.abi, 'invites', [hash])
     // mirrors ChainAccess.claim's require (block.timestamp <= expiry); writes are serialised, so the state can't change before the block
     if (usesLeft === 0 || timestamp > Number(expiry)) throw new ServiceError(403, BAD_CODE)
+    // a claim can pass the checks above and still revert in its block (e.g. too little gas), so simulate it and mine nothing.
+    // eth_estimateGas, not eth_call: webevm's eth_call does not charge intrinsic gas against `gas`; the estimate is the
+    // smallest gas limit at which the claim succeeds, and throws if it reverts at any limit.
+    const need = await this.node.read((n) => n.request({ method: 'eth_estimateGas', params: [{ from: signer, to: this.access, data: tx.data }, 'latest'] }))
+      .then(BigInt, () => null)
+    if (need === null || (tx.gas ?? 0n) < need) throw new ServiceError(403, BAD_CODE)
     return { hash, grants: Number(grants) }
   }
 
@@ -219,15 +230,10 @@ export class ChainService {
     return { head: summary(dump.blocks.at(-1)!), dump }
   }
 
-  /** Up to `limit` blocks after `after`, and the head. */
-  blocks(after: number, limit = 100): { head: BlockSummary; blocks: BlockRecord[] } {
+  /** Up to `limit` (at most 100) blocks after `after`, and the head. */
+  blocks(after: number, limit = MAX_BLOCKS): { head: BlockSummary; blocks: BlockRecord[] } {
     const head = this.store.head()
-    return { head: summary(head), blocks: this.store.blocks(after + 1, Math.min(after + limit, head.number)) }
-  }
-
-  #cursors(): Sql {
-    this.sql.exec('CREATE TABLE IF NOT EXISTS cursors (address TEXT PRIMARY KEY, name TEXT, block INTEGER NOT NULL, seenAt INTEGER NOT NULL)')
-    return this.sql
+    return { head: summary(head), blocks: this.store.blocks(after + 1, Math.min(after + Math.min(limit, MAX_BLOCKS), head.number)) }
   }
 
   /**
@@ -235,7 +241,7 @@ export class ChainService {
    * The stored block never goes down, and an empty name keeps the stored one.
    */
   touch(address: string, name: string | undefined, block: number, at: number): void {
-    const sql = this.#cursors()
+    const sql = this.sql
     const addr = address.toLowerCase()
     const [row] = sql.exec('SELECT name, block, seenAt FROM cursors WHERE address = ?', addr)
     if (row && block <= Number(row.block) && at - Number(row.seenAt) < CURSOR_REFRESH_S) return
@@ -249,7 +255,7 @@ export class ChainService {
       this.call(ChainAccess.abi, 'writers'), this.call(ChainAccess.abi, 'readers'),
     ]) as [Address, boolean, Address[], Address[]]
     const head = summary(this.store.head())
-    const cursors = new Map(this.#cursors().exec('SELECT * FROM cursors').map((r) => [r.address as string, r]))
+    const cursors = new Map(this.sql.exec('SELECT * FROM cursors').map((r) => [r.address as string, r]))
     const members: Member[] = []
     const seen = new Set<string>()
     for (const [role, list] of [['admin', [admin]], ['writer', writers], ['reader', readers]] as const)
@@ -259,7 +265,7 @@ export class ChainService {
         seen.add(key)
         const c = cursors.get(key)
         members.push(c
-          ? { address, role, ...(c.name == null ? {} : { name: c.name as string }), block: Number(c.block), behind: head.number - Number(c.block), seenAt: Number(c.seenAt) }
+          ? { address, role, ...(c.name == null ? {} : { name: c.name as string }), block: Number(c.block), behind: Math.max(0, head.number - Number(c.block)), seenAt: Number(c.seenAt) }
           : { address, role })
       }
     return { head, admin, readOpen, members }

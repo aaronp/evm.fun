@@ -154,6 +154,18 @@ describe('root chain: codes', () => {
     expect(await s.canRead(joiner.address)).toBe(false)
   })
 
+  test('a redeem that would revert in its block (too little gas) → 403, no block, the code still works', async () => {
+    const { access } = await s.info()
+    await s.submit(me, [await inviteTx(admin, await s.nonceOf(me), access, 'low-gas-code', 3600, 1)], T0 + 600)
+    const head = (await s.info()).head.number
+    const nonce = await s.nonceOf(other.address)
+    const low = await other.signTransaction({ ...tx, nonce, to: access, gas: 23_000n, data: encodeFunctionData({ abi: ChainAccess.abi, functionName: 'claim', args: ['low-gas-code'] }) })
+    const e = await refused(s.redeem(other.address, low, T0 + 601))
+    expect([e.status, e.message]).toEqual([403, 'bad, used or expired code'])
+    expect((await s.info()).head.number).toBe(head)
+    expect(await s.redeem(other.address, await claimTx(other, nonce, 'low-gas-code', access), T0 + 602)).toEqual({ codeHash: codeHash('low-gas-code') })
+  })
+
   test('create on a sql that holds a chain → 409, the chain untouched', async () => {
     const before = await s.info()
     expect((await refused(create(sql))).status).toBe(409)

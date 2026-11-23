@@ -64,6 +64,7 @@ test('blocks(after) pages at 100 and returns head', async () => {
   expect(s.blocks(100).blocks.map((b) => b.header.number)).toEqual(Array.from({ length: h.number - 100 }, (_, i) => i + 101))
   expect(s.blocks(h.number)).toEqual({ head: h, blocks: [] })
   expect(s.blocks(0, 3).blocks.length).toBe(3)
+  expect(s.blocks(0, 1000).blocks.length).toBe(100)
 })
 
 describe('join', () => {
@@ -92,6 +93,18 @@ describe('join', () => {
     expect((await refused(s.join(stranger.address, await claimTx(stranger, 0, 'reader-code', stranger.address), next()))).status).toBe(400)
     expect(await head()).toEqual(before)
     expect(await s.canRead(stranger.address)).toBe(false)
+  })
+
+  test('a claim that would revert in its block (too little gas) → 403, no block, the code still works; a claim with value → 400', async () => {
+    await invite('gas-code', 3600, 1, GRANT_READER)
+    const before = await head()
+    const claim = (gas: bigint, value = 0n) => stranger.signTransaction({ ...tx, nonce: 0, to: access, value, gas, data: encodeFunctionData({ abi: ChainAccess.abi, functionName: 'claim', args: ['gas-code'] }) })
+    const e = await refused(s.join(stranger.address, await claim(23_000n), next()))
+    expect([e.status, e.message]).toEqual([403, 'bad, used or expired code'])
+    expect((await refused(s.join(stranger.address, await claim(300_000n, 1n), next()))).status).toBe(400)
+    expect(await head()).toEqual(before)
+    expect((await join(stranger, 'gas-code')).role).toBe('reader')
+    await adminTx('removeReader', [stranger.address])
   })
 
   test('joining twice with valid codes leaves one role entry', async () => {
