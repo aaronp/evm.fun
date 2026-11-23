@@ -27,7 +27,7 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
   const [code, setCode] = useState('')
   const [running, setRunning] = useState(false)
   const [seen, setSeen] = useState<Partial<Record<DeployStep, string>>>({})
-  const [err, setErr] = useState<string>()
+  const [err, setErr] = useState<{ text: string; step?: DeployStep }>()
   const [result, setResult] = useState<CreateChainResult>()
   const reset = () => { setCode(''); setSeen({}); setErr(undefined); setResult(undefined) }
   const last = STEPS.filter((s) => seen[s.step] !== undefined).at(-1)?.step
@@ -46,7 +46,7 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
       bumpBalance()
       onDeployed?.()
     } catch (e) {
-      setErr(message(e))
+      setErr({ text: message(e), step: (e as { step?: DeployStep }).step })
     } finally {
       setRunning(false); setBusy(false)
     }
@@ -68,8 +68,8 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
         )}
         {last && (
           <ol className="space-y-2 text-sm">
-            {STEPS.filter((s) => seen[s.step] !== undefined).map((s) => {
-              const failed = !!err && s.step === last
+            {STEPS.filter((s) => seen[s.step] !== undefined && !(err?.step === 'code' && s.step === 'node')).map((s) => {
+              const failed = !!err && s.step === (err.step ?? last)
               const doing = running && s.step === last
               return (
                 <li key={s.step} className="flex gap-2">
@@ -83,7 +83,7 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
             })}
           </ol>
         )}
-        {err && <Notice>{`${err.replace(/\.$/, '')}. Your chain wasn't changed — try another code.`}</Notice>}
+        {err && <Notice>{err.step === 'replace' ? err.text : `${err.text.replace(/\.$/, '')}. Your chain wasn't changed${err.step === 'code' ? ' — try another code' : ''}.`}</Notice>}
         {result && (
           <div className="space-y-1 rounded-lg border border-success bg-success-soft p-3 text-sm text-success-text" role="status">
             <div className="font-medium">Deployed.</div>

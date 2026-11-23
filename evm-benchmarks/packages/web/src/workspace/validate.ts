@@ -15,7 +15,8 @@ const isId = (v: unknown) => isStr(v) && /^[A-Za-z0-9_-]{1,100}$/.test(v)
 // Untrusted names are quoted, clipped and never interpolated raw.
 const name = (v: unknown, fallback: string) => (isStr(v) ? JSON.stringify(v.slice(0, 40)) : fallback)
 
-const deployedOk = (d: unknown) => isObj(d) && isStr(d.nodeUrl) && d.nodeUrl.length <= 2000 && /^https?:\/\/[^\s]+$/.test(d.nodeUrl)
+const parses = (u: string) => { try { return !!new URL(u) } catch { return false } }
+const deployedOk = (d: unknown) => isObj(d) && isStr(d.nodeUrl) && d.nodeUrl.length <= 2000 && /^https?:\/\/[^\s]+$/.test(d.nodeUrl) && parses(d.nodeUrl)
   && isId(d.chainId) && str(d.at) && Number.isInteger(d.head) && d.head >= 0
 
 /** The text as a workspace file, or every problem found. Any error refuses the whole file. */

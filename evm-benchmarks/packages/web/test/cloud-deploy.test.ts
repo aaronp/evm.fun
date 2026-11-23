@@ -67,6 +67,12 @@ describe('deployChain', () => {
     expect((await kv.get<any>('chains', chain.info.id)).deployed).toMatchObject(want)
     expect((await registry.list())[0]!.lastHeight).toBe(r.head.number)
     expect((await new NodeClient(url, user).info(r.chainId)).admin.toLowerCase()).toBe(user.address.toLowerCase())
+    // deployed once: refused before any step, code unspent
+    const steps: string[] = [], again = generateCode()
+    await issue(again)
+    await expect(deployChain({ chain, account: user, code: again, client: new NodeClient(url, user), registry, onStep: (s) => steps.push(s) })).rejects.toThrow(`Already deployed as ${r.chainId}`)
+    expect(steps).toEqual([])
+    expect((await adminClient().codes()).find((c) => c.redeemed.length === 0 && c.usesLeft === 1)).toBeTruthy()
     await chain.dispose()
   })
 
@@ -97,6 +103,47 @@ describe('deployChain', () => {
     expect(steps[1]![1]).toMatch(/0x[0-9a-f]{64}/)
     expect(steps[2]![1]).toContain(url)
     expect(steps[3]![1]).toContain(r.head.hash)
+    await chain.dispose()
+  })
+
+  test('pending txs: refused before anything is sent', async () => {
+    const { registry, chain } = await browserChain()
+    const steps: string[] = []
+    chain.approach.pending = () => 2
+    const e = await deployChain({ chain, account: user, code: 'x', client: new NodeClient(url, user), registry, onStep: (s) => steps.push(s) }).catch((x) => x)
+    expect(e.message).toMatch(/2 pending transactions/)
+    expect(e.step).toBe('prepare')
+    expect(steps).toEqual([])
+    await chain.dispose()
+  })
+
+  test('a worker refusal is tagged with the step that failed: a bad code → code', async () => {
+    const { registry, chain } = await browserChain()
+    const e = await deployChain({ chain, account: user, code: 'nope', client: new NodeClient(url, user), registry, onStep: () => {} }).catch((x) => x)
+    expect([e.status, e.step]).toEqual([403, 'code'])
+    await chain.dispose()
+  })
+
+  test('after the cloud chain exists, a failed match says so with its id, puts the browser copy back, records nothing', async () => {
+    const { registry, kv, chain } = await browserChain()
+    const before = await head(chain)
+    let calls = 0
+    const flaky = { setDeployed: registry.setDeployed, replaceState: async (id: string, d: unknown) => { if (++calls === 1) throw new Error('disk full'); return registry.replaceState(id, d) } }
+    const code = generateCode()
+    await issue(code)
+    const e = await deployChain({ chain, account: user, code, client: new NodeClient(url, user), registry: flaky, onStep: () => {} }).catch((x) => x)
+    expect(e.message).toMatch(/^Deployed as [0-9a-f-]{36} \(http:\/\/localhost:\d+\/chains\/[0-9a-f-]{36}\), but your browser copy couldn't be matched: disk full$/)
+    expect(e.step).toBe('replace')
+    expect(e.chainId).toBeTruthy()
+    expect(calls).toBe(2) // the rollback ran
+    expect(await head(chain)).toEqual(before)
+    expect((await kv.get<any>('chains', chain.info.id)).deployed).toBeUndefined()
+    // a rollback that fails too is surfaced, not swallowed
+    const broken = { setDeployed: registry.setDeployed, replaceState: async () => { throw new Error('gone') } }
+    const code2 = generateCode()
+    await issue(code2)
+    const e2 = await deployChain({ chain, account: user, code: code2, client: new NodeClient(url, user), registry: broken as any, onStep: () => {} }).catch((x) => x)
+    expect(e2.message).toMatch(/couldn't be matched: gone; putting your browser copy back failed too: gone$/)
     await chain.dispose()
   })
 

@@ -5,6 +5,7 @@ import { useApp } from '../state'
 import { useAppBar } from '../state/appBar'
 import { accounts } from '../store/accounts'
 import { clientFor, DEFAULT_NODE_URL, nodeUrl, setNodeUrl } from '../cloud/node'
+import { deployedUrl } from '../cloud/deploy'
 import { CodesPanel } from '../components/cloud/CodesPanel'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
@@ -76,7 +77,7 @@ export function Cloud() {
                 {deployed.map((c) => (
                   <tr key={c.id} className="border-b border-line last:border-0 align-top">
                     <td className={td}>{c.name}</td>
-                    <td className={`${td} break-all font-mono text-xs`}>{new URL(`/chains/${c.deployed!.chainId}`, c.deployed!.nodeUrl).href}</td>
+                    <td className={`${td} break-all font-mono text-xs`}>{deployedUrl(c.deployed!)}</td>
                     <td className={td}>#{c.deployed!.head}</td>
                     <td className={`${td} text-xs text-muted`}>{new Date(c.deployed!.at).toLocaleString()}</td>
                   </tr>

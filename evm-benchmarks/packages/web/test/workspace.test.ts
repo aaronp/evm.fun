@@ -655,7 +655,7 @@ describe('New / Open / Save', () => {
     expect(await openWorkspace(encodeWorkspace({ ...f, chains: [{ ...f.chains[0]!, deployed: { ...deployed, extra: '<b>' } as any }] }), e.ws)).toEqual({ ok: true })
     expect((await e.registry.list())[0]!.deployed).toEqual(deployed)
     await e.disposeAll()
-    for (const bad of [{ ...deployed, head: -1 }, { ...deployed, nodeUrl: 'javascript:alert(1)' }, { ...deployed, chainId: '../x' }, 'yes'])
+    for (const bad of [{ ...deployed, head: -1 }, { ...deployed, nodeUrl: 'javascript:alert(1)' }, { ...deployed, nodeUrl: 'http://[' }, { ...deployed, chainId: '../x' }, 'yes'])
       expect('errors' in validateWorkspace(encodeWorkspace({ ...f, chains: [{ ...f.chains[0]!, deployed: bad as any }] }), { engine: ENGINE, crossEngineOk: false })).toBe(true)
   })
 
