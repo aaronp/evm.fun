@@ -29,7 +29,12 @@ export function createChainRegistry(deps: {
   /** delete the chain's persisted state */
   purge?: (chainId: string) => Promise<void>
   /** what follower chains need: the compiled revm wasm, and the key (and label, sent as the device name) of an account in this browser */
-  follower?: { wasm(): Promise<NodeConfig['wasm']>; account(address: Address): { account: LocalAccount; label: string } | undefined }
+  follower?: {
+    wasm(): Promise<NodeConfig['wasm']>
+    account(address: Address): { account: LocalAccount; label: string } | undefined
+    /** the accounts store changed: a follower waiting for its key looks again */
+    onAccountsChange?(cb: () => void): () => void
+  }
 }) {
   const live = new Map<string, ChainHandle>()
   const opening = new Map<string, Promise<ChainHandle>>() // concurrent open(id) shares one node
@@ -41,9 +46,9 @@ export function createChainRegistry(deps: {
   const build = (info: ChainInfo) => {
     if (info.type !== 'follower') return makeHandle(info, factories[info.type]({}, { ...deps.host(info.id), stateHistory: STATE_HISTORY }))
     if (!deps.follower || !info.follows) throw new Error(`chain ${info.id} can't follow a cloud chain here`)
-    const key = deps.follower.account(info.follows.account)
+    const { account, wasm, onAccountsChange } = deps.follower, follows = info.follows
     return makeHandle(info, followerApproach({
-      follows: info.follows, account: key?.account, label: key?.label, wasm: deps.follower.wasm(),
+      follows, key: () => account(follows.account), wasm, onKeysChange: onAccountsChange,
       onStatus: () => emit(info.id), onHead: () => emit(info.id),
     }))
   }
@@ -161,7 +166,7 @@ export function createChainRegistry(deps: {
             throw e
           }
           return track(h)
-        })().finally(() => opening.delete(id))
+        })().finally(() => { if (opening.get(id) === p) opening.delete(id) }) // a conversion may have taken the slot
         opening.set(id, p)
       }
       return p
@@ -233,16 +238,25 @@ export function createChainRegistry(deps: {
       return h
     },
     /** Make saved chain `id` a follower of `follows`: same id, name, contract and asset records; its engine and stored state go. */
-    async convertToFollower(id: string, follows: NonNullable<ChainInfo['follows']>): Promise<ChainHandle> {
-      await opening.get(id)?.catch(() => {})
-      await transient.get(id)
-      const old = live.get(id)?.info ?? await deps.kv.get<ChainInfo>(STORE, id)
-      if (!old || old.ephemeral) throw new Error(`unknown chain ${id}`)
-      await self.close(id)
-      await deps.purge?.(id)
-      const info: ChainInfo = { ...old, type: 'follower', follows }
-      await deps.kv.set(STORE, id, info)
-      return startFollower(info)
+    // registered in `opening` until the follower is live, so an open(id) meanwhile gets this follower, not a plain engine
+    convertToFollower(id: string, follows: NonNullable<ChainInfo['follows']>): Promise<ChainHandle> {
+      const prior = opening.get(id)
+      const p: Promise<ChainHandle> = (async () => {
+        await prior?.catch(() => {})
+        await transient.get(id)
+        const old = live.get(id)?.info ?? await deps.kv.get<ChainInfo>(STORE, id)
+        if (!old || old.ephemeral) throw new Error(`unknown chain ${id}`)
+        if (!live.has(id)) assertRoom()
+        // refused before anything local goes: without the key the follower could never sync
+        if (!deps.follower?.account(follows.account)) throw new Error(`Needs ${follows.account}'s key`)
+        await self.close(id)
+        await deps.purge?.(id)
+        const info: ChainInfo = { ...old, type: 'follower', follows }
+        await deps.kv.set(STORE, id, info)
+        return startFollower(info)
+      })().finally(() => { if (opening.get(id) === p) opening.delete(id) })
+      opening.set(id, p)
+      return p
     },
     /** `cb(id)` when a follower's head or status changes; returns the unsubscribe. */
     watch(cb: (id: string) => void) {

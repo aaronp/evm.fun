@@ -6,7 +6,7 @@ import { GRANT_READER, NodeClient, accessTx, claimTx, generateCode, inviteTx, se
 import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { createKv } from '../src/store/kv'
-import { createChainRegistry } from '../src/chain/registry'
+import { createChainRegistry, LIVE_MAX } from '../src/chain/registry'
 import { createContractsRegistry } from '../src/contracts/registry'
 import { createWebAssets } from '../src/assets/registry'
 import type { FollowerStatus } from '../src/cloud/followerChain'
@@ -58,18 +58,19 @@ afterEach(() => {
 })
 
 const keys = new Map<string, { account: LocalAccount; label: string }>([[admin.address, { account: admin, label: 'laptop' }], [phone.address, { account: phone, label: 'phone' }]])
-function env() {
+function env(o: { wasm?: () => Promise<any>; account?: (a: `0x${string}`) => { account: LocalAccount; label: string } | undefined } = {}) {
   const kv = createKv()
+  const keySubs = new Set<() => void>()
   const stores = new Map<string, any>()
   const events: string[] = []
   const registry = createChainRegistry({
     kv,
     host: (id: string) => ({ persistence: { load: async () => stores.get(id) ?? null, save: async (s: any) => void stores.set(id, structuredClone(s)) } }),
     purge: async (id: string) => void stores.delete(id),
-    follower: { wasm: async () => wasm, account: (a) => keys.get(a) },
+    follower: { wasm: o.wasm ?? (async () => wasm), account: o.account ?? ((a) => keys.get(a)), onAccountsChange: (cb) => (keySubs.add(cb), () => void keySubs.delete(cb)) },
   })
   registry.watch((id) => events.push(id))
-  return { kv, stores, registry, events }
+  return { kv, stores, registry, events, keysChanged: () => keySubs.forEach((cb) => cb()) }
 }
 const follows = (account = admin.address, chainId = cid) => ({ nodeUrl: url, chainId, account })
 const status = (h: { approach: unknown }) => (h.approach as { status(): FollowerStatus }).status()
@@ -129,6 +130,66 @@ describe('follower chains', () => {
     await registry.remove(h.info.id)
   })
 
+  test('missing account → needs-key, no request sent, no wasm; importing the key recovers without reopening', async () => {
+    let present = false, compiles = 0
+    const { registry, keysChanged } = env({ wasm: async () => (compiles++, wasm), account: (a) => (present ? keys.get(a) : undefined) })
+    const h = await registry.addFollower({ name: 'd', follows: follows() })
+    expect(status(h)).toEqual({ kind: 'needs-key', detail: `Needs ${admin.address}'s key` })
+    await syncNow(h)
+    expect(compiles).toBe(0)
+    present = true
+    keysChanged() // e.g. Accounts → Import key
+    await syncNow(h) // joins the sync the change started
+    expect(status(h)).toMatchObject({ kind: 'following', behind: 0 })
+    expect(compiles).toBe(1)
+    expect(registry.peek(h.info.id)).toBe(h)
+    await registry.remove(h.info.id)
+  })
+
+  test('a wasm compile that fails once → unreachable, then the next sync recovers', async () => {
+    let n = 0
+    const { registry } = env({ wasm: async () => { if (n++ === 0) throw new Error('compile failed'); return wasm } })
+    const h = await registry.addFollower({ name: 'd', follows: follows() })
+    expect(status(h).kind).toBe('unreachable')
+    await syncNow(h)
+    expect(status(h)).toMatchObject({ kind: 'following', behind: 0 })
+    expect(n).toBe(2)
+    await registry.remove(h.info.id)
+  })
+
+  test('no status or head events from a poll that finds nothing new', async () => {
+    const { registry, events } = env()
+    const h = await registry.addFollower({ name: 'd', follows: follows() })
+    const n = events.length
+    await syncNow(h)
+    await syncNow(h)
+    expect(events.length).toBe(n)
+    await mineBlocks(1)
+    await syncNow(h)
+    expect(events.length).toBe(n + 2) // status (block) and head
+    await registry.remove(h.info.id)
+  })
+
+  test('hiding the tab drops the timer; showing it re-arms', async () => {
+    let state = 'visible', listener: (() => void) | undefined
+    g.document = { get visibilityState() { return state }, addEventListener: (_: string, f: () => void) => (listener = f), removeEventListener: () => (listener = undefined) }
+    try {
+      const { registry } = env()
+      jest.useFakeTimers()
+      const h = await registry.addFollower({ name: 'd', follows: follows() })
+      expect(jest.getTimerCount()).toBe(1)
+      state = 'hidden'
+      listener!()
+      expect(jest.getTimerCount()).toBe(0)
+      state = 'visible'
+      listener!()
+      expect(jest.getTimerCount()).toBe(1)
+      jest.useRealTimers()
+      await registry.remove(h.info.id)
+      expect(listener).toBeUndefined()
+    } finally { delete g.document }
+  })
+
   test('missing account → needs-key, no request sent', async () => {
     const { registry } = env()
     let calls = 0
@@ -170,11 +231,9 @@ describe('follower chains', () => {
     const n = calls
     jest.advanceTimersByTime(5_000) // the old 5 s timer was replaced: still pending, nothing ran
     expect(jest.getTimerCount()).toBe(1)
-    const synced = new Promise<void>((r) => registry.watch(() => r()))
     jest.advanceTimersByTime(10_000)
     expect(jest.getTimerCount()).toBe(0) // fired; re-armed once the sync lands
-    await synced
-    await Promise.resolve()
+    await syncNow(h) // joins the timer's sync
     expect(calls).toBe(n + 1) // one GET /blocks
     expect(jest.getTimerCount()).toBe(1)
     setSyncInterval('manual')
@@ -221,6 +280,37 @@ describe('follower chains', () => {
     await registry.close(id)
     const again = await registry.open(id) // a reload re-syncs as a follower
     expect(status(again).kind).toBe('following')
+    await registry.remove(id)
+  })
+
+  test('convertToFollower racing open(id) → one follower handle, no plain engine', async () => {
+    const { registry, stores } = env()
+    const plain = await registry.create('mine', 'plain', [admin.address])
+    const id = plain.info.id
+    await registry.close(id)
+    const [a, b] = await Promise.all([registry.convertToFollower(id, follows()), registry.open(id)])
+    expect(a).toBe(b)
+    expect(a.info.type).toBe('follower')
+    expect(registry.liveCount()).toBe(1)
+    expect(stores.has(id)).toBe(false) // no plain engine saved state again
+    await registry.remove(id)
+  })
+
+  test('convertToFollower refuses without the key (chain unchanged) and at the live cap', async () => {
+    const { registry, kv, stores } = env()
+    const plain = await registry.create('mine', 'plain', [admin.address])
+    const id = plain.info.id
+    const stranger = privateKeyToAccount(generatePrivateKey()).address
+    await expect(registry.convertToFollower(id, follows(stranger))).rejects.toThrow(`Needs ${stranger}'s key`)
+    expect(registry.peek(id)).toBe(plain)
+    expect(stores.has(id)).toBe(true)
+    expect((await kv.get<any>('chains', id)).type).toBe('plain')
+    await registry.close(id)
+    const others = []
+    for (let i = 0; i < LIVE_MAX; i++) others.push(await registry.create(`c${i}`, 'plain', []))
+    await expect(registry.convertToFollower(id, follows())).rejects.toThrow(`${LIVE_MAX} chains are already running`)
+    expect(stores.has(id)).toBe(true)
+    for (const c of others) await registry.remove(c.info.id)
     await registry.remove(id)
   })
 })

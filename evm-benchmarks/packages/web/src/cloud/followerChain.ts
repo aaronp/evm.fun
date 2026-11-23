@@ -24,8 +24,13 @@ const hidden = () => typeof document !== 'undefined' && document.visibilityState
  * the status (`onStatus`); reads throw that status's detail until the follower is open.
  */
 export function followerApproach(o: {
-  follows: Follows; account: LocalAccount | undefined; label?: string
-  wasm: NodeConfig['wasm'] | Promise<NodeConfig['wasm']>
+  follows: Follows
+  /** the follow account's key in this browser and its label (sent as the device name); looked up on every sync until found */
+  key(): { account: LocalAccount; label: string } | undefined
+  /** called just before the first open, so a failed compile is retried on the next sync */
+  wasm(): Promise<NodeConfig['wasm']>
+  /** the accounts store changed (e.g. Import key): a needs-key follower tries again; returns the unsubscribe */
+  onKeysChange?(cb: () => void): () => void
   onStatus(s: FollowerStatus): void; onHead(h: BlockSummary): void
 }): Approach & { status(): FollowerStatus; syncNow(): Promise<void> } {
   const { nodeUrl, chainId, account: address } = o.follows
@@ -37,9 +42,13 @@ export function followerApproach(o: {
   let timer: ReturnType<typeof setTimeout> | undefined
   let backoff: number | undefined // ms, after an error
   let stopped = false
-  let unsub: (() => void) | undefined
+  let unsubs: (() => void)[] | undefined
 
-  const set = (s: FollowerStatus) => { status = s; o.onStatus(s) }
+  const set = (s: FollowerStatus) => {
+    if (JSON.stringify(s) === JSON.stringify(status)) return
+    status = s
+    o.onStatus(s)
+  }
   const classify = (e: unknown): FollowerStatus => {
     const detail = e instanceof Error ? e.message : String(e)
     if (e instanceof FollowerRemoved) return { kind: 'removed', detail: `Removed from chain ${chainId}: your copy is no longer updated` }
@@ -57,18 +66,21 @@ export function followerApproach(o: {
     if (stopped || final(status) || every === 'manual' || hidden()) return
     timer = setTimeout(() => { timer = undefined; void syncNow() }, backoff ?? every * 1000)
   }
-  const onVisible = () => { if (!hidden() && !timer && !running && getSyncInterval() !== 'manual') void syncNow() }
+  /** hidden: drop the pending timer; visible: arm again (sync() re-arms itself when it lands) */
+  const onVisibility = () => { if (hidden()) { clearTimeout(timer); timer = undefined } else if (!running) arm() }
+  const onKeys = () => { if (status.kind === 'needs-key') void syncNow() }
 
   function syncNow(): Promise<void> {
     return (running ??= sync().finally(() => { running = undefined; arm() }))
   }
   async function sync() {
     try {
-      if (stopped || final(status)) return
-      if (!o.account) return set({ kind: 'needs-key', detail: `Needs ${address}'s key` })
+      if (stopped || (final(status) && status.kind !== 'needs-key')) return
       const first = !f
       if (!f) {
-        const next = await Follower.open(new NodeClient(nodeUrl, o.account, { name: o.label }), chainId, await o.wasm)
+        const key = o.key()
+        if (!key) return set({ kind: 'needs-key', detail: `Needs ${address}'s key` })
+        const next = await Follower.open(new NodeClient(nodeUrl, key.account, { name: key.label }), chainId, await o.wasm())
         if (stopped) return void (await next.dispose())
         f = next
       }
@@ -98,9 +110,9 @@ export function followerApproach(o: {
     status: () => status,
     syncNow,
     async open() {
-      if (!unsub) {
-        unsub = onSyncIntervalChange(arm)
-        globalThis.document?.addEventListener('visibilitychange', onVisible)
+      if (!unsubs) {
+        globalThis.document?.addEventListener('visibilitychange', onVisibility)
+        unsubs = [onSyncIntervalChange(arm), o.onKeysChange?.(onKeys) ?? (() => {}), () => globalThis.document?.removeEventListener('visibilitychange', onVisibility)]
       }
       await syncNow()
     },
@@ -118,8 +130,7 @@ export function followerApproach(o: {
     async dispose() {
       stopped = true
       clearTimeout(timer)
-      unsub?.()
-      globalThis.document?.removeEventListener('visibilitychange', onVisible)
+      unsubs?.forEach((u) => u())
       await running
       await f?.dispose()
     },

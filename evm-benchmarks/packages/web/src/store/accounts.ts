@@ -9,6 +9,7 @@ export function createAccounts() {
   let items: Account[] = []
   let persistent = false
   const subs = new Set<() => void>()
+  const changes = new Set<() => void>()
   try {
     const raw = localStorage.getItem(ACCOUNTS_KEY)
     items = raw ? JSON.parse(raw) : []
@@ -17,6 +18,7 @@ export function createAccounts() {
     items = []
   }
   const save = () => {
+    changes.forEach(cb => cb()) // every change saves
     if (!persistent) return
     try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(items)) } catch {
       persistent = false
@@ -56,6 +58,8 @@ export function createAccounts() {
       save()
     },
     onPersistenceChange: (cb: () => void) => (subs.add(cb), () => void subs.delete(cb)),
+    /** an account was added, renamed or removed; returns the unsubscribe */
+    onChange: (cb: () => void) => (changes.add(cb), () => void changes.delete(cb)),
     get persistent() { return persistent },
   }
 }

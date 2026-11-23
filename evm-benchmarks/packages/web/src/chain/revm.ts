@@ -39,6 +39,7 @@ export const registry = createChainRegistry({
   kv, host, purge,
   follower: {
     wasm: compiledRevm,
+    onAccountsChange: accounts.onChange,
     account(address) {
       const a = accounts.list().find(a => a.address.toLowerCase() === address.toLowerCase())
       return a && { account: privateKeyToAccount(a.privateKey), label: a.label }
