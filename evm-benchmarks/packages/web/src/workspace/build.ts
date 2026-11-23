@@ -50,7 +50,7 @@ export async function buildWorkspace(env: WorkspaceEnv): Promise<WorkspaceFile> 
         ...(info.source && { source: info.source }),
       }
     })
-    chains.push({ ...file, id: info.id })
+    chains.push({ ...file, id: info.id, ...(info.deployed && { deployed: info.deployed }) })
   }
   const ids = new Set(saved.map(c => c.id))
   const snaps = createSnapshotStore(kv), snapshots: Snapshot[] = []

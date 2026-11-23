@@ -3,13 +3,14 @@ import type { ChainFile } from '../chain/chainFile'
 import type { Snapshot } from '../chain/snapshots'
 import type { Run, Walkthrough } from '../walkthrough/types'
 import type { Account } from '../store/accounts'
+import type { Deployed } from '../chain/handle'
 
 /** The whole playground in one file (spec: 2026-11-21-workspace-appbar-design). Per-browser settings are not in it. */
 export type WorkspaceFile = {
   format: 'evm.fun/workspace'; version: 1; savedAt: string; engine: string
   accounts: Account[]
   /** each exactly today's chain export, plus the chain's id (kept on Open so links, runs and order-book scopes stay valid) */
-  chains: (ChainFile & { id: string })[]
+  chains: (ChainFile & { id: string; /** where it was deployed (missing = never) */ deployed?: Deployed })[]
   selection?: { chain?: string; account?: Address }
   snapshots: Snapshot[]
   walkthroughs: { edits: Walkthrough[]; runs: Run[] }

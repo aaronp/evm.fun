@@ -7,9 +7,9 @@ import { createContractsRegistry } from '../contracts/registry'
 import type { ChainSource, ContractRecord } from './chainFile'
 import { createWebAssets } from '../assets/registry'
 import { createSnapshotStore, type Snapshot } from './snapshots'
-import { makeHandle, type ChainHandle, type ChainInfo, type ChainType } from './handle'
+import { makeHandle, type ChainHandle, type ChainInfo, type ChainType, type Deployed } from './handle'
 
-export type { ChainHandle, ChainInfo, ChainType }
+export type { ChainHandle, ChainInfo, ChainType, Deployed }
 
 const STORE = 'chains'
 const factories = { plain, sequencer }
@@ -71,11 +71,11 @@ export function createChainRegistry(deps: {
      * `source` is trusted as given, so an import caller must build it from the real file name and height,
      * never from a `source` inside the file. (Opening a workspace keeps the file's provenance, rebuilt field by field: workspace/load.ts.)
      */
-    async createFrom(dump: unknown, o: { name: string; type: ChainType; contracts: ContractRecord[]; assets?: Asset[]; source?: ChainSource; /** keep this id (opening a workspace); refused if it exists */ id?: string; /** keep the list order (opening a workspace) */ createdAt?: string }): Promise<ChainHandle> {
+    async createFrom(dump: unknown, o: { name: string; type: ChainType; contracts: ContractRecord[]; assets?: Asset[]; source?: ChainSource; /** keep this id (opening a workspace); refused if it exists */ id?: string; /** keep the list order (opening a workspace) */ createdAt?: string; deployed?: Deployed }): Promise<ChainHandle> {
       assertRoom()
       // an existing id must be refused up front: the failure cleanup below would delete that chain's data
       if (o.id !== undefined && (live.has(o.id) || opening.has(o.id) || transient.has(o.id) || await deps.kv.get(STORE, o.id))) throw new Error(`A chain with id ${o.id} already exists`)
-      const info: ChainInfo = { id: o.id ?? crypto.randomUUID(), name: o.name, type: o.type, createdAt: o.createdAt ?? new Date().toISOString(), ...(o.source && { source: o.source }) }
+      const info: ChainInfo = { id: o.id ?? crypto.randomUUID(), name: o.name, type: o.type, createdAt: o.createdAt ?? new Date().toISOString(), ...(o.source && { source: o.source }), ...(o.deployed && { deployed: o.deployed }) }
       const h = build(info)
       try {
         await h.approach.setup({ prefund: {}, dump })
@@ -105,6 +105,22 @@ export function createChainRegistry(deps: {
       await assets.replace(id, snap.assets ?? [])
       await self.recordHeight(id)
       return { saved }
+    },
+    /** Replace chain `id`'s state with `dump` (a deployed chain coming back), keeping its contract and asset records. Refused while txs are pending. */
+    async replaceState(id: string, dump: unknown) {
+      const h = await self.open(id)
+      const n = h.approach.pending?.() ?? 0
+      if (n > 0) throw new Error(`Wait for ${n} pending transactions to settle`)
+      await h.approach.restore!(dump)
+      await self.recordHeight(id)
+      return h
+    },
+    /** Record where saved chain `id` is deployed. */
+    async setDeployed(id: string, deployed: Deployed) {
+      const info = live.get(id)?.info ?? await deps.kv.get<ChainInfo>(STORE, id)
+      if (!info || info.ephemeral) throw new Error(`unknown chain ${id}`)
+      info.deployed = deployed
+      await deps.kv.set(STORE, id, info)
     },
     open(id: string): Promise<ChainHandle> {
       const cached = live.get(id)

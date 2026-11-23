@@ -15,6 +15,9 @@ const isId = (v: unknown) => isStr(v) && /^[A-Za-z0-9_-]{1,100}$/.test(v)
 // Untrusted names are quoted, clipped and never interpolated raw.
 const name = (v: unknown, fallback: string) => (isStr(v) ? JSON.stringify(v.slice(0, 40)) : fallback)
 
+const deployedOk = (d: unknown) => isObj(d) && isStr(d.nodeUrl) && d.nodeUrl.length <= 2000 && /^https?:\/\/[^\s]+$/.test(d.nodeUrl)
+  && isId(d.chainId) && str(d.at) && Number.isInteger(d.head) && d.head >= 0
+
 /** The text as a workspace file, or every problem found. Any error refuses the whole file. */
 export function validateWorkspace(text: string, opts: { engine: string; crossEngineOk: boolean }): { ok: WorkspaceFile } | { errors: string[] } {
   try { return check(text, opts) } catch { return { errors: ['Invalid file'] } }
@@ -59,10 +62,11 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
     if (!isObj(c)) return bad(`chains[${i}] is not an object`)
     if (!isId(c.id)) return bad(`${label}: invalid id`)
     if (chains.has(c.id)) return bad(`${label}: duplicate chain id ${c.id}`)
-    const { id, ...file } = c
+    const { id, deployed, ...file } = c
+    if (deployed !== undefined && !deployedOk(deployed)) return bad(`${label}: invalid deployed (needs an http(s) nodeUrl, chainId, at and head)`)
     const d = decodeChainFile(encodeJson(file), opts)
     if (!d.ok) return bad(`${label}: ${d.error}`)
-    chains.set(id, { ...d.file, id })
+    chains.set(id, { ...d.file, id, ...(deployed !== undefined && { deployed }) })
   })
 
   const snapIds = new Set<string>()

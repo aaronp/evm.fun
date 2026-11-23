@@ -47,7 +47,7 @@ test('a saved edit is listed as edited; Reset removes it', async () => {
 })
 
 test('Setup group starts with Get started; page renders', () => {
-  expect(groups[0].items.map(([n]) => n)).toEqual(['Get started', 'Accounts', 'Chains'])
+  expect(groups[0].items.map(([n]) => n)).toEqual(['Get started', 'Accounts', 'Chains', 'Cloud'])
   expect(html(h(MemoryRouter, null, h(AppState, null, h(AppBarProvider, null, h(GetStarted)))))).toContain('Guided walkthroughs')
 })
 

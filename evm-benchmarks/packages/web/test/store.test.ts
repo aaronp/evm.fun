@@ -43,6 +43,16 @@ test('accounts.create derives address from key', () => {
   expect(accounts.list()).toEqual([])
 })
 
+test('accounts.import adds a key by its address; malformed or duplicate keys are refused', () => {
+  const accounts = createAccounts()
+  const key = `0x${'22'.repeat(32)}`
+  const a = accounts.import('root', ` ${key} `)
+  expect(a).toEqual({ label: 'root', address: privateKeyToAccount(key as `0x${string}`).address, privateKey: key as `0x${string}` })
+  expect(() => accounts.import('again', key)).toThrow(/already here/)
+  expect(() => accounts.import('bad', '0x1234')).toThrow(/64 hex/)
+  expect(accounts.list().length).toBe(1)
+})
+
 test('kv: async open failure flips persistent and notifies', async () => {
   const g = globalThis as any
   g.indexedDB = {

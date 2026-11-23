@@ -38,4 +38,5 @@ export const XSwapIcon = icon(<><path d="M4 8h12l-3-3" /><path d="M20 16H8l3 3" 
 export const SwapIcon = icon(<><path d="M4 9h15l-4-4" /><path d="M20 15H5l4 4" /></>)
 export const PoolIcon = icon(<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z" />)
 export const TradeIcon = icon(<path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4" />)
+export const CloudIcon = icon(<path d="M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 1 1 0 9z" />)
 export const FlagIcon = icon(<><path d="M4 22V4" /><path d="M4 4h13l-2 4 2 4H4" /></>)

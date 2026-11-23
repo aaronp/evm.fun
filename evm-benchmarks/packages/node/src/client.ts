@@ -47,7 +47,7 @@ export class NodeError extends Error {
 }
 
 export class NodeClient {
-  constructor(private baseUrl: string, private account?: LocalAccount) {}
+  constructor(readonly baseUrl: string, private account?: LocalAccount) {}
 
   private async req<T>(method: string, path: string, body?: unknown, sign = true): Promise<T> {
     const url = new URL(path, this.baseUrl)

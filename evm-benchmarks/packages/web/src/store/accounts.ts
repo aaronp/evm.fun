@@ -32,6 +32,17 @@ export function createAccounts() {
       save()
       return a
     },
+    /** Add an existing key (e.g. the root admin's from .env.local); refused if malformed or already here. */
+    import(label: string, privateKey: string): Account {
+      const k = privateKey.trim()
+      if (!/^0x[0-9a-fA-F]{64}$/.test(k)) throw new Error('A key is 0x followed by 64 hex characters')
+      const address = privateKeyToAccount(k as `0x${string}`).address
+      if (items.some(a => a.address.toLowerCase() === address.toLowerCase())) throw new Error(`${address} is already here`)
+      const a = { label, address, privateKey: k as `0x${string}` }
+      items.push(a)
+      save()
+      return a
+    },
     remove(address: string) {
       items = items.filter(a => a.address.toLowerCase() !== address.toLowerCase())
       save()

@@ -643,6 +643,22 @@ describe('New / Open / Save', () => {
     await e.disposeAll()
   })
 
+  test("a chain's deployed record survives Save → Open (known fields only); a malformed one refuses the file", async () => {
+    const src = env()
+    const h = await src.registry.create('x', 'plain', [])
+    const deployed = { nodeUrl: 'http://localhost:8799', chainId: crypto.randomUUID(), at: new Date().toISOString(), head: 2 }
+    await src.registry.setDeployed(h.info.id, deployed)
+    const f = await buildWorkspace(src.ws)
+    await src.disposeAll()
+    expect(f.chains[0]!.deployed).toEqual(deployed)
+    const e = env()
+    expect(await openWorkspace(encodeWorkspace({ ...f, chains: [{ ...f.chains[0]!, deployed: { ...deployed, extra: '<b>' } as any }] }), e.ws)).toEqual({ ok: true })
+    expect((await e.registry.list())[0]!.deployed).toEqual(deployed)
+    await e.disposeAll()
+    for (const bad of [{ ...deployed, head: -1 }, { ...deployed, nodeUrl: 'javascript:alert(1)' }, { ...deployed, chainId: '../x' }, 'yes'])
+      expect('errors' in validateWorkspace(encodeWorkspace({ ...f, chains: [{ ...f.chains[0]!, deployed: bad as any }] }), { engine: ENGINE, crossEngineOk: false })).toBe(true)
+  })
+
   test('New and Open are refused up front when this browser keeps nothing; nothing changes', async () => {
     const e = env()
     await populated(e)

@@ -13,6 +13,8 @@ import { ImportButton } from '../components/ImportButton'
 import { exportChain } from '../components/exportFile'
 import { NO_FUNDS } from '../chain/snapshotUi'
 import { Explorer } from './Explorer'
+import { DeployDialog } from '../components/cloud/DeployDialog'
+import { cannotDeploy } from '../cloud/deploy'
 import { useWizardAction, useWizardMark } from '../walkthrough/wizard'
 import { useBlockWindow } from '../explorer/useBlockWindow'
 import { Button } from '../ui/button'
@@ -65,6 +67,7 @@ export function Chains() {
   const takeRef = useRef<HTMLDialogElement>(null)
   const listRef = useRef<HTMLDialogElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const deployRef = useRef<HTMLDialogElement>(null)
   const [takeTick, setTakeTick] = useState(0)
   const [listTick, setListTick] = useState(0)
   const [flash, setFlash] = useState<Flash>()
@@ -114,6 +117,7 @@ export function Chains() {
       <NewChainDialog dialogRef={dialog} />
       <TakeSnapshotDialog dialogRef={takeRef} chain={chain} openTick={takeTick} onFlash={setFlash} />
       <SnapshotsDialog dialogRef={listRef} chain={chain} openTick={listTick} onFlash={setFlash} />
+      {chain && <DeployDialog key={chain.info.id} dialogRef={deployRef} chain={chain} onDeployed={win.refresh} />}
       <ImportButton inputRef={fileRef} onFlash={setFlash} onImported={(id, funded) => setNoFunds(funded ? undefined : id)} />
       <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
         {!wide && <div className="space-y-3">
@@ -150,6 +154,7 @@ export function Chains() {
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <Badge>{c.type}</Badge>
                       {c.ephemeral && <Badge variant="warn">benchmark</Badge>}
+                      {c.deployed && <Badge variant="success">deployed</Badge>}
                       {registry.peek(c.id) && <Badge>running</Badge>}
                       {sel && <Badge variant="accent">selected</Badge>}
                     </div>
@@ -167,12 +172,16 @@ export function Chains() {
               <div>
                 <div className="font-medium">{chain.info.name}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
-                  <Badge>{chain.info.type}</Badge>{chain.info.ephemeral && <Badge variant="warn">benchmark (not saved)</Badge>}<span>{chain.info.createdAt}</span>
+                  <Badge>{chain.info.type}</Badge>{chain.info.ephemeral && <Badge variant="warn">benchmark (not saved)</Badge>}{chain.info.deployed && <Badge variant="success">Deployed</Badge>}<span>{chain.info.createdAt}</span>
                 </div>
                 {provenanceText(chain.info.source) && <div className="mt-1 text-xs text-muted">{provenanceText(chain.info.source)}</div>}
+                {chain.info.deployed && <div className="mt-1 break-all text-xs text-muted">deployed to <span className="font-mono">{new URL(`/chains/${chain.info.deployed.chainId}`, chain.info.deployed.nodeUrl).href}</span> at block #{chain.info.deployed.head}</div>}
                 {noFunds === chain.info.id && <div className="mt-2"><Notice onDismiss={() => setNoFunds(undefined)}>{NO_FUNDS}</Notice></div>}
               </div>
-              <Button variant="danger" size="sm" onClick={() => remove(chain.info)}>Delete</Button>
+              <div className="flex gap-2">
+                <Button variant="ghost" size="sm" disabled={!!cannotDeploy(chain.info)} title={cannotDeploy(chain.info) ?? 'Run a copy of this chain on the cloud node'} onClick={() => deployRef.current?.showModal()}>Deploy…</Button>
+                <Button variant="danger" size="sm" onClick={() => remove(chain.info)}>Delete</Button>
+              </div>
             </Card>
           )}
           {chains.length > 0 && <Explorer win={win} />}
