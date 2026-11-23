@@ -752,19 +752,20 @@ Before t-134. A `ChainStore` (`packages/node`) that persists only what each bloc
 
 Why (cost spike, [docs/spikes/cf-cost.md](../spikes/cf-cost.md)): the spike rewrites a full dump with all history every block (170 ms, 39.5 MB per 1-tx block at 10,000 blocks) and webevm keeps all history in memory (228 MB at 10,000 vs the DO's 128 MB). With diffs: 2.5–4.5 ms, ~3 KB per 1-tx block; boot 56 ms at any height. Cost is $0 beyond the $5/month minimum in every scenario either way. webevm has no pruning/change-set API; `loadState` accepts a trimmed dump.
 
-Soak results, 2026-11-23, `make soak-node` exit 0 (commit = SQL write only; rows = diff keys + 1 block row; bytes = JSON of diff + block): commit 0.60-0.78 ms, 8 rows, about 9.9 KB per block, memory (JS heap + external) 44-57 MB of 128 (JS heap 33-41 MB), flat from 1,000 to 10,000 blocks.
+Soak results, 2026-11-23, `make soak-node` exit 0 (commit = SQL write only; rows = diff keys + 1 block row; bytes = JSON of diff + block): commit 0.54-0.65 ms, 8 rows, about 9.9 KB per block, memory (JS heap + external) 44-58 MB (JS heap 33-41 MB), flat from 1,000 to 10,000 blocks. `external` only partly reflects wasm linear memory (one revm node: external +2.4 MB, rss +15.6 MB), so `memMB` is a lower bound; the real Durable Object figure is measured under workerd in t-134.
 
-    {"height":1000,"commitMsAvg":0.775,"rowsWrittenAvg":8,"bytesWrittenAvg":9833,"heapMB":35.3,"memMB":47.8}
-    {"height":2000,"commitMsAvg":0.712,"rowsWrittenAvg":8,"bytesWrittenAvg":9871,"heapMB":33.2,"memMB":43.9}
-    {"height":3000,"commitMsAvg":1.38,"rowsWrittenAvg":8,"bytesWrittenAvg":9866,"heapMB":40.2,"memMB":56.1}
-    {"height":4000,"commitMsAvg":0.687,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.5,"memMB":56.7}
-    {"height":5000,"commitMsAvg":0.662,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.9,"memMB":57.4}
-    {"height":6000,"commitMsAvg":0.596,"rowsWrittenAvg":8,"bytesWrittenAvg":9867,"heapMB":40.5,"memMB":56.7}
-    {"height":7000,"commitMsAvg":0.682,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.9,"memMB":57.4}
-    {"height":8000,"commitMsAvg":0.621,"rowsWrittenAvg":8,"bytesWrittenAvg":9838,"heapMB":40.5,"memMB":56.7}
-    {"height":9000,"commitMsAvg":0.632,"rowsWrittenAvg":8,"bytesWrittenAvg":9871,"heapMB":40.9,"memMB":57.5}
-    {"height":10000,"commitMsAvg":0.635,"rowsWrittenAvg":8,"bytesWrittenAvg":9875,"heapMB":40.6,"memMB":56.8}
+    {"height":1000,"commitMsAvg":0.596,"rowsWrittenAvg":8,"bytesWrittenAvg":9833,"heapMB":35.4,"memMB":47.9}
+    {"height":2000,"commitMsAvg":0.557,"rowsWrittenAvg":8,"bytesWrittenAvg":9871,"heapMB":33.2,"memMB":43.9}
+    {"height":3000,"commitMsAvg":0.582,"rowsWrittenAvg":8,"bytesWrittenAvg":9866,"heapMB":40.5,"memMB":56.7}
+    {"height":4000,"commitMsAvg":0.572,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.4,"memMB":56.5}
+    {"height":5000,"commitMsAvg":0.584,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.9,"memMB":57.5}
+    {"height":6000,"commitMsAvg":0.569,"rowsWrittenAvg":8,"bytesWrittenAvg":9867,"heapMB":40.5,"memMB":56.6}
+    {"height":7000,"commitMsAvg":0.653,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.8,"memMB":57.4}
+    {"height":8000,"commitMsAvg":0.538,"rowsWrittenAvg":8,"bytesWrittenAvg":9838,"heapMB":40.5,"memMB":56.7}
+    {"height":9000,"commitMsAvg":0.578,"rowsWrittenAvg":8,"bytesWrittenAvg":9871,"heapMB":40.9,"memMB":57.4}
+    {"height":10000,"commitMsAvg":0.576,"rowsWrittenAvg":8,"bytesWrittenAvg":9875,"heapMB":40.6,"memMB":56.9}
     OK: roots and next blocks match at 2500, 5000, 10000; memory and commit time flat
+
 
 ```
 

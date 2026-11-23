@@ -1167,7 +1167,7 @@ A chain node must persist its chain so that per-block work and memory stay flat 
 
 ## Hypothesis
 - We believe: storing only what each block changed (state rows plus one block row), and booting a fresh node from a state-only dump, keeps cost flat
-- Will result in: a commit of a few rows per block and memory (heap plus wasm) far under the Durable Object's 128 MB at any height
+- Will result in: a commit of a few rows per block and memory far under the Durable Object's 128 MB at any height
 - Measured by: a 10,000-block soak (`make soak-node`): same root and next block after a fresh boot at 2,500, 5,000 and 10,000; flat commit time and writes; memory (JS heap + external) under 128 MB
 
 ## People
@@ -1226,7 +1226,8 @@ diff-rows. Decided with Aaron (design: chain store, t-129): tables `meta`, `acco
 Claude's calls: a slot at zero is treated as absent (webevm keeps it as `0x`, the trie drops it) so its row is deleted; the block row and the diff are written in one transaction; a commit that throws or a rejected block rebuilds the node from the store.
 
 ## Consequences
-- Soak (10,000 blocks, file-backed SQLite): commit 0.60-0.78 ms (SQL write only), 8 rows and about 9.9 KB per block, memory (JS heap + external) 44-57 MB of the DO's 128 MB, all flat; boots matched the live root and next block at 2,500, 5,000 and 10,000.
+- Soak (10,000 blocks, file-backed SQLite): commit 0.54-0.65 ms (SQL write only), 8 rows and about 9.9 KB per block, memory (JS heap + external) 44-58 MB of the DO's 128 MB, all flat; boots matched the live root and next block at 2,500, 5,000 and 10,000.
+- `external` only partly reflects wasm linear memory (one revm node: external +2.4 MB, rss +15.6 MB), so `memMB` is a lower bound; the real Durable Object figure is measured under workerd in t-134.
 - The diff compares whole-state dumps, so it is O(state) per block; logged as risk R51 (switch to a touched-keys diff past a few MB of state).
 - The in-memory node keeps only the last 256 headers plus up to 1,000 blocks; full history stays in the `blocks` table and is never pruned.
 - webevm 0.9.1 internals (the per-block timestamp via `blockEnv`) are still relied on (t-130).
