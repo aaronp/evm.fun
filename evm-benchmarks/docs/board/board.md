@@ -10,6 +10,17 @@ effects.complete: random
 
 ## Backlog
 
+### Device bookkeeping contract
+- id: t-143
+- parent: t-112
+- tags: chains, access, size-M
+- history:
+  - Backlog @ 2026-11-23T19:08:02Z
+
+```md
+Users record what and where each device key is ("my work computer", "the family tablet") in a contract on the chain itself, so every device and view sees the same names. Until then a device's name is the `x-node-name` its follower sends, kept with its cursor on the cloud node (devices design). Idea from Aaron, 2026-11-23.
+```
+
 ### Move evm.fun to mychain.dev
 - id: t-142
 - parent: t-108
@@ -841,7 +852,7 @@ Roadmap item 1: turn the CF spike (`spike/cf-chain`, [docs/spikes](../spikes/)) 
   - Next @ 2026-11-23T15:00:21Z
 
 ```md
-From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
+Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-follow-design.md) (A: follow and show). From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
 
 Demo (t-136): after Deploy (t-134), the browser chain follows the cloud node, so they form a 2-node cluster; needed for node cursors (t-140). Uses t-129's `ChainNode` for replay.
 ```
@@ -860,7 +871,7 @@ Demo (t-136): after Deploy (t-134), the browser chain follows the cloud node, so
   - Next @ 2026-11-23T15:00:21Z
 
 ```md
-Demo step d. For a deployed chain, see and edit its access list (`ChainAccess`): readers, writers, open reads; add or remove a device key. Builds on the access spike (`docs/spikes/cf-access.md`) and t-134; device invites by code are t-133.
+Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-follow-design.md) (A: follow and show). Demo step d. For a deployed chain, see and edit its access list (`ChainAccess`): readers, writers, open reads; add or remove a device key. Builds on the access spike (`docs/spikes/cf-access.md`) and t-134; device invites by code are t-133.
 ```
 
 ```dod
@@ -894,7 +905,7 @@ Demo steps e–f, the indexer demo. **From t-134:** `POST /chains/:id/submit` is
   - Next @ 2026-11-23T15:00:21Z
 
 ```md
-Demo step g. The cloud node records the block it last delivered to each device key and serves `GET /chains/:id/nodes/latest`; evm.fun shows a Nodes panel ("phone: block 412, 6 behind, 2 min ago"). Show only, for now. Design: [node cursors](../superpowers/specs/2026-11-23-node-cursors-design.md). Needs t-132.
+Finished by the devices work: `GET /chains/:id/nodes` replaces `/nodes/latest`. Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-follow-design.md) (A: follow and show). Demo step g. The cloud node records the block it last delivered to each device key and serves `GET /chains/:id/nodes/latest`; evm.fun shows a Nodes panel ("phone: block 412, 6 behind, 2 min ago"). Show only, for now. Design: [node cursors](../superpowers/specs/2026-11-23-node-cursors-design.md). Needs t-132.
 ```
 
 ```dod
