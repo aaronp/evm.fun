@@ -143,6 +143,17 @@ describe('root chain: codes', () => {
     expect((await s.info()).head.number).toBe(head + 1)
   })
 
+  test('a reader/writer invite on root is not a deploy code → 403, no block', async () => {
+    const { access } = await s.info()
+    const data = encodeFunctionData({ abi: ChainAccess.abi, functionName: 'invite', args: [codeHash('reader-writer-only-code'), 3600n, 1, 3] })
+    await s.submit(me, [await admin.signTransaction({ ...tx, nonce: await s.nonceOf(me), to: access, data, gas: 300_000n })], T0 + 500)
+    const head = (await s.info()).head.number
+    const e = await refused(s.redeem(joiner.address, await claimTx(joiner, await s.nonceOf(joiner.address), 'reader-writer-only-code', access), T0 + 501))
+    expect([e.status, e.message]).toEqual([403, 'not a deploy code'])
+    expect((await s.info()).head.number).toBe(head)
+    expect(await s.canRead(joiner.address)).toBe(false)
+  })
+
   test('create on a sql that holds a chain → 409, the chain untouched', async () => {
     const before = await s.info()
     expect((await refused(create(sql))).status).toBe(409)

@@ -7,7 +7,7 @@ import { recoverSigner, SKEW_S } from './auth'
 import type { Sql } from './sql'
 import { ChainService, ServiceError, checkSetup } from './service'
 import type { NodeConfig } from './node'
-import type { CreateChainRequest } from './client'
+import { MAX_CREATE_BYTES, type CreateChainRequest } from './client'
 
 /** A request as a chain sees it (plain data, so it crosses a Durable Object RPC boundary). */
 export interface ChainRequest { method: string; url: string; body: string; ts: string; nonce: string; sig: string; ip: string }
@@ -23,6 +23,9 @@ export interface ChainHandleLike {
 }
 
 export interface RouterDeps { chain(id: string): ChainHandleLike }
+
+/** Body cap for every route but POST /chains (submit, signed GETs): a few txs. */
+const MAX_BODY_BYTES = 64 * 1024
 
 const ORIGINS = [/^https:\/\/mychain\.dev$/, /^https:\/\/aaronp\.github\.io$/, /^http:\/\/localhost(:\d+)?$/]
 
@@ -42,13 +45,19 @@ export async function handle(req: Request, deps: RouterDeps): Promise<Response> 
   const json = (r: Reply) => new Response(JSON.stringify(r.body), { status: r.status, headers: { ...headers, 'content-type': 'application/json' } })
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers })
   const url = new URL(req.url)
+  // size caps before auth or parsing, so an oversize body never reaches a Durable Object
+  const max = req.method === 'POST' && url.pathname === '/chains' ? MAX_CREATE_BYTES : MAX_BODY_BYTES
+  const tooBig = { status: 413, body: { error: `body over ${max} bytes` } }
+  if (Number(req.headers.get('content-length') ?? 0) > max) return json(tooBig)
   try {
     if (req.method === 'GET' && url.pathname === '/health') return json({ status: 200, body: { ok: true, root: await deps.chain('root').rootInfo() } })
     // POST /chains goes to the root chain: it checks the code, then creates the new chain
     const id = url.pathname === '/chains' ? 'root' : url.pathname.match(/^\/chains\/([\w-]{1,64})(\/[\w-]*)?$/)?.[1]
     if (!id) return json({ status: 404, body: { error: 'not found' } })
     const h = (k: string) => req.headers.get(k) ?? ''
+    // ponytail: a chunked body without content-length is read in full before this check; stream-count it if that matters
     const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await req.text()
+    if (body.length > max) return json(tooBig)
     return json(await deps.chain(id).serve({
       method: req.method, url: req.url, body, ts: h('x-ts'), nonce: h('x-nonce'), sig: h('x-sig'), ip: h('cf-connecting-ip') || 'unknown',
     }))
@@ -73,7 +82,11 @@ export class ChainHost implements ChainHandleLike {
   /** Boot the stored chain once, if any (a Durable Object learns its chain id from its first call). Writes nothing if none. */
   #ready(chainId: string): Promise<void> {
     const stored = () => this.sql.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").length > 0
-    this.#boot ??= (stored() ? ChainService.open(this.sql, this.wasm, { chainId }) : Promise.resolve(null)).then((s) => { this.service = s })
+    // a failed boot is not cached, so a transient failure doesn't 500 this DO until eviction
+    this.#boot ??= (stored() ? ChainService.open(this.sql, this.wasm, { chainId }) : Promise.resolve(null)).then(
+      (s) => { this.service = s },
+      (e) => { this.#boot = undefined; throw e },
+    )
     return this.#boot
   }
 
@@ -169,10 +182,17 @@ export class ChainHost implements ChainHandleLike {
       this.sql.exec('INSERT INTO fails VALUES (?, ?)', r.ip, t)
       throw e
     }
-    // ponytail: if the create below fails the code is spent (design risk); the admin issues another
+    // ponytail: if the create below fails the code is spent (design risk R53); it is recorded as failed and the admin issues another
     const id = crypto.randomUUID()
-    const out = await this.cfg.chain(id).create(id, signer, dump, setup)
-    if (out.status === 201) this.service.recordRedeem(hash, signer, id, now())
+    const record = (chainId: string) => this.service!.recordRedeem(hash, signer, chainId, now())
+    let out: Reply
+    try {
+      out = await this.cfg.chain(id).create(id, signer, dump, setup)
+    } catch (e) {
+      record(`failed: ${e instanceof Error ? e.message : String(e)}`)
+      throw e
+    }
+    record(out.status === 201 ? id : `failed: ${(out.body as { error?: string }).error ?? out.status}`)
     return done(out, id)
   }
 

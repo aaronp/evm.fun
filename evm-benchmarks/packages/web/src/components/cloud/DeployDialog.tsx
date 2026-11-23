@@ -20,16 +20,18 @@ export const STEPS: { step: DeployStep; label: string }[] = [
 ]
 const message = (e: unknown) => (e instanceof NodeError ? e.error : e instanceof Error ? e.message : String(e))
 
-/** Native modal (parent calls showModal). Errors keep it open so another code can be tried. */
+/** Native modal (parent calls showModal). Errors keep it open so another code can be tried, unless the cloud chain already exists. */
 export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefObject<HTMLDialogElement | null>; chain: ChainHandle; /** e.g. reload the block list */ onDeployed?: () => void }) {
   const { account, refresh, bumpBalance, setBusy } = useApp()
   const acct = accounts.list().find((a) => a.address === account)
   const [code, setCode] = useState('')
   const [running, setRunning] = useState(false)
   const [seen, setSeen] = useState<Partial<Record<DeployStep, string>>>({})
-  const [err, setErr] = useState<{ text: string; step?: DeployStep }>()
+  const [err, setErr] = useState<{ text: string; step?: DeployStep; chainId?: string; url?: string }>()
   const [result, setResult] = useState<CreateChainResult>()
   const reset = () => { setCode(''); setSeen({}); setErr(undefined); setResult(undefined) }
+  // the cloud chain exists: another try would create a second one, so only Close is offered
+  const exists = err?.step === 'replace' && !!err.chainId
   const last = STEPS.filter((s) => seen[s.step] !== undefined).at(-1)?.step
 
   async function deploy() {
@@ -46,7 +48,9 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
       bumpBalance()
       onDeployed?.()
     } catch (e) {
-      setErr({ text: message(e), step: (e as { step?: DeployStep }).step })
+      const { step, chainId, url } = e as { step?: DeployStep; chainId?: string; url?: string }
+      setErr({ text: message(e), step, chainId, url })
+      if (step === 'node') setCode('') // the code may have been spent
     } finally {
       setRunning(false); setBusy(false)
     }
@@ -60,10 +64,10 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
           A copy of this chain runs on <span className="break-all font-mono text-xs">{nodeUrl()}</span>, with you as its admin. Your browser keeps its own copy, matched to the deployed one.
         </p>
         {!acct && <Notice>Select an account first: it signs the deploy and becomes the chain's admin.</Notice>}
-        {!result && (
+        {!result && !exists && (
           <div className="flex gap-2">
             <Input aria-label="Deploy code" autoComplete="off" className="min-w-0 flex-1 font-mono" placeholder="Deploy code, e.g. apple-river-stone-moon" value={code} onChange={(e) => setCode(e.target.value)} disabled={running} />
-            <Button type="submit" disabled={running || !acct || !code.trim()}>{running ? 'Deploying…' : err ? 'Try again' : 'Deploy'}</Button>
+            <Button type="submit" disabled={running || !acct || !code.trim()}>{running ? 'Deploying…' : err && err.step !== 'node' ? 'Try again' : 'Deploy'}</Button>
           </div>
         )}
         {last && (
@@ -83,7 +87,13 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
             })}
           </ol>
         )}
-        {err && <Notice>{err.step === 'replace' ? err.text : `${err.text.replace(/\.$/, '')}. Your chain wasn't changed${err.step === 'code' ? ' — try another code' : ''}.`}</Notice>}
+        {err && <Notice>{err.step === 'replace' ? err.text : `${err.text.replace(/\.$/, '')}. Your chain wasn't changed${err.step === 'code' ? ' — try another code' : err.step === 'node' ? '. Your code may have been used — ask for another' : ''}.`}</Notice>}
+        {exists && (
+          <div className="space-y-1 rounded-lg border border-line p-3 text-sm" role="status">
+            <div>Cloud chain <span className="font-mono text-xs">{err.chainId}</span></div>
+            {err.url && <div className="break-all">URL <span className="font-mono text-xs">{err.url}</span></div>}
+          </div>
+        )}
         {result && (
           <div className="space-y-1 rounded-lg border border-success bg-success-soft p-3 text-sm text-success-text" role="status">
             <div className="font-medium">Deployed.</div>
@@ -94,7 +104,7 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
           </div>
         )}
         <div className="flex justify-end">
-          <Button type="button" variant="ghost" onClick={() => dialogRef.current?.close()} disabled={running}>{result ? 'Done' : 'Cancel'}</Button>
+          <Button type="button" variant="ghost" onClick={() => dialogRef.current?.close()} disabled={running}>{result ? 'Done' : exists ? 'Close' : 'Cancel'}</Button>
         </div>
       </form>
     </dialog>

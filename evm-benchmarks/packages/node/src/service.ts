@@ -5,7 +5,7 @@ import { ChainAccess } from '@evmb/contracts'
 import type { Sql } from './sql'
 import { ChainStore, type SerializedBlock } from './store'
 import { ChainNode, type NodeConfig } from './node'
-import { codeHash, type BlockSummary, type CodeRecord, type RemoteChainInfo } from './client'
+import { codeHash, GRANT_CREATE_CHAIN, type BlockSummary, type CodeRecord, type RemoteChainInfo } from './client'
 
 export class ServiceError extends Error {
   constructor(readonly status: number, message: string) { super(message) }
@@ -156,9 +156,11 @@ export class ChainService {
     }
     if ((await sender(claim)) !== signer.toLowerCase()) throw new ServiceError(403, 'claim tx must be sent by the request signer')
     const hash = codeHash(code)
-    const [expiry, usesLeft] = await this.call(ChainAccess.abi, 'invites', [hash])
+    const [expiry, usesLeft, grants] = await this.call(ChainAccess.abi, 'invites', [hash])
     // mirrors ChainAccess.claim's require (block.timestamp <= expiry); writes are serialised, so the state can't change before the block
     if (usesLeft === 0 || timestamp > Number(expiry)) throw new ServiceError(403, BAD_CODE)
+    // a reader/writer invite on root is a valid claim on-chain, but not a deploy code
+    if ((Number(grants) & GRANT_CREATE_CHAIN) === 0) throw new ServiceError(403, 'not a deploy code')
     const blk = await this.node.apply(timestamp, [claim]).catch((e) => { throw new ServiceError(400, `claim rejected: ${msg(e)}`) })
     if ((blk.receipts[0] as { status: number }).status !== 1) throw new ServiceError(403, BAD_CODE)
     return { codeHash: hash }

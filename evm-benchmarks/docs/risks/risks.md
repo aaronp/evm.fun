@@ -979,6 +979,8 @@ The worker redeems the code on the root chain before the new chain's Durable Obj
 | Control | Type | Effectiveness |
 |---|---|---|
 | Stateless set-up checks run before the redeem, so a malformed upload never spends a code; the admin can issue another | Preventive | Partial |
+| Upload capped at 8 MiB (`413` before auth; evm.fun refuses a larger chain before using a code), so a big chain can't exhaust the DO or the RPC hop after the redeem | Preventive | Partial |
+| A failed create after the redeem is recorded (`codes` shows `failed: <error>`), so the admin sees why the use is gone; evm.fun says the code may have been used | Detective | Partial |
 
 ## R54 · The root admin key sits on Aaron's machine
 - impact: 4
@@ -989,7 +991,7 @@ The worker redeems the code on the root chain before the new chain's Durable Obj
 - driver: Claude
 - approver: Aaron
 
-`.env.live` holds `ROOT_ADMIN_KEY` in plain text and evm.fun keeps the imported key in the browser's storage. Anyone with either can issue deploy codes and act as the root admin. The worker only knows the address, so losing the key means redeploying with a new `ROOT_ADMIN`. (ADR-0023)
+`.env.live` holds `ROOT_ADMIN_KEY` in plain text and evm.fun keeps the imported key in the browser's storage. Anyone with either can issue deploy codes and act as the root admin. The imported key lives in `localStorage` on the evm.fun origin, which until the move to mychain.dev is `aaronp.github.io`, shared with every other GitHub Pages site under that account. Recovery: redeploying with a new `ROOT_ADMIN` does not help (the root chain's on-chain admin is unchanged and a second root create is refused with `409`); a leaked key is replaced by `setAdmin(<new address>)` sent from the old key, then `make deploy` with the new key in `.env.live` (the worker's `ROOT_ADMIN` gates `codes`), and a lost key only by wiping the root Durable Object (losing every issued code and its record) and redeploying. (ADR-0023)
 
 ### Controls
 | Control | Type | Effectiveness |

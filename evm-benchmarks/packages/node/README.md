@@ -59,7 +59,7 @@ Every request except `/health` is signed (`cf-chain v1` EIP-191 message over met
 | `POST /chains/<id>/submit` | writers | `{ txs }`, mined in order |
 | `GET /chains/<id>/nonce`, `GET /chains/<id>/codes` | root only (codes: root admin only) | the signer's nonce; issued codes (hash, expiry, uses left, who redeemed) |
 
-CORS allows `https://mychain.dev`, `https://aaronp.github.io` and `http://localhost:*`. Failed redeems: 10 per IP per 10 minutes, then `429`.
+CORS allows `https://mychain.dev`, `https://aaronp.github.io` and `http://localhost:*`. Failed redeems: 10 per IP per 10 minutes, then `429`. Bodies are capped before auth: `POST /chains` at 8 MiB (`MAX_CREATE_BYTES` in `src/client.ts`; evm.fun refuses a larger chain before using a code), every other route at 64 KiB; over the cap is `413`. A root invite is a deploy code only if it grants `GRANT_CREATE_CHAIN`; a reader/writer invite is refused (`403 not a deploy code`). If the chain creation fails after the redeem, the code stays used and `codes` lists that use as `failed: <error>`.
 
 ## Local services
 
@@ -67,12 +67,12 @@ CORS allows `https://mychain.dev`, `https://aaronp.github.io` and `http://localh
 
 ## Deploying (live)
 
-Run by hand, never from CI. One-time: add `mychain.dev` as a zone on your Cloudflare account, `bunx wrangler login` (in `packages/node`), and put `ROOT_ADMIN_KEY=0x…` in `.env.live` (git-ignored; deploy refuses to generate one). Then `make deploy`: it runs `wrangler deploy --env live --var ROOT_ADMIN:<address>` (custom domain `cloud.mychain.dev`, `workers.dev` if wrangler printed only that), creates the root chain if there is none, and prints the URL, the root chain id and "set GitHub repo variable NODE_URL to <url>". That variable makes the Pages build point evm.fun at the worker (`VITE_NODE_URL`). Import the root key into evm.fun (Accounts → Import key) to issue codes.
+Run by hand, never from CI. One-time: add `mychain.dev` as a zone on your Cloudflare account, `bunx wrangler login` (in `packages/node`), and put `ROOT_ADMIN_KEY=0x…` in `.env.live` (git-ignored; deploy refuses to generate one). Then `make deploy`: it runs `wrangler deploy --env live --var ROOT_ADMIN:<address>` (custom domain `cloud.mychain.dev`, `workers.dev` if wrangler printed only that), creates the root chain if there is none, and prints the URL, the root chain id and "set GitHub repo variable NODE_URL to <url>". That variable makes the Pages build point evm.fun at the worker (`VITE_NODE_URL`); setting it does not rebuild the site, so re-run the Pages workflow afterwards. A build with `NODE_URL` unset points evm.fun at `http://localhost:8799`. Import the root key into evm.fun (Accounts → Import key) to issue codes.
 
 Check the bundle without a login: `wrangler deploy --dry-run --env live` in `packages/node`.
 
 ## Issuing and redeeming codes
 
-As the root admin, open evm.fun → Cloud: pick a code (one is generated: 4 words), a TTL (5 min, 1 h, 1 day) and uses (default 1), and Issue; only `keccak256(code)` and the expiry go on the root chain. Send the code out of band. The friend opens Chains → Deploy… on one of their chains and enters it: evm.fun uploads the chain's state with two set-up txs, the worker checks the code, creates the chain with the friend as admin, and evm.fun replaces its local copy with the cloud node's (same head hash) and marks it deployed. Refused: wrong, expired or used-up codes, a root create by anyone but `ROOT_ADMIN`, and a deploy whose set-up is not two creations by the signer. A deployed chain cannot be deployed again.
+As the root admin, open evm.fun → Cloud: pick a code (one is generated: 4 words), a TTL (5 min, 1 h, 1 day) and uses (default 1), and Issue; only `keccak256(code)` and the expiry go on the root chain when it is issued. Redeeming puts the plaintext code on the root chain: the claim tx carries it into a root block (root reads are closed: only the root admin, and any reader it adds, can read root). Send the code out of band. The friend opens Chains → Deploy… on one of their chains and enters it: evm.fun uploads the chain's state with two set-up txs, the worker checks the code, creates the chain with the friend as admin, and evm.fun replaces its local copy with the cloud node's (same head hash) and marks it deployed. Refused: wrong, expired or used-up codes, a root create by anyone but `ROOT_ADMIN`, and a deploy whose set-up is not two creations by the signer. A deployed chain cannot be deployed again.
 
 `deployChain` (`packages/web/src/cloud/deploy.ts`) takes a required `registry` option (`replaceState`, `setDeployed`); its errors carry `step` and `chainId`.

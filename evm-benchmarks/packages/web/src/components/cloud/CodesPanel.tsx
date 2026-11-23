@@ -93,7 +93,7 @@ export function CodesPanel({ client, account, access }: { client: NodeClient; ac
                     <td className={td}>{c.usesLeft}</td>
                     <td className={`${td} font-mono text-xs`}>
                       {c.redeemed.length === 0 ? <span className="text-muted">—</span>
-                        : c.redeemed.map((r) => <div key={r.chainId} title={`${r.by} → ${r.chainId}`}>{short(r.by)} → {r.chainId}</div>)}
+                        : c.redeemed.map((r, i) => <div key={i} title={`${r.by} → ${r.chainId}`}>{short(r.by)} → {r.chainId}</div>)}
                     </td>
                   </tr>
                 ))}

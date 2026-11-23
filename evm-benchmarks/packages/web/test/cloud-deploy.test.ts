@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { ChainHost, handle, type ChainHandleLike } from '@evmb/node/src/router'
-import { NodeClient, NodeError, generateCode, inviteTx, setupTxs } from '@evmb/node/src/client'
+import { MAX_CREATE_BYTES, NodeClient, NodeError, generateCode, inviteTx, setupTxs } from '@evmb/node/src/client'
 import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { createKv } from '../src/store/kv'
@@ -117,6 +117,24 @@ describe('deployChain', () => {
     await chain.dispose()
   })
 
+  test('a chain over the upload limit: refused at prepare, before any request (no code spent)', async () => {
+    const { registry, chain } = await browserChain()
+    const real = chain.approach.snapshot!
+    chain.approach.snapshot = async () => ({ ...(await real()), pad: 'x'.repeat(MAX_CREATE_BYTES + 2 ** 20) }) as any
+    let requests = 0
+    const realFetch = globalThis.fetch
+    globalThis.fetch = ((...a: Parameters<typeof fetch>) => (requests++, realFetch(...a))) as typeof fetch
+    try {
+      const steps: string[] = []
+      const e = await deployChain({ chain, account: user, code: 'x', client: new NodeClient(url, user), registry, onStep: (s) => steps.push(s) }).catch((x) => x)
+      expect(e.message).toMatch(/^Your chain is too large to deploy \(9\.0 MB, limit 8 MB\)$/)
+      expect([e.step, steps, requests]).toEqual(['prepare', [], 0])
+    } finally {
+      globalThis.fetch = realFetch
+      await chain.dispose()
+    }
+  })
+
   test('a worker refusal is tagged with the step that failed: a bad code → code', async () => {
     const { registry, chain } = await browserChain()
     const e = await deployChain({ chain, account: user, code: 'nope', client: new NodeClient(url, user), registry, onStep: () => {} }).catch((x) => x)
@@ -135,6 +153,7 @@ describe('deployChain', () => {
     expect(e.message).toMatch(/^Deployed as [0-9a-f-]{36} \(http:\/\/localhost:\d+\/chains\/[0-9a-f-]{36}\), but your browser copy couldn't be matched: disk full$/)
     expect(e.step).toBe('replace')
     expect(e.chainId).toBeTruthy()
+    expect(e.url).toBe(`${url}/chains/${e.chainId}`)
     expect(calls).toBe(2) // the rollback ran
     expect(await head(chain)).toEqual(before)
     expect((await kv.get<any>('chains', chain.info.id)).deployed).toBeUndefined()

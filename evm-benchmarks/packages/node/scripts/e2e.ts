@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { encodeDeployData, type Hex, type LocalAccount } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { MintableToken } from '@evmb/contracts'
-import { NodeClient, NodeError, claimTx, codeHash, generateCode, inviteTx, setupTxs, type CreateChainResult } from '../src/client'
+import { MAX_CREATE_BYTES, NodeClient, NodeError, claimTx, codeHash, generateCode, inviteTx, setupTxs, type CreateChainResult } from '../src/client'
 import { signRequest } from '../src/auth'
 import { ensureKey, freshDump } from './bootstrap'
 
@@ -40,12 +40,13 @@ try {
   // ---- admin issues codes ----
   const issue = async (code: string, ttl: number, uses: number) =>
     as(admin).submit('root', [await inviteTx(admin, await as(admin).nonce('root'), root.access, code, ttl, uses)])
-  const one = generateCode(), two = generateCode(), short = generateCode(), race = generateCode(), retry = generateCode()
+  const one = generateCode(), two = generateCode(), short = generateCode(), race = generateCode(), retry = generateCode(), spent = generateCode()
   await issue(one, 600, 1)
   await issue(two, 600, 2)
   await issue(short, 2, 1)
   await issue(race, 600, 1)
   await issue(retry, 600, 1)
+  await issue(spent, 600, 1)
   check(true, 'admin issues 1-use, 2-use and 2 s codes')
 
   // ---- B's browser chain: a fresh chain with one ERC-20 deploy ----
@@ -88,6 +89,10 @@ try {
   const unsigned = await fetch(new URL('/chains', URL_), { method: 'POST', body: '{}' })
   check(unsigned.status === 401, `unsigned POST /chains → ${unsigned.status}`)
   check(unsigned.headers.get('access-control-allow-origin') === null, 'no CORS origin for a request without Origin')
+  const big = await fetch(new URL('/chains', URL_), { method: 'POST', body: 'x'.repeat(MAX_CREATE_BYTES + 1) })
+  check(big.status === 413, `POST /chains over ${MAX_CREATE_BYTES} bytes → ${big.status} (before auth)`)
+  const bigSubmit = await fetch(new URL('/chains/root/submit', URL_), { method: 'POST', body: 'x'.repeat(64 * 1024 + 1) })
+  check(bigSubmit.status === 413, `POST /chains/root/submit over 64 KiB → ${bigSubmit.status}`)
   const pre = await fetch(new URL('/chains', URL_), { method: 'OPTIONS', headers: { origin: 'http://localhost:5173', 'access-control-request-method': 'POST' } })
   check(pre.status === 204 && pre.headers.get('access-control-allow-origin') === 'http://localhost:5173', `CORS preflight from localhost → ${pre.status}`)
 
@@ -108,6 +113,10 @@ try {
   const rr = await deploy(C, retry)
   check(!!rr.chainId, `the same code still works on retry → ${rr.chainId}`)
 
+  // ---- a create that fails after the redeem: the code is spent, and the codes list says why ----
+  const broken = as(C).createChain({ dump: { bogus: true } as never, setup: await setupTxs(C, 0, 31337), claim: await claimTx(C, await as(C).nonce('root'), spent, root.access) })
+  check(await status(broken) === 400, 'deploy with a bad dump → 400 (after the redeem)')
+
   // ---- codes ----
   const codes = await as(admin).codes()
   const rec = (c: string) => codes.find((x) => x.hash === codeHash(c))
@@ -116,6 +125,7 @@ try {
   check(rec(short)?.redeemed.length === 0, 'codes: the expired code never redeemed')
   check(rec(race)?.redeemed.length === 1 && rec(race)?.redeemed[0]!.chainId === both.find((x) => x.s === 201)?.id, 'codes: the raced code redeemed once, for the winner')
   check(rec(retry)?.redeemed.map((x) => x.chainId).join() === rr.chainId, 'codes: the retried code redeemed once')
+  check(rec(spent)?.usesLeft === 0 && /^failed: bad dump/.test(rec(spent)?.redeemed[0]?.chainId ?? ''), `codes: the spent code records the failed create (${rec(spent)?.redeemed[0]?.chainId})`)
   check(await status(as(B).codes()) === 403, 'codes by a non-admin → 403')
 
   // ---- rate limit: 10 failed redeems per IP per 10 min ----

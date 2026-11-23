@@ -1,6 +1,6 @@
 // Deploy a browser chain to the worker with a deploy code (spec: 2026-11-23-deploy-to-cf-design, "Deploying a chain").
 import { keccak256, type Hex, type LocalAccount } from 'viem'
-import { NodeError, claimTx, setupTxs, type CreateChainResult, type NodeClient } from '@evmb/node/src/client'
+import { MAX_CREATE_BYTES, NodeError, claimTx, setupTxs, type CreateChainResult, type NodeClient } from '@evmb/node/src/client'
 import type { ChainHandle, ChainInfo, Deployed } from '../chain/handle'
 import type { createChainRegistry } from '../chain/registry'
 
@@ -18,8 +18,8 @@ export const cannotDeploy = (info: ChainInfo): string | undefined =>
     : info.ephemeral ? "Benchmark chains aren't saved, so they can't be deployed"
     : info.type !== 'plain' ? 'Only plain chains can be deployed for now' : undefined
 
-/** An error tagged with the step it failed at (`chainId`: the cloud chain exists). */
-const at = <E extends Error>(e: E, step: DeployStep, extra: { chainId?: string } = {}) => Object.assign(e, { step }, extra)
+/** An error tagged with the step it failed at (`chainId`, `url`: the cloud chain exists). */
+const at = <E extends Error>(e: E, step: DeployStep, extra: { chainId?: string; url?: string } = {}) => Object.assign(e, { step }, extra)
 const msg = (e: unknown) => (e instanceof NodeError ? e.error : e instanceof Error ? e.message : String(e))
 
 /**
@@ -43,6 +43,9 @@ export async function deployChain(o: {
   const dump = await chain.approach.snapshot!()
   const nonce = Number(BigInt((await chain.request('eth_getTransactionCount', [account.address, 'latest'])) as string))
   const setup = await setupTxs(account, nonce, 31337)
+  // the claim tx (added below) is a few hundred bytes; the dump is ASCII JSON, so length = bytes
+  const size = JSON.stringify({ dump, setup }).length + 1024
+  if (size > MAX_CREATE_BYTES) throw at(new Error(`Your chain is too large to deploy (${(size / 2 ** 20).toFixed(1)} MB, limit ${MAX_CREATE_BYTES / 2 ** 20} MB)`), 'prepare')
   onStep('prepare', `set-up txs ${keccak256(setup[0])}, ${keccak256(setup[1])} from ${account.address}`)
 
   let claim: Hex
@@ -71,7 +74,7 @@ export async function deployChain(o: {
   } catch (e) {
     let text = `Deployed as ${r.chainId} (${r.url}), but your browser copy couldn't be matched: ${msg(e)}`
     try { await registry.replaceState(id, dump) } catch (back) { text += `; putting your browser copy back failed too: ${msg(back)}` }
-    throw at(new Error(text), 'replace', { chainId: r.chainId })
+    throw at(new Error(text), 'replace', { chainId: r.chainId, url: r.url })
   }
   return r
 }

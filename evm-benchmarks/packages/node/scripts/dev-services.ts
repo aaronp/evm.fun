@@ -14,18 +14,15 @@ const LOG = join(RUN, 'node.log')
 const PORT = 8799
 const URL_ = `http://127.0.0.1:${PORT}`
 
+const isEperm = (e: unknown) => (e as { code?: string }).code === 'EPERM'
+
 /** The recorded pid if that process is alive; a stale pid file is removed. */
 function pid(): number | null {
   if (!existsSync(PID)) return null
   const p = Number(readFileSync(PID, 'utf8'))
-  try {
-    process.kill(p, 0)
-    return p
-  } catch {
-    // ESRCH: gone; EPERM: someone else's process now holds that pid. Either way not ours, not running.
-    rmSync(PID, { force: true })
-    return null
-  }
+  if (alive(p)) return p
+  rmSync(PID, { force: true })
+  return null
 }
 
 /** The pid's command line, or null if `ps` can't tell (e.g. a sandbox that forbids it). */
@@ -38,10 +35,13 @@ function command(p: number): string | null {
   }
 }
 
-const alive = (p: number) => { try { process.kill(p, 0); return true } catch { return false } }
+// EPERM: it exists but we may not signal it (e.g. a sandboxed shell; rarely, a reused pid): alive, keep the pid file
+const alive = (p: number) => { try { process.kill(p, 0); return true } catch (e) { return isEperm(e) } }
+const NOT_PERMITTED = 'running but not permitted to stop it'
 
 /** SIGTERM wrangler's process group (wrangler alone would orphan workerd), wait for it to exit, then SIGKILL. */
 async function kill(p: number): Promise<string> {
+  try { process.kill(p, 0) } catch (e) { if (isEperm(e)) return `${NOT_PERMITTED} (pid ${p}); stop it from a normal shell` }
   const cmd = command(p)
   // ponytail: if ps is unavailable, trust the pid file only while our worker answers /health on its port
   const ours = cmd === null ? !!(await health()) : /wrangler|workerd/.test(cmd)
@@ -72,6 +72,8 @@ async function start() {
     console.log('node: already running')
     return status()
   }
+  // an orphan (pid file lost) still holds the port: a second wrangler would fail on it while the orphan answers /health
+  if (await health()) return console.log(`node: already running at ${URL_} (no pid file, so stop it from the shell that started it)`)
   const admin = privateKeyToAccount(ensureKey(ENV).key).address
   mkdirSync(RUN, { recursive: true })
   // bun auto-loads .env.local into process.env: keep its values (the root admin key) away from wrangler
@@ -105,8 +107,10 @@ async function stop() {
   const p = pid()
   if (!p) return console.log('node: not running')
   const r = await kill(p)
-  if (!r.includes('still running')) rmSync(PID, { force: true })
+  const up = r.includes('still running') || r.startsWith(NOT_PERMITTED)
+  if (!up) rmSync(PID, { force: true })
   console.log(`node: ${r}`)
+  if (up) process.exitCode = 1
 }
 
 const cmd = process.argv[2]

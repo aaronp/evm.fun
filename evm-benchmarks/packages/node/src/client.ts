@@ -5,7 +5,13 @@ import { Aliases, ChainAccess } from '@evmb/contracts'
 import { signRequest } from './auth'
 import { WORDS } from './words'
 
-const GRANT_CREATE_CHAIN = 4
+export const GRANT_CREATE_CHAIN = 4
+/**
+ * Largest POST /chains body the worker takes (413 above it; checked before auth). The root DO forwards the dump to the
+ * new chain's DO over RPC and the 201 carries the new dump back (Workers RPC messages are capped at 32 MiB), so 8 MiB
+ * leaves room for both hops and the DO's 128 MB memory. evm.fun refuses a larger chain before spending a code.
+ */
+export const MAX_CREATE_BYTES = 8 * 1024 * 1024
 const tx = { type: 'eip1559', maxFeePerGas: 0n, maxPriorityFeePerGas: 0n } as const
 
 export interface BlockSummary { number: number; hash: string; stateRoot: string }
