@@ -177,6 +177,8 @@ export class ChainService {
       tx = parseTransaction(claim)
       if (tx.to?.toLowerCase() !== this.access.toLowerCase()) throw new Error("not sent to this chain's ChainAccess")
       if (tx.value) throw new Error('claim tx must send no value')
+      // the gas estimate below is for the bare call: an access list (or 7702 authorizations) would add intrinsic gas it misses
+      if (tx.accessList?.length || 'authorizationList' in tx) throw new Error('claim tx must not carry an access list')
       const d = decodeFunctionData({ abi: ChainAccess.abi, data: tx.data! })
       if (d.functionName !== 'claim') throw new Error('not a claim(code) call')
       code = d.args[0] as string

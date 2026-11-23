@@ -107,6 +107,18 @@ describe('join', () => {
     await adminTx('removeReader', [stranger.address])
   })
 
+  test('a claim carrying an access list → 400, no block, the code still works', async () => {
+    await invite('list-code', 3600, 1, GRANT_READER)
+    const before = await head()
+    const data = encodeFunctionData({ abi: ChainAccess.abi, functionName: 'claim', args: ['list-code'] })
+    const listed = await stranger.signTransaction({ ...tx, nonce: await s.nonceOf(stranger.address), to: access, gas: 300_000n, data, accessList: [{ address: access, storageKeys: [] }] })
+    const e = await refused(s.join(stranger.address, listed, next()))
+    expect([e.status, e.message]).toEqual([400, 'bad claim tx: claim tx must not carry an access list'])
+    expect(await head()).toEqual(before)
+    expect((await join(stranger, 'list-code')).role).toBe('reader')
+    await adminTx('removeReader', [stranger.address])
+  })
+
   test('joining twice with valid codes leaves one role entry', async () => {
     expect((await join(phone, 'reader-code')).role).toBe('reader')
     const m = (await s.nodes()).members.filter((x) => x.address === phone.address)
