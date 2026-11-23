@@ -44,10 +44,9 @@ export async function loadWorkspace(f: WorkspaceFile, env: WriteEnv) {
     } catch (e) { throw new Error(`Chain "${c.chain.name}": ${message(e)}`) }
     if (c.id !== selected) await registry.close(c.id)
   }
-  for (const { id, name, createdAt, follows: { nodeUrl, chainId, account } } of f.followers ?? []) {
-    // syncs now if this browser has the key (or shows needs-key / not a member): cloud errors become its status, never thrown here
-    try { await registry.addFollower({ id, name, createdAt, follows: { nodeUrl, chainId, account } }) } catch (e) { throw new Error(`Chain "${name}": ${message(e)}`) }
-    if (id !== selected) await registry.close(id)
+  // pointers only: no worker request here; each follower syncs when it is opened (or selected)
+  for (const { id, name, createdAt, follows: { nodeUrl, chainId, account }, contracts, assets } of f.followers ?? []) {
+    try { await registry.putFollower({ id, name, createdAt, follows: { nodeUrl, chainId, account }, contracts, assets }) } catch (e) { throw new Error(`Chain "${name}": ${message(e)}`) }
   }
   const snaps = createSnapshotStore(kv)
   for (const s of f.snapshots) await snaps.put(s)

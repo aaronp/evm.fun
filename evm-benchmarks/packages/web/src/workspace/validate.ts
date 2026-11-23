@@ -1,6 +1,6 @@
 import { privateKeyToAccount } from 'viem/accounts'
 import { bookSchema, priceKey } from '@evmb/orderbook'
-import { decodeChainFile, encodeJson, MAX_NAME, parseJson } from '../chain/chainFile'
+import { decodeChainFile, encodeJson, MAX_NAME, parseJson, recordsError } from '../chain/chainFile'
 import { validate as validateWalkthrough } from '../walkthrough/validate'
 import { hashOf } from '@evmb/htlc'
 import type { WorkspaceFile } from './types'
@@ -79,6 +79,8 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
     if (!isId(c.id) || chains.has(c.id) || followers.has(c.id)) return bad(`${at}.id is missing, invalid or a duplicate`)
     if (!str(c.name) || !str(c.createdAt)) return bad(`${at} needs a name and createdAt`)
     if (!followsOk(c.follows)) return bad(`${at}: invalid follows (needs an http(s) nodeUrl, chainId and account address)`)
+    const records = recordsError(c.contracts, c.assets)
+    if (records) return bad(`${at}: ${records}`)
     followers.add(c.id)
   })
 
@@ -130,7 +132,7 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
   if (errors.length) return { errors }
   const secrets = (f.secrets ?? []).map(({ hash, secret, chain, lockId }: any) => ({ hash, secret, chain, lockId }))
   const answers = (f.answers ?? []).map(({ hash, headA }: any) => ({ hash, headA }))
-  const kept = f.followers?.map(({ id, name, createdAt, follows: { nodeUrl, chainId, account } }: any) => ({ id, name, createdAt, follows: { nodeUrl, chainId, account } }))
+  const kept = f.followers?.map(({ id, name, createdAt, follows: { nodeUrl, chainId, account }, contracts, assets }: any) => ({ id, name, createdAt, follows: { nodeUrl, chainId, account }, contracts, assets: assets ?? [] }))
   return { ok: { ...f, chains: f.chains.map((c: any) => chains.get(c.id)), secrets, answers, ...(kept && { followers: kept }) } as WorkspaceFile }
 }
 

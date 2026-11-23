@@ -237,6 +237,19 @@ export function createChainRegistry(deps: {
       await deps.kv.set(STORE, info.id, info)
       return h
     },
+    /** Store a follower as a pointer plus its records, without opening it (workspace Open): no worker request until it is opened. */
+    async putFollower(o: { id: string; name: string; createdAt: string; follows: NonNullable<ChainInfo['follows']>; contracts: ContractRecord[]; assets?: Asset[] }) {
+      if (live.has(o.id) || opening.has(o.id) || transient.has(o.id) || await deps.kv.get(STORE, o.id)) throw new Error(`A chain with id ${o.id} already exists`)
+      try {
+        await contracts.replace(o.id, o.contracts)
+        await assets.replace(o.id, (o.assets ?? []).map(a => rebase(a, o.id)))
+        await deps.kv.set(STORE, o.id, { id: o.id, name: o.name, type: 'follower', createdAt: o.createdAt, follows: o.follows } satisfies ChainInfo)
+      } catch (e) {
+        await contracts.replace(o.id, []).catch(() => {})
+        await assets.removeChain(o.id).catch(() => {})
+        throw e
+      }
+    },
     /** Make saved chain `id` a follower of `follows`: same id, name, contract and asset records; its engine and stored state go. */
     // registered in `opening` until the follower is live, so an open(id) meanwhile gets this follower, not a plain engine
     convertToFollower(id: string, follows: NonNullable<ChainInfo['follows']>): Promise<ChainHandle> {

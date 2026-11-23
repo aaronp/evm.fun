@@ -1,5 +1,6 @@
 import type { Address, Hex } from '@evmb/core'
-import type { ChainFile } from '../chain/chainFile'
+import type { ChainFile, ContractRecord } from '../chain/chainFile'
+import type { Asset } from '@evmb/assets'
 import type { Snapshot } from '../chain/snapshots'
 import type { Run, Walkthrough } from '../walkthrough/types'
 import type { Account } from '../store/accounts'
@@ -11,8 +12,8 @@ export type WorkspaceFile = {
   accounts: Account[]
   /** each exactly today's chain export, plus the chain's id (kept on Open so links, runs and order-book scopes stay valid) */
   chains: (ChainFile & { id: string; /** where it was deployed (missing = never) */ deployed?: Deployed })[]
-  /** follower chains (chain type 'follower') as pointers only: Open re-syncs them from the cloud; missing in older files = none */
-  followers?: (Pick<ChainInfo, 'id' | 'name' | 'createdAt'> & { follows: NonNullable<ChainInfo['follows']> })[]
+  /** follower chains (chain type 'follower') as pointers plus their records (no state, no snapshots): they sync when opened; missing in older files = none */
+  followers?: (Pick<ChainInfo, 'id' | 'name' | 'createdAt'> & { follows: NonNullable<ChainInfo['follows']>; contracts: ContractRecord[]; assets: Asset[] })[]
   /** `chain` is a chain's or a follower's id */
   selection?: { chain?: string; account?: Address }
   snapshots: Snapshot[]

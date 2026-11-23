@@ -35,13 +35,15 @@ export const RUNS = 'walkthroughRuns'
 const get = (s: WorkspaceEnv['storage'], k: string) => { try { return s.getItem(k) ?? undefined } catch { return undefined } }
 
 /** The whole workspace as plain data. Saved chains only (benchmark chains are skipped), one at a time via registry.withChain so more than LIVE_MAX work (and Save works at the cap).
- *  Followers are saved as pointers from their stored info, never opened (no state, records or snapshots). */
+ *  Followers are saved as pointers from their stored info plus their records, never opened (no state or snapshots). */
 export async function buildWorkspace(env: WorkspaceEnv): Promise<WorkspaceFile> {
   const { registry, kv } = env
   const contracts = createContractsRegistry(kv), assets = createWebAssets(kv)
   const all = (await registry.list()).filter(c => !c.ephemeral)
   const saved = all.filter(c => !c.follows)
-  const followers = all.flatMap(({ id, name, createdAt, follows }) => (follows ? [{ id, name, createdAt, follows }] : []))
+  const followers: NonNullable<WorkspaceFile['followers']> = []
+  for (const { id, name, createdAt, follows } of all) if (follows)
+    followers.push({ id, name, createdAt, follows, contracts: await contracts.list(id), assets: (await assets.list(id)).filter(a => a.kind === 'erc20') })
   const chains: WorkspaceFile['chains'] = []
   for (const info of saved) {
     const file = await registry.withChain(info.id, async (h): Promise<ChainFile> => {

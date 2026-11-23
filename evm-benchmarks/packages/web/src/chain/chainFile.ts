@@ -80,6 +80,22 @@ function assetError(a: any, i: number): string | null {
   return null
 }
 
+/** The first problem in a chain's contract and asset records (`assets` may be missing), or null. */
+export function recordsError(contracts: unknown, assets: unknown): string | null {
+  if (!Array.isArray(contracts)) return 'Missing or invalid contracts'
+  for (let i = 0; i < contracts.length; i++) {
+    const e = contractError(contracts[i], i)
+    if (e) return e
+  }
+  if (assets === undefined) return null
+  if (!Array.isArray(assets)) return 'Missing or invalid assets'
+  for (let i = 0; i < assets.length; i++) {
+    const e = assetError(assets[i], i)
+    if (e) return e
+  }
+  return null
+}
+
 type Decoded = { ok: true; file: ChainFile } | { ok: false; error: string }
 export function decodeChainFile(text: string, opts: { engine: string; crossEngineOk: boolean }): Decoded {
   try { return decode(text, opts) } catch { return { ok: false, error: 'Invalid file' } }
@@ -99,18 +115,8 @@ function decode(text: string, opts: { engine: string; crossEngineOk: boolean }):
   if (!isStr(f.engine)) return bad('Missing or invalid engine')
   if (!isObj(f.chain) || !str(f.chain.name) || (f.chain.type !== 'plain' && f.chain.type !== 'sequencer'))
     return bad(`Missing or invalid chain (needs name up to ${MAX} characters and type plain|sequencer)`)
-  if (!Array.isArray(f.contracts)) return bad('Missing or invalid contracts')
-  for (let i = 0; i < f.contracts.length; i++) {
-    const e = contractError(f.contracts[i], i)
-    if (e) return bad(e)
-  }
-  if (f.assets !== undefined) {
-    if (!Array.isArray(f.assets)) return bad('Missing or invalid assets')
-    for (let i = 0; i < f.assets.length; i++) {
-      const e = assetError(f.assets[i], i)
-      if (e) return bad(e)
-    }
-  }
+  const records = recordsError(f.contracts, f.assets)
+  if (records) return bad(records)
   const d = f.dump
   if (!isObj(d)) return bad('Missing or invalid dump: expected an object')
   const missing = DUMP_KEYS.filter(k => !(k in d))
