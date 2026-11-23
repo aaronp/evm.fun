@@ -19,6 +19,8 @@ effects.complete: random
 
 ```md
 One invite mechanism `{hash, expiry, usesLeft, grants}`: the creator commits hash(code); a claimer reveals the code. Single-use (usesLeft = 1, a captured code is worthless after the claim) or multi-use until expiry (a group joins with one code). Grants a role: a device/key on a chain's access contract, or a slot to create a new chain in the root registry.
+
+Spiked (views spike, [docs/spikes/cf-views.md](../spikes/cf-views.md)): single-use refused on the second claim; one multi-use code let 3 keys join then was refused after expiry; a 2-use code refused the third claim. The chain-creation grant (t-134) is sketched only.
 ```
 
 ### Chain registry: who may create chains
@@ -41,6 +43,8 @@ A root chain holds a chain-access registry: invites grant chain-creation slots; 
 
 ```md
 `GET /<chain>/<alias>/latest` → the contract's current state as JSON, under the alias's own read rules (separate from raw chain access; e.g. `GET /<chain>/access-controls/latest` → {read, write}). Aliases live in an on-chain registry (name → address, recipe, access contract). Recipes: contracts we design expose state via read functions (e.g. readers(), writers()); standard contracts get a recipe too (e.g. ERC-20 → balances by address, holders found from Transfer events, balances read now). A full event-folding indexer is later.
+
+Spiked ([docs/spikes/cf-views.md](../spikes/cf-views.md)): `Aliases.sol` in genesis; recipes `self-describing` (view functions listed in the alias) and `erc20`; per-alias access contract (a view-only key gets its alias, 403 elsewhere; open reads make it a plain GET). Cost: 4 calls ~1 ms (access-controls), GBP 10 holders 15 calls + 1 log scan ~1.3 ms, 200 holders ~4.4 ms; the holder scan grows with history.
 ```
 
 ### Remote chain: incremental state storage
@@ -723,6 +727,8 @@ Having a real means to deploy their chains would be awesome
 
 ```md
 Publish the playground (Vite build, `base: './'`) to GitHub Pages from CI on every push to master. Done when the deployed site loads, runs a walkthrough, and compiles in Studio (solc worker and revm wasm served from the static path).
+
+The workflow is in place (`.github/workflows/pages.yml`, retries Bun's exit crash, R11). Not yet checked: the deployed site runs a walkthrough and compiles in Studio.
 ```
 
 ## Next
@@ -754,6 +760,8 @@ Anyone can create an ad-hoc chain they own (in the browser for now). Options: **
 
 ```md
 A chain option where transactions cost nothing (zero gas price, no prefund needed). Done when a fresh account with 0 ETH can transact on a gas-free chain, on both approaches.
+
+Proven in the CF spike: base fee 0, a 0-ETH key transacts ([docs/spikes/cf-access.md](../spikes/cf-access.md)). Still to do on the playground's approaches.
 ```
 
 ### Owner-controlled deploy allow-list
