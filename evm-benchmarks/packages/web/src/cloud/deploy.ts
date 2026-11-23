@@ -1,6 +1,6 @@
 // Deploy a browser chain to the worker with a deploy code (spec: 2026-11-23-deploy-to-cf-design, "Deploying a chain").
 import { getAddress, keccak256, numberToHex, type Address, type Hex, type LocalAccount } from 'viem'
-import { MAX_CREATE_BYTES, NodeError, claimTx, setupTxs, type CreateChainResult, type NodeClient } from '@evmb/node/src/client'
+import { MAX_CREATE_BYTES, NodeClient, NodeError, claimTx, setupTxs, type CreateChainResult } from '@evmb/node/src/client'
 import type { ChainHandle, ChainInfo, Deployed } from '../chain/handle'
 import type { createChainRegistry } from '../chain/registry'
 
@@ -92,21 +92,34 @@ export async function deployChain(o: {
 
 /**
  * A plain chain deployed before deploys converted (it has `deployed`): make it a follower of its cloud chain, signing
- * as the account that deployed it (the sender of the set-up block at `deployed.head`). Converts when the local head is
- * still `deployed.head` with nothing pending, or when `force` (the user confirmed); otherwise `'diverged'`, nothing changed.
+ * as the cloud chain's admin (whichever of `accounts` it is). Converts when the local block at `deployed.head` is the
+ * cloud's (same hash), is the head, and nothing is pending — or when `force` (the user confirmed). Otherwise
+ * `'diverged'`, nothing changed. Without the admin's key it refuses, nothing changed.
  */
 export async function convertDeployed(id: string, o: {
-  registry: Pick<ReturnType<typeof createChainRegistry>, 'open' | 'convertToFollower'>; force?: boolean
+  registry: Pick<ReturnType<typeof createChainRegistry>, 'open' | 'convertToFollower'>
+  /** this browser's keys: the admin among them signs the follower */
+  accounts: LocalAccount[]
+  force?: boolean
 }): Promise<'converted' | 'diverged'> {
   const h = await o.registry.open(id)
   const d = h.info.deployed
   if (!d || h.info.type !== 'plain') throw new Error(`chain ${id} isn't a deployed plain chain`)
   const n = Number(BigInt((await h.request('eth_blockNumber', [])) as string))
   if (!o.force && (n !== d.head || (h.approach.pending?.() ?? 0) > 0)) return 'diverged'
-  // ponytail: after a rewrite below deployed.head this block may not be the set-up block; the follower then shows its error status
-  const b = (await h.request('eth_getBlockByNumber', [numberToHex(d.head), true])) as { transactions?: { from: Address }[] } | null
-  const from = b?.transactions?.[0]?.from
-  if (!from) throw new Error(`Can't tell which account deployed this chain (no set-up block #${d.head})`)
-  await o.registry.convertToFollower(id, { nodeUrl: d.nodeUrl, chainId: d.chainId, account: getAddress(from) })
+  let admin: LocalAccount | undefined, known: Address | undefined
+  for (const a of o.accounts) {
+    try {
+      known = (await new NodeClient(d.nodeUrl, a).info(d.chainId)).admin
+      if (known.toLowerCase() === a.address.toLowerCase()) { admin = a; break }
+    } catch (e) { if (!(e instanceof NodeError && e.status === 403)) throw e } // not a member: try the next key
+  }
+  if (!admin) throw new Error(`Needs the chain admin's key${known ? ` (${known})` : ''}`)
+  if (!o.force) {
+    const cloud = (await new NodeClient(d.nodeUrl, admin).blocks(d.chainId, d.head - 1)).blocks[0]
+    const local = (await h.request('eth_getBlockByNumber', [numberToHex(d.head), false])) as { hash?: string } | null
+    if (!cloud || cloud.header.hash !== local?.hash) return 'diverged'
+  }
+  await o.registry.convertToFollower(id, { nodeUrl: d.nodeUrl, chainId: d.chainId, account: getAddress(admin.address) })
   return 'converted'
 }

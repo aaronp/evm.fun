@@ -62,7 +62,7 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
       <form method="dialog" className="space-y-3" onSubmit={(e) => { e.preventDefault(); deploy() }}>
         <h2 id="deploy-title" className="font-display text-base font-semibold">Deploy “{chain.info.name}”</h2>
         <p className="text-sm text-text-2">
-          A copy of this chain runs on <span className="break-all font-mono text-xs">{nodeUrl()}</span>, with you as its admin. Your browser's copy then follows it.
+          A copy of this chain runs on <span className="break-all font-mono text-xs">{nodeUrl()}</span>, with you as its admin. Your browser's copy then follows it. Older transaction history isn't kept in this browser once it follows.
         </p>
         {!acct && <Notice>Select an account first: it signs the deploy and becomes the chain's admin.</Notice>}
         {!result && !exists && (

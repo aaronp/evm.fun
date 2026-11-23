@@ -6,6 +6,8 @@ import { LIVE_WARN } from '../chain/registry'
 import { provenanceText } from '../chain/chainFile'
 import { filterChains, rowHeight, type ChainTab } from '../chain/filter'
 import type { ChainInfo } from '../chain/handle'
+import { privateKeyToAccount } from 'viem/accounts'
+import { accounts } from '../store/accounts'
 import { useApp } from '../state'
 import { NewChainDialog } from '../components/NewChainDialog'
 import { SnapshotsDialog, TakeSnapshotDialog, type Flash } from '../components/SnapshotsDialog'
@@ -73,6 +75,8 @@ export function Chains() {
   const [flash, setFlash] = useState<Flash>()
   const [diverged, setDiverged] = useState<string>() // id of a chain deployed earlier that has moved on since
   const converting = useRef(new Set<string>())
+  const selected = useRef<string | undefined>(undefined)
+  selected.current = chain?.info.id
   const [noFunds, setNoFunds] = useState<string>() // id of the imported chain with no funded account, checked once at import
   // an import from the File menu lands here with the same check's result
   useEffect(() => {
@@ -84,12 +88,14 @@ export function Chains() {
     if (converting.current.has(id)) return
     converting.current.add(id)
     try {
-      if (await convertDeployed(id, { registry, force }) === 'diverged') return setDiverged(id)
+      const keys = accounts.list().map(a => privateKeyToAccount(a.privateKey))
+      if (await convertDeployed(id, { registry, accounts: keys, force }) === 'diverged') return setDiverged(id)
       setDiverged(undefined)
       await refresh()
-      await selectChain(id)
+      if (selected.current === id) await selectChain(id) // still the one shown: pick up its follower handle
     } catch (e) {
-      setFlash({ tone: 'warn', text: `Couldn't switch this chain to follow its cloud copy: ${e instanceof Error ? e.message : String(e)}` })
+      const m = e instanceof Error ? e.message : String(e)
+      setFlash({ tone: 'warn', text: `Couldn't switch this chain to follow its cloud copy: ${m}${m.startsWith('Needs ') ? '. Import that key on Accounts, then open the chain again.' : ''}` })
     } finally { converting.current.delete(id) }
   }
   useEffect(() => {

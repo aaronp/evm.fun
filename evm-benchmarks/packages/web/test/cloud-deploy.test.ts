@@ -15,6 +15,7 @@ import { nodeUrl, setNodeUrl, DEFAULT_NODE_URL } from '../src/cloud/node'
 const admin = privateKeyToAccount(generatePrivateKey())
 const user = privateKeyToAccount(generatePrivateKey())
 const B = '0x000000000000000000000000000000000000dEaD' as const
+const stranger = privateKeyToAccount(generatePrivateKey())
 const hosts = new Map<string, ChainHost>()
 const chainHost = (id: string): ChainHandleLike => {
   let h = hosts.get(id)
@@ -61,11 +62,12 @@ async function legacyDeploy() {
   const chain = await browserChain()
   const code = generateCode()
   await issue(code)
+  const before = await chain.chain.approach.snapshot!() // the browser copy before the deploy's set-up block
   chain.keys.off = true
   const e = await deployChain({ chain: chain.chain, account: user, code, client: new NodeClient(url, user), registry: chain.registry, onStep: () => {} }).catch((x) => x)
   chain.keys.off = false
   const handle = chain.registry.peek(chain.chain.info.id)!
-  return { chain: { ...chain, id: chain.chain.info.id }, handle, deployed: handle.info.deployed!, r: { e } }
+  return { chain: { ...chain, id: chain.chain.info.id }, handle, deployed: handle.info.deployed!, before, r: { e } }
 }
 
 describe('deployChain', () => {
@@ -196,7 +198,11 @@ describe('deployChain', () => {
   })
 
   test("converting fails after the cloud chain exists: says so with its id; the browser copy stays a usable plain chain at the cloud head, deployed recorded", async () => {
-    const { chain, r } = await legacyDeploy()
+    const { chain, r, handle, deployed } = await legacyDeploy()
+    expect(handle.info.type).toBe('plain')
+    expect(deployed).toMatchObject({ nodeUrl: url, chainId: r.e.chainId })
+    expect((await head(handle)).hash).toBe((await new NodeClient(url, user).state(r.e.chainId)).head.hash)
+    expect(await handle.approach.getBalance(B)).toBe(7n) // usable
     await chain.registry.remove(chain.id)
     expect(r.e.message).toMatch(new RegExp(`^Deployed as ${r.e.chainId} \\(http://localhost:\\d+/chains/${r.e.chainId}\\), but your browser copy couldn't be switched to follow it: Needs ${user.address}'s key$`))
     expect([r.e.step, r.e.url]).toEqual(['replace', `${url}/chains/${r.e.chainId}`])
@@ -207,7 +213,7 @@ describe('deployChain', () => {
     const a = await legacyDeploy()
     expect(a.handle.info.type).toBe('plain')
     expect(Number((await head(a.handle)).number)).toBe(a.deployed.head)
-    expect(await convertDeployed(a.chain.id, { registry: a.chain.registry })).toBe('converted')
+    expect(await convertDeployed(a.chain.id, { registry: a.chain.registry, accounts: [stranger, user] })).toBe('converted')
     const f = a.chain.registry.peek(a.chain.id)!
     expect(f.info).toMatchObject({ type: 'follower', follows: { nodeUrl: url, chainId: a.deployed.chainId, account: user.address } })
     expect(status(f).kind).toBe('following')
@@ -215,18 +221,29 @@ describe('deployChain', () => {
     // a local block since: diverged, nothing changes until asked
     const b = await legacyDeploy()
     await b.handle.send(await user.signTransaction({ type: 'eip1559', chainId: 31337, nonce: 3, to: B, value: 1n, gas: 21_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n }))
-    expect(await convertDeployed(b.chain.id, { registry: b.chain.registry })).toBe('diverged')
+    expect(await convertDeployed(b.chain.id, { registry: b.chain.registry, accounts: [user] })).toBe('diverged')
     expect(b.chain.registry.peek(b.chain.id)).toBe(b.handle)
     expect(b.handle.info.type).toBe('plain')
     expect(b.chain.stores.has(b.chain.id)).toBe(true)
-    expect(await convertDeployed(b.chain.id, { registry: b.chain.registry, force: true })).toBe('converted')
+    expect(await convertDeployed(b.chain.id, { registry: b.chain.registry, accounts: [user], force: true })).toBe('converted')
     const g = b.chain.registry.peek(b.chain.id)!
     expect(g.info.type).toBe('follower')
     expect(Number((await head(g)).number)).toBe(b.deployed.head)
     await b.chain.registry.remove(b.chain.id)
+    // rewound and re-mined to exactly the deployed height: a different block there, so diverged
+    const d = await legacyDeploy()
+    await d.chain.registry.replaceState(d.chain.id, d.before)
+    await d.handle.send(await user.signTransaction({ type: 'eip1559', chainId: 31337, nonce: 1, to: B, value: 2n, gas: 21_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n }))
+    expect(Number((await head(d.handle)).number)).toBe(d.deployed.head)
+    expect(await convertDeployed(d.chain.id, { registry: d.chain.registry, accounts: [user] })).toBe('diverged')
+    expect(d.chain.registry.peek(d.chain.id)).toBe(d.handle)
+    // the follow account is the cloud chain's admin: without its key, refused and nothing changes
+    await expect(convertDeployed(d.chain.id, { registry: d.chain.registry, accounts: [stranger], force: true })).rejects.toThrow("Needs the chain admin's key")
+    expect(d.handle.info.type).toBe('plain')
+    await d.chain.registry.remove(d.chain.id)
     // not a deployed plain chain: refused
     const c = await browserChain()
-    await expect(convertDeployed(c.chain.info.id, { registry: c.registry })).rejects.toThrow(/isn't a deployed plain chain/)
+    await expect(convertDeployed(c.chain.info.id, { registry: c.registry, accounts: [user] })).rejects.toThrow(/isn't a deployed plain chain/)
     await c.registry.remove(c.chain.info.id)
   })
 
