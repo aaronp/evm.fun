@@ -10,6 +10,17 @@ effects.complete: random
 
 ## Backlog
 
+### Followers: streaming instead of polling
+- id: t-144
+- parent: t-112
+- tags: chains, cloudflare, size-M
+- history:
+  - Backlog @ 2026-11-23T20:46:23Z
+
+```md
+Followers pull new blocks on demand: the cloud node pushes each new head over a hibernating WebSocket (proved in the t-128 spike), so devices stop polling. Until then polling is configurable per browser (5 s / 15 s / 60 s / Manual, plus Sync now) — plan 18. Cuts the per-poll nonce write and read check (risk R57). Aaron, 2026-11-23.
+```
+
 ### Device bookkeeping contract
 - id: t-143
 - parent: t-112
