@@ -17,6 +17,9 @@ const sender = (raw: Hex) => recoverTransactionAddress({ serializedTransaction: 
 const meta = (sql: Sql, k: string) => sql.exec('SELECT v FROM meta WHERE k = ?', k)[0]?.v as Address | undefined
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
+/** Creates in progress, so a second concurrent create on the same sql is refused before it awaits anything. */
+const creating = new WeakSet<Sql>()
+
 function initTables(sql: Sql) {
   new ChainStore(sql) // creates its tables, incl. meta
   sql.exec('CREATE TABLE IF NOT EXISTS redeems (hash TEXT, by TEXT, chainId TEXT, at INTEGER)')
@@ -28,7 +31,7 @@ function wipe(sql: Sql) {
 }
 
 export class ChainService {
-  #redeems: Promise<unknown> = Promise.resolve()
+  #writes: Promise<unknown> = Promise.resolve()
 
   private constructor(private sql: Sql, private store: ChainStore, private node: ChainNode, readonly chainId: string, readonly access: Address, readonly aliases: Address) {}
 
@@ -37,6 +40,8 @@ export class ChainService {
     initTables(sql)
     const [access, aliases] = [meta(sql, 'access'), meta(sql, 'aliases')]
     if (!access || !aliases) return null
+    const id = meta(sql, 'id')
+    if (id && id !== opts.chainId) throw new Error(`this sql holds chain ${id}, not ${opts.chainId}`)
     const store = new ChainStore(sql)
     return new ChainService(sql, store, await ChainNode.boot(store, { wasm }), opts.chainId, access, aliases)
   }
@@ -44,7 +49,16 @@ export class ChainService {
   /** Load `dump`, mine the two set-up txs (ChainAccess, Aliases) as one block; refuse unless they are what they claim. */
   static async create(sql: Sql, wasm: NodeConfig['wasm'], opts: { chainId: string; signer: string; dump: SerializedState; setup: [Hex, Hex]; timestamp: number }): Promise<ChainService> {
     initTables(sql)
-    if (meta(sql, 'access')) throw new ServiceError(409, 'chain already exists')
+    if (meta(sql, 'access') || creating.has(sql)) throw new ServiceError(409, 'chain already exists')
+    creating.add(sql)
+    try {
+      return await ChainService.#create(sql, wasm, opts)
+    } finally {
+      creating.delete(sql)
+    }
+  }
+
+  static async #create(sql: Sql, wasm: NodeConfig['wasm'], opts: { chainId: string; signer: string; dump: SerializedState; setup: [Hex, Hex]; timestamp: number }): Promise<ChainService> {
     const signer = opts.signer.toLowerCase()
     const setup = opts.setup as Hex[]
     if (!Array.isArray(setup) || setup.length !== 2) throw new ServiceError(400, 'setup must be exactly two txs')
@@ -71,6 +85,7 @@ export class ChainService {
       sql.tx(() => {
         sql.exec("INSERT INTO meta VALUES ('access', ?)", access)
         sql.exec("INSERT INTO meta VALUES ('aliases', ?)", aliases)
+        sql.exec("INSERT INTO meta VALUES ('id', ?)", opts.chainId)
       })
       return new ChainService(sql, store, node, opts.chainId, access, aliases)
     } catch (e) {
@@ -96,7 +111,18 @@ export class ChainService {
   }
 
   /** Mine `txs` as one block; the signer and every sender must be writers. */
-  async submit(signer: string, txs: Hex[], timestamp: number): Promise<BlockSummary> {
+  submit(signer: string, txs: Hex[], timestamp: number): Promise<BlockSummary> {
+    return this.#write(() => this.#submit(signer, txs, timestamp))
+  }
+
+  /** Writes (submit, redeem) run one at a time, checks and block together, so no other block lands between them. */
+  #write<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.#writes.then(fn)
+    this.#writes = run.catch(() => {})
+    return run
+  }
+
+  async #submit(signer: string, txs: Hex[], timestamp: number): Promise<BlockSummary> {
     const senders = await Promise.all(txs.map(sender)).catch((e) => { throw new ServiceError(400, `bad tx: ${msg(e)}`) })
     for (const a of new Set([signer.toLowerCase(), ...senders]))
       if (!(await this.canWrite(a))) throw new ServiceError(403, `${a} is not a writer on this chain`)
@@ -106,13 +132,10 @@ export class ChainService {
 
   /**
    * Root chain only: mine `claim` (a `claim(code)` to ChainAccess sent by `signer`) as its own block.
-   * The invite is checked first, so a bad code never reaches a block.
+   * The invite is checked first (inside the write queue), so a bad code never reaches a block.
    */
   redeem(signer: string, claim: Hex, timestamp: number): Promise<{ codeHash: Hex }> {
-    // one redeem at a time, so the invite check and the claim block can't interleave with another redeem
-    const run = this.#redeems.then(() => this.#redeem(signer, claim, timestamp))
-    this.#redeems = run.catch(() => {})
-    return run
+    return this.#write(() => this.#redeem(signer, claim, timestamp))
   }
 
   async #redeem(signer: string, claim: Hex, timestamp: number): Promise<{ codeHash: Hex }> {
@@ -129,7 +152,7 @@ export class ChainService {
     if ((await sender(claim)) !== signer.toLowerCase()) throw new ServiceError(403, 'claim tx must be sent by the request signer')
     const hash = codeHash(code)
     const [expiry, usesLeft] = await this.call(ChainAccess.abi, 'invites', [hash])
-    // ponytail: mirrors ChainAccess.claim's require; a claim that still reverts (e.g. an admin revoke racing it) keeps its block
+    // mirrors ChainAccess.claim's require (block.timestamp <= expiry); writes are serialised, so the state can't change before the block
     if (usesLeft === 0 || timestamp > Number(expiry)) throw new ServiceError(403, BAD_CODE)
     const blk = await this.node.apply(timestamp, [claim]).catch((e) => { throw new ServiceError(400, `claim rejected: ${msg(e)}`) })
     if ((blk.receipts[0] as { status: number }).status !== 1) throw new ServiceError(403, BAD_CODE)
