@@ -13,7 +13,6 @@ effects.complete: random
 ### Invites: single-use or multi-use within a TTL
 - id: t-133
 - parent: t-112
-- owner:
 - tags: chains, access, size-S
 - history:
   - Backlog @ 2026-11-22T22:32:43Z
@@ -25,7 +24,6 @@ One invite mechanism `{hash, expiry, usesLeft, grants}`: the creator commits has
 ### Chain registry: who may create chains
 - id: t-134
 - parent: t-112
-- owner:
 - tags: chains, access, size-M
 - history:
   - Backlog @ 2026-11-22T22:32:43Z
@@ -37,7 +35,6 @@ A root chain holds a chain-access registry: invites grant chain-creation slots; 
 ### Views: readable current state per contract (aliases + recipes)
 - id: t-135
 - parent: t-112
-- owner:
 - tags: chains, views, size-M
 - history:
   - Backlog @ 2026-11-22T22:32:43Z
@@ -49,7 +46,6 @@ A root chain holds a chain-access registry: invites grant chain-creation slots; 
 ### Remote chain: incremental state storage
 - id: t-129
 - parent: t-112
-- owner:
 - tags: chains, cloudflare, size-M
 - history:
   - Backlog @ 2026-11-22T21:41:18Z
@@ -61,7 +57,6 @@ From the t-128 spike: the DO rewrites a full `dumpState` (with history) every bl
 ### webevm: per-block timestamp and history-free dump
 - id: t-130
 - parent: t-112
-- owner:
 - tags: chains, upstream, size-S
 - history:
   - Backlog @ 2026-11-22T21:41:18Z
@@ -75,7 +70,6 @@ Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps account
 ### Remote chain: device enrolment and auth hardening
 - id: t-131
 - parent: t-112
-- owner:
 - tags: chains, cloudflare, size-M
 - history:
   - Backlog @ 2026-11-22T21:41:18Z
@@ -89,7 +83,6 @@ Access spike (branch spike-cf-chain, 129e7fd, `bun spike/cf-chain/access.ts` →
 ### Playground ChainHandle over a remote (Durable Object) chain
 - id: t-132
 - parent: t-112
-- owner:
 - tags: chains, web, size-M
 - history:
   - Backlog @ 2026-11-22T21:41:18Z
@@ -783,6 +776,37 @@ Contract creation is refused unless the sender is on the chain's deployer list (
 
 ```md
 The owner sees and edits the chain's policy: gas mode, deployers. Done when the owner can add/remove a deployer from the Chains page and the change applies immediately.
+```
+
+### Roadmap
+- id: t-136
+- history:
+  - Next @ 2026-11-23T08:16:30.318Z
+
+```md
+I think we want:
+
+1. To have a 'deploy button to deploy a chain to CF from our playground. This respects our chain permissions: the user needs to supply an auth code which permits them to do this, which will require an answer for how we 'bootstrap' the first chain (admin chain), which could be "the chain deployed is allowed"
+
+2. We can control 'node' permissions -- that is, which devices/instances are allowed to read and write from the chain. This is how we allow our laptops/phones/tablets/browsers to create keys and "sync" via the CF node.
+
+3. We can view and edit our 'indexer' when deploying new contracts on the chain: the means to control read/write permissions for a smart contract on our chain, as well as view the materialised data for the contract
+
+4. We can use the same code/hash permission exchange to expose a 'write' URL for a contract: i.e. swap the token for a key, and use it to save our 'tools' (including a new interactive draw tool as a PoC), and our 'relay' ACL for a relay topic.
+```
+
+### Documentation
+- id: t-137
+- history:
+  - Next @ 2026-11-23T08:20:40.001Z
+
+```md
+We want clear TypeDoc documentation we can build/serve for each area we build
+```
+
+```dod
+- 'make doc' builds the documentation
+- we can include 'docs' as part of our built Github Pages
 ```
 
 ## Doing
