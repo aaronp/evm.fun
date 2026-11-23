@@ -20,18 +20,7 @@ effects.complete: random
 ```md
 One invite mechanism `{hash, expiry, usesLeft, grants}`: the creator commits hash(code); a claimer reveals the code. Single-use (usesLeft = 1, a captured code is worthless after the claim) or multi-use until expiry (a group joins with one code). Grants a role: a device/key on a chain's access contract, or a slot to create a new chain in the root registry.
 
-Spiked (views spike, [docs/spikes/cf-views.md](../spikes/cf-views.md)): single-use refused on the second claim; one multi-use code let 3 keys join then was refused after expiry; a 2-use code refused the third claim. The chain-creation grant (t-134) is sketched only.
-```
-
-### Chain registry: who may create chains
-- id: t-134
-- parent: t-112
-- tags: chains, access, size-M
-- history:
-  - Backlog @ 2026-11-22T22:32:43Z
-
-```md
-A root chain holds a chain-access registry: invites grant chain-creation slots; the Worker checks the registry before creating a DO; the registry records whose chain is whose. Each chain then has its own access/governance contract.
+Spiked (views spike, [docs/spikes/cf-views.md](../spikes/cf-views.md)): single-use refused on the second claim; one multi-use code let 3 keys join then was refused after expiry; a 2-use code refused the third claim. The chain-creation grant is sketched only; deploy codes (t-134) reuse this mechanism.
 ```
 
 ### Views: readable current state per contract (aliases + recipes)
@@ -81,7 +70,7 @@ Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps account
 ```md
 From t-128: real device enrolment (pairing / owner-signed invites — see the access-control brainstorm), owner key rotation, multiple owners or thresholds, tx-sender ↔ device binding, rate limits.
 
-Access spike (branch spike-cf-chain, 129e7fd, `bun spike/cf-chain/access.ts` → ALL PASS, 49 checks; report .superpowers/spike-cf-access-report.md): `ChainAccess.sol` in genesis at 0xacce55… (admin, readOpen, reader/writer sets); the DO checks canRead/canWrite from its own state on every request (~15–20 µs); tx senders must be writers; changes apply next block and close revoked sockets; plain GET when reads are open, self-signed short-TTL bearer tokens otherwise (~1 ms verify); gas-free chains; `invite(hash, ttl)` + `claim(code)`.
+Access spike (branch spike-cf-chain, 129e7fd, `bun spike/cf-chain/access.ts` → ALL PASS, 49 checks; report [docs/spikes/cf-access.md](../spikes/cf-access.md)): `ChainAccess.sol` in genesis at 0xacce55… (admin, readOpen, reader/writer sets); the DO checks canRead/canWrite from its own state on every request (~15–20 µs); tx senders must be writers; changes apply next block and close revoked sockets; plain GET when reads are open, self-signed short-TTL bearer tokens otherwise (~1 ms verify); gas-free chains; `invite(hash, ttl)` + `claim(code)`.
 ```
 
 ### Playground ChainHandle over a remote (Durable Object) chain
@@ -718,20 +707,79 @@ Currently the playground is served via GH pages.
 Having a real means to deploy their chains would be awesome
 ```
 
-### web: static deploy (GitHub Pages)
-- id: t-16
-- parent: t-108
-- tags: web, infra
+### Documentation
+- id: t-137
 - history:
-  - To Do @ 2026-11-19T09:38:00Z
+  - Next @ 2026-11-23T08:20:40.001Z
 
 ```md
-Publish the playground (Vite build, `base: './'`) to GitHub Pages from CI on every push to master. Done when the deployed site loads, runs a walkthrough, and compiles in Studio (solc worker and revm wasm served from the static path).
-
-The workflow is in place (`.github/workflows/pages.yml`, retries Bun's exit crash, R11). Not yet checked: the deployed site runs a walkthrough and compiles in Studio.
+We want clear TypeDoc documentation we can build/serve for each area we build
 ```
 
-## Next
+```dod
+- 'make doc' builds the documentation
+- we can include 'docs' as part of our built Github Pages
+```
+
+### Roadmap
+- id: t-136
+- history:
+  - Next @ 2026-11-23T08:16:30.318Z
+
+```md
+I think we want:
+
+1. To have a 'deploy button to deploy a chain to CF from our playground. This respects our chain permissions: the user needs to supply an auth code which permits them to do this, which will require an answer for how we 'bootstrap' the first chain (admin chain), which could be "the chain deployed is allowed"
+
+2. We can control 'node' permissions -- that is, which devices/instances are allowed to read and write from the chain. This is how we allow our laptops/phones/tablets/browsers to create keys and "sync" via the CF node.
+
+3. We can view and edit our 'indexer' when deploying new contracts on the chain: the means to control read/write permissions for a smart contract on our chain, as well as view the materialised data for the contract
+
+4. We can use the same code/hash permission exchange to expose a 'write' URL for a contract: i.e. swap the token for a key, and use it to save our 'tools' (including a new interactive draw tool as a PoC), and our 'relay' ACL for a relay topic.
+```
+
+### Deploy to Cloudflare: `make deploy` and deploy codes
+- id: t-134
+- parent: t-136
+- tags: chains, cloudflare, access, size-L
+- history:
+  - Backlog @ 2026-11-22T22:32:43Z
+  - Next @ 2026-11-23T11:32:10Z
+
+```md
+Roadmap item 1: turn the CF spike (`spike/cf-chain`, [docs/spikes](../spikes/)) into a real worker, and gate who may create chains on it. Was "Chain registry: who may create chains".
+
+**Decided (Aaron, 2026-11-23):**
+- **First chain = the root chain.** `make deploy` (your own Cloudflare login) deploys the worker and creates the **root chain**, with your key as its admin; locally, the same happens on the worker `make dev-services` starts. No code is needed for the root chain: the worker's config names the admin address (public, not a secret), and only that key may create it.
+- **Root chain holds an `Accounts` contract** (admin = you). It stores deploy codes as `{hash(code), expiry}`, never the code itself.
+- **Issuing a code:** in evm.fun you type a code you choose or generate (e.g. `my-first-friend`) and a TTL (e.g. 5 min); you sign the tx that writes `hash(code)` and `now + TTL` to `Accounts`.
+- **Sharing:** you send the code to a friend out of band (text, email, in person).
+- **Redeeming:** the friend opens evm.fun, picks one of their chains, chooses **Deploy chain** and enters the code. The create request carries the code; the worker hashes it and checks `Accounts` on the root chain: (1) the hash matches, (2) it is before expiry. Then it creates their chain (one Durable Object), with the friend's key as that chain's admin. Otherwise it refuses, saying which check failed.
+- **The code alone is enough (option A):** no per-use approval. The TTL bounds the risk.
+- **Local first, then live.** Everything above, including the deploy UI in evm.fun, works against a local worker before anything goes live. Makefile targets:
+  - `make dev-services`: start the CF worker locally (`wrangler dev`) in the background
+  - `make dev-services-status`: show what local services are running (pid, port, URL)
+  - `make dev-services-stop`: stop them
+  - `make deploy`: put the worker live on your Cloudflare account and create the root chain (last step, run by you)
+
+**Claude's calls (correct any):**
+- Codes use the invites mechanism from t-133 (`usesLeft`): single-use by default, multi-use optional, always within the TTL. The redeem is recorded on the root chain (who used it, which chain), so you see who deployed what.
+- "Deploy chain" uploads the chosen playground chain's current state as the new chain's genesis. Afterwards the browser copy follows the remote chain (t-132).
+- A typed code like `my-first-friend` is guessable. The UI offers a generated code, and the worker limits failed attempts per IP and per code.
+
+**Builds on:** t-133 invites, t-130 webevm fixes (timestamps, loadState), t-129 incremental storage (can follow), t-131 device auth.
+```
+
+```dod
+- [ ] `make dev-services` / `dev-services-status` / `dev-services-stop` start, report and stop the local worker
+- [ ] Locally: the root chain with `Accounts` is created by the configured admin key; evm.fun (dev) points at the local worker
+- [ ] As the root admin, issue a code with a TTL from evm.fun (only `hash` + `expiry` on chain)
+- [ ] A second key deploys one of its chains from evm.fun with that code; that key is the new chain's admin
+- [ ] Refused: wrong code, expired code, used-up code, and a root-chain create by anyone but the configured admin
+- [ ] End-to-end test against the local worker; nothing deploys from CI
+- [ ] Then live: `make deploy` puts the worker on your Cloudflare account and creates the root chain; prints the worker URL and root chain id; evm.fun can target it
+- [ ] Docs updated (t-137): how to deploy, issue and redeem a code
+```
 
 ### Permissioned chains (ad-hoc, gas-free)
 - id: t-112
@@ -740,7 +788,7 @@ The workflow is in place (`.github/workflows/pages.yml`, retries Bun's exit cras
   - Next @ 2026-11-22T17:12:28Z
 
 ```md
-Anyone can create an ad-hoc chain they own (in the browser for now). Options: **gas-free** (no ETH needed to transact) and **owner-controlled deploys** (only allowed addresses may deploy contracts). Later a chain is a cluster whose nodes run on several devices (phone, laptop, Cloudflare Worker).
+Anyone can create an ad-hoc chain they own: in the browser, or on our Cloudflare worker with a deploy code (t-134). Options: **gas-free** (no ETH needed to transact) and **owner-controlled deploys** (only allowed addresses may deploy contracts). Later a chain is a cluster whose nodes run on several devices (phone, laptop, Cloudflare Worker).
 
 **Seam:** a chain is `ChainHandle` + a **chain policy** (owner, gas mode, allowed deployers) held in chain state, so every node enforces the same rules. Workstreams above never care where the nodes run.
 ```
@@ -786,40 +834,25 @@ Contract creation is refused unless the sender is on the chain's deployer list (
 The owner sees and edits the chain's policy: gas mode, deployers. Done when the owner can add/remove a deployer from the Chains page and the change applies immediately.
 ```
 
-### Roadmap
-- id: t-136
-- history:
-  - Next @ 2026-11-23T08:16:30.318Z
-
-```md
-I think we want:
-
-1. To have a 'deploy button to deploy a chain to CF from our playground. This respects our chain permissions: the user needs to supply an auth code which permits them to do this, which will require an answer for how we 'bootstrap' the first chain (admin chain), which could be "the chain deployed is allowed"
-
-2. We can control 'node' permissions -- that is, which devices/instances are allowed to read and write from the chain. This is how we allow our laptops/phones/tablets/browsers to create keys and "sync" via the CF node.
-
-3. We can view and edit our 'indexer' when deploying new contracts on the chain: the means to control read/write permissions for a smart contract on our chain, as well as view the materialised data for the contract
-
-4. We can use the same code/hash permission exchange to expose a 'write' URL for a contract: i.e. swap the token for a key, and use it to save our 'tools' (including a new interactive draw tool as a PoC), and our 'relay' ACL for a relay topic.
-```
-
-### Documentation
-- id: t-137
-- history:
-  - Next @ 2026-11-23T08:20:40.001Z
-
-```md
-We want clear TypeDoc documentation we can build/serve for each area we build
-```
-
-```dod
-- 'make doc' builds the documentation
-- we can include 'docs' as part of our built Github Pages
-```
-
 ## Doing
 
 ## Done
+
+### web: static deploy (GitHub Pages)
+- id: t-16
+- parent: t-108
+- tags: web, infra
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Done @ 2026-11-23T11:35:25Z
+
+```md
+Publish the playground (Vite build, `base: './'`) to GitHub Pages from CI on every push to master. Done when the deployed site loads, runs a walkthrough, and compiles in Studio (solc worker and revm wasm served from the static path).
+
+The workflow is in place (`.github/workflows/pages.yml`, retries Bun's exit crash, R11). Live at evm.fun after the PR #5–#7 merges (confirmed by Aaron, 2026-11-23).
+```
+
+## Next
 
 ### Cloudflare evm worker
 - id: t-128
@@ -860,7 +893,7 @@ Related: We could have the chain access / allowance governed by an initial 'iden
 ```
 
 ```dod
-Spike result (branch spike-cf-chain, commit 1c24e48, `bun spike/cf-chain/demo.ts` → ALL PASS, 26 checks; report .superpowers/spike-cf-chain-report.md):
+Spike result (branch spike-cf-chain, commit 1c24e48, `bun spike/cf-chain/demo.ts` → ALL PASS, 26 checks; report [docs/spikes/cf-chain.md](../spikes/cf-chain.md)):
 - [x] webevm + revm runs unchanged in a Durable Object under wrangler dev (bundle 2.5 MB / 711 KiB gz; cold request ~30 ms)
 - [x] create / submit(expectedHead → 409 when stale) / fetch / hibernating WebSocket subscribe; submissions serialised
 - [x] snapshot + block + receipts persisted in one SQLite transaction; a new DO instance continues at the same head
