@@ -29,7 +29,16 @@ jobs:
         with:
           bun-version: 1.3.13
       - run: bun install --frozen-lockfile
-      - run: bun test || bun test  # retry once: Bun 1.3.13 segfaults at exit in ~1 of 5 runs (risk R11); a real failure fails both
+      # Bun 1.3.13 can segfault while tearing down workers (risk R11): it dies by a signal (exit >= 128)
+      # before printing a summary. Retry only that, up to 3 runs; a real test failure (exit 1) fails at once.
+      - run: |
+          for i in 1 2 3; do
+            bun test && exit 0
+            code=$?
+            [ "$code" -lt 128 ] && exit "$code"
+            echo "::warning::bun test crashed (exit $code, risk R11); retry $i of 3"
+          done
+          exit 1
       - run: bun run web:build
       - uses: actions/upload-pages-artifact@v3
         with:
