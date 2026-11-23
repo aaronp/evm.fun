@@ -60,6 +60,8 @@ export function AppState({ children }: { children: ReactNode }) {
     } finally { setPending(n => n - 1) }
   }, [])
 
+  // a follower's new head (or status) reaches pages the way a send does: via balanceTick
+  useEffect(() => registry.watch(id => { if (id === chain?.info.id) bumpBalance() }), [chain, bumpBalance])
   // keep the persisted height of the selected chain current (after each send, via balanceTick)
   useEffect(() => { if (chain) registry.recordHeight(chain.info.id).catch(() => {}) }, [chain, balanceTick])
 

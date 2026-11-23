@@ -8,6 +8,9 @@ import type { ChainSource, ContractRecord } from './chainFile'
 import { createWebAssets } from '../assets/registry'
 import { createSnapshotStore, type Snapshot } from './snapshots'
 import { makeHandle, type ChainHandle, type ChainInfo, type ChainType, type Deployed } from './handle'
+import type { LocalAccount } from 'viem'
+import type { NodeConfig } from '@evmb/node/src/node'
+import { followerApproach } from '../cloud/followerChain'
 
 export type { ChainHandle, ChainInfo, ChainType, Deployed }
 
@@ -25,13 +28,31 @@ export function createChainRegistry(deps: {
   host: (chainId: string) => ApproachHost
   /** delete the chain's persisted state */
   purge?: (chainId: string) => Promise<void>
+  /** what follower chains need: the compiled revm wasm, and the key (and label, sent as the device name) of an account in this browser */
+  follower?: { wasm(): Promise<NodeConfig['wasm']>; account(address: Address): { account: LocalAccount; label: string } | undefined }
 }) {
   const live = new Map<string, ChainHandle>()
   const opening = new Map<string, Promise<ChainHandle>>() // concurrent open(id) shares one node
   // withChain's short-lived node (at most one, outside `live`): open(id) waits for it so one chain never has two nodes
   const transient = new Map<string, Promise<void>>()
   let transientQueue: Promise<void> = Promise.resolve()
-  const build = (info: ChainInfo) => makeHandle(info, factories[info.type]({}, { ...deps.host(info.id), stateHistory: STATE_HISTORY }))
+  const watchers = new Set<(id: string) => void>()
+  const emit = (id: string) => watchers.forEach(cb => cb(id))
+  const build = (info: ChainInfo) => {
+    if (info.type !== 'follower') return makeHandle(info, factories[info.type]({}, { ...deps.host(info.id), stateHistory: STATE_HISTORY }))
+    if (!deps.follower || !info.follows) throw new Error(`chain ${info.id} can't follow a cloud chain here`)
+    const key = deps.follower.account(info.follows.account)
+    return makeHandle(info, followerApproach({
+      follows: info.follows, account: key?.account, label: key?.label, wasm: deps.follower.wasm(),
+      onStatus: () => emit(info.id), onHead: () => emit(info.id),
+    }))
+  }
+  /** Open a follower handle (it never throws for cloud errors: they become its status) and make it live. */
+  const startFollower = async (info: ChainInfo) => {
+    const h = build(info)
+    await h.approach.open!()
+    return track(h)
+  }
   const assertRoom = () => {
     if (live.size >= LIVE_MAX) throw new Error(`${LIVE_MAX} chains are already running in this tab — delete one or reload the page`)
   }
@@ -201,6 +222,32 @@ export function createChainRegistry(deps: {
     /** Delete snapshots of chains that are neither stored nor live. */
     async pruneSnapshots() {
       await snapshots.pruneOrphans(new Set((await self.list()).map(c => c.id)))
+    },
+    /** Follow a cloud chain (read-only); its state is never stored, only this pointer. */
+    async addFollower(o: { name: string; follows: NonNullable<ChainInfo['follows']>; id?: string; createdAt?: string }): Promise<ChainHandle> {
+      assertRoom()
+      if (o.id !== undefined && (live.has(o.id) || opening.has(o.id) || transient.has(o.id) || await deps.kv.get(STORE, o.id))) throw new Error(`A chain with id ${o.id} already exists`)
+      const info: ChainInfo = { id: o.id ?? crypto.randomUUID(), name: o.name, type: 'follower', createdAt: o.createdAt ?? new Date().toISOString(), follows: o.follows }
+      const h = await startFollower(info)
+      await deps.kv.set(STORE, info.id, info)
+      return h
+    },
+    /** Make saved chain `id` a follower of `follows`: same id, name, contract and asset records; its engine and stored state go. */
+    async convertToFollower(id: string, follows: NonNullable<ChainInfo['follows']>): Promise<ChainHandle> {
+      await opening.get(id)?.catch(() => {})
+      await transient.get(id)
+      const old = live.get(id)?.info ?? await deps.kv.get<ChainInfo>(STORE, id)
+      if (!old || old.ephemeral) throw new Error(`unknown chain ${id}`)
+      await self.close(id)
+      await deps.purge?.(id)
+      const info: ChainInfo = { ...old, type: 'follower', follows }
+      await deps.kv.set(STORE, id, info)
+      return startFollower(info)
+    },
+    /** `cb(id)` when a follower's head or status changes; returns the unsubscribe. */
+    watch(cb: (id: string) => void) {
+      watchers.add(cb)
+      return () => void watchers.delete(cb)
     },
     addEphemeral(handle: ChainHandle) {
       assertRoom()

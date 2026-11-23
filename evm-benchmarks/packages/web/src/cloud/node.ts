@@ -17,3 +17,22 @@ export function setNodeUrl(url: string) {
 
 /** A client for the current worker, signing as `a` (unsigned requests only without one). */
 export const clientFor = (a?: Account) => new NodeClient(nodeUrl(), a && privateKeyToAccount(a.privateKey))
+
+export type SyncInterval = 5 | 15 | 60 | 'manual'
+const SYNC_KEY = 'evmb.syncInterval' // per-browser, like the node URL
+let syncMem: SyncInterval | undefined // when storage is blocked
+const syncSubs = new Set<() => void>()
+/** "Sync followers every": seconds, or 'manual' (no timer). Default 5. */
+export function getSyncInterval(): SyncInterval {
+  try {
+    const v = localStorage.getItem(SYNC_KEY)
+    return v === 'manual' ? v : v === '15' ? 15 : v === '60' ? 60 : 5
+  } catch { return syncMem ?? 5 }
+}
+export function setSyncInterval(v: SyncInterval) {
+  syncMem = v
+  try { localStorage.setItem(SYNC_KEY, String(v)) } catch {}
+  syncSubs.forEach((cb) => cb())
+}
+/** Running followers re-arm their timers; returns the unsubscribe. */
+export const onSyncIntervalChange = (cb: () => void) => (syncSubs.add(cb), () => void syncSubs.delete(cb))

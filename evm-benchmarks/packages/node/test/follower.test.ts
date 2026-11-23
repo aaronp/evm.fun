@@ -127,6 +127,23 @@ describe('Follower', () => {
     }
   })
 
+  test('reopenEvery re-opens from /state and keeps matching', async () => {
+    const real = as(admin)
+    let states = 0
+    const stub = { state: (id: string) => (states++, real.state(id)), blocks: (id: string, after: number) => real.blocks(id, after) } as unknown as NodeClient
+    const f = await Follower.open(stub, cid, wasm, { reopenEvery: 5 })
+    followers.push(f)
+    expect(states).toBe(1)
+    await mineBlocks(12)
+    expect(await f.sync()).toEqual(await cloudHead())
+    expect(states).toBe(2) // one page of 12 blocks: re-opened once after it
+    expect(await f.read((n) => n.getStateRoot())).toBe(f.head.stateRoot)
+    await mineBlocks(3)
+    expect(await f.sync()).toEqual(await cloudHead()) // the new node keeps replaying from the re-opened head
+    expect(await f.read((n) => n.getStateRoot())).toBe(f.head.stateRoot)
+    expect(f.status).toBe('following')
+  }, 60_000)
+
   test('a tampered block (test stub returning a wrong stateRoot) → mismatch', async () => {
     const real = as(admin)
     const bad = '0x' + '11'.repeat(32)
