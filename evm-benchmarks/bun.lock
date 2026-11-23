@@ -11,7 +11,7 @@
       },
       "devDependencies": {
         "@pritzlaff/adr": "^1.2.0",
-        "@pritzlaff/agile": "^1.2.0",
+        "@pritzlaff/agile": "^1.2.1",
         "@pritzlaff/gantt": "^1.0.2",
         "@pritzlaff/project": "^0.1.1",
         "@pritzlaff/risk-register": "^0.2.0",
@@ -82,6 +82,17 @@
       "devDependencies": {
         "@evmb/contracts": "workspace:*",
         "webevm": "0.9.1",
+      },
+    },
+    "packages/node": {
+      "name": "@evmb/node",
+      "dependencies": {
+        "revm-wasm": "0.3.1",
+        "viem": "^2.58.1",
+        "webevm": "0.9.1",
+      },
+      "devDependencies": {
+        "@evmb/contracts": "workspace:*",
       },
     },
     "packages/orderbook": {
@@ -300,6 +311,8 @@
 
     "@evmb/htlc": ["@evmb/htlc@workspace:packages/htlc"],
 
+    "@evmb/node": ["@evmb/node@workspace:packages/node"],
+
     "@evmb/orderbook": ["@evmb/orderbook@workspace:packages/orderbook"],
 
     "@evmb/pool": ["@evmb/pool@workspace:packages/pool"],
@@ -338,7 +351,7 @@
 
     "@pritzlaff/adr": ["@pritzlaff/adr@1.2.0", "", { "bin": { "adr": "bin/adr.mjs" } }, "sha512-nuwLQQ2blU7EJvPHEwtSOiDmtaVP/+DJGhrL8MAAIsv3NLJEf/5KosSW1WO92ke7arG9L2QWITULlGk/zh92IQ=="],
 
-    "@pritzlaff/agile": ["@pritzlaff/agile@1.2.0", "", { "bin": { "agile": "bin/agile.mjs" } }, "sha512-pTDNWEFucrTpkMduVi1S5GkSWxadEJ93k+lYraMDfVfSv/NLCCIY3cxY/LyFNjw6vUIW1ncPGnDA2gRFWUYPKQ=="],
+    "@pritzlaff/agile": ["@pritzlaff/agile@1.2.1", "", { "bin": { "agile": "bin/agile.mjs" } }, "sha512-XEtX+fjhcP3sa1Aq0eyy9OG/yc7AOspuyq7wPpX+TdP56bWWKG7S1W6qWdDqZGlpbBqhPSOZp05+drztk9Qx9Q=="],
 
     "@pritzlaff/gantt": ["@pritzlaff/gantt@1.0.2", "", { "bin": { "gantt": "bin/gantt.mjs" } }, "sha512-JUGGkq659IUdsMxzIqJYhzOrZuR3Dke9te6ZGJWt87id3PhAs/s9Ob9UtPrF5nAactiURMM57DnFJycMVfifhw=="],
 

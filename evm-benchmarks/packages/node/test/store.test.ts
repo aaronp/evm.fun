@@ -1,0 +1,93 @@
+import { describe, expect, test } from 'bun:test'
+import type { SerializedState } from 'webevm'
+import { ChainStore, type StateDiff, type StoredBlock } from '../src'
+import { bunSql } from './bunSql'
+
+const A = '0x' + 'a1'.repeat(20)
+const B = '0x' + 'b2'.repeat(20)
+const C = '0x' + 'c3'.repeat(20)
+const S1 = '0x' + '01'.repeat(32)
+const S2 = '0x' + '02'.repeat(32)
+
+const header = (number: number, transactions: string[] = []) => ({
+  number, hash: `0xh${number}`, parentHash: `0xh${number - 1}`, timestamp: 1000 + number,
+  gasUsed: '0x0', gasLimit: '0x1', baseFeePerGas: '0x0', stateRoot: '0xroot', transactions, logsCount: 0,
+})
+
+function fixture(n = 300): SerializedState {
+  const blocks = Array.from({ length: n }, (_, i) => header(i + 1))
+  if (n >= 5) blocks[4] = header(5, ['0xt1', '0xt2'])
+  return {
+    version: 1, chainId: 31337,
+    accounts: { [A]: '0xaa', [B]: '0xbb' },
+    code: { [A]: '0xc0de' },
+    storage: { [A]: { [S1]: '0x01', [S2]: '0x02' } },
+    blocks,
+    receipts: { '0xt1': { r: 1 } as never, '0xt2': { r: 2 } as never },
+    transactions: { '0xt1': { raw: '0xraw1' } as never, '0xt2': { raw: '0xraw2' } as never },
+  }
+}
+
+const empty = (): StateDiff => ({ accounts: {}, code: {}, storage: {} })
+const block = (number: number): StoredBlock => ({ header: header(number), txs: [], receipts: [] })
+
+describe('ChainStore', () => {
+  test('create then stateDump returns the same accounts, code, storage, chainId and the last 256 headers, with empty receipts and transactions', () => {
+    const d = fixture()
+    const s = new ChainStore(bunSql())
+    s.create(d)
+    const out = s.stateDump()
+    expect(out.accounts).toEqual(d.accounts)
+    expect(out.code).toEqual(d.code)
+    expect(out.storage).toEqual(d.storage)
+    expect(out.chainId).toBe(31337)
+    expect(out.blocks.length).toBe(256)
+    expect(out.blocks[0]!.number).toBe(45)
+    expect(out.blocks.at(-1)).toEqual(d.blocks.at(-1)!)
+    expect(out.receipts).toEqual({})
+    expect(out.transactions).toEqual({})
+  })
+
+  test('create stores every block of the dump with its raw txs and receipts', () => {
+    const s = new ChainStore(bunSql())
+    s.create(fixture())
+    const all = s.blocks(1, 300)
+    expect(all.length).toBe(300)
+    expect(all[4]!.txs).toEqual(['0xraw1', '0xraw2'])
+    expect(all[4]!.receipts).toEqual([{ r: 1 }, { r: 2 }])
+    expect(all[5]!.txs).toEqual([])
+  })
+
+  test('commit applies upserts and deletes', () => {
+    const s = new ChainStore(bunSql())
+    s.create(fixture(3))
+    const b = block(4)
+    s.commit(b, {
+      accounts: { [A]: '0xa2', [B]: null },
+      code: { [C]: '0xc4' },
+      storage: { [A]: { [S1]: '0x09', [S2]: null } },
+    })
+    const out = s.stateDump()
+    expect(out.accounts).toEqual({ [A]: '0xa2' })
+    expect(out.code).toEqual({ [A]: '0xc0de', [C]: '0xc4' })
+    expect(out.storage).toEqual({ [A]: { [S1]: '0x09' } })
+    expect(s.head()).toEqual(b.header)
+  })
+
+  test('commit is atomic', () => {
+    const s = new ChainStore(bunSql())
+    s.create(fixture(3))
+    const before = s.stateDump()
+    expect(() => s.commit(block(3), { ...empty(), accounts: { [C]: '0xcc' } })).toThrow()
+    expect(s.stateDump()).toEqual(before)
+    expect(s.head().number).toBe(3)
+  })
+
+  test('exists is false before create, true after; create twice throws', () => {
+    const s = new ChainStore(bunSql())
+    expect(s.exists()).toBe(false)
+    s.create(fixture(3))
+    expect(s.exists()).toBe(true)
+    expect(() => s.create(fixture(3))).toThrow()
+  })
+})
