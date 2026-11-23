@@ -4,7 +4,7 @@ import type { Hex } from 'viem'
 import type { SerializedState } from 'webevm'
 import { ChainNode, ChainStore, diffState, HEADERS_KEPT, type SerializedBlock } from '../src'
 import { bunSql } from './bunSql'
-import { balanceSlot, SENDERS, TOKEN, wasm, workload } from './workload'
+import { balanceSlot, HOLDERS, SENDERS, TOKEN, wasm, workload } from './workload'
 
 const cfg = { wasm, rebuildEvery: 100 }
 const BOOT_AT = [99, 100, 101, 250, 350]
@@ -65,7 +65,7 @@ describe('ChainNode over 350 workload blocks', () => {
   test('rebuild resets history', async () => {
     expect(live.blocksSinceRebuild).toBeLessThan(100)
     // last rebuild at 300: the node holds HEADERS_KEPT headers + the 51 blocks since (a never-rebuilt node holds 352)
-    expect((await live.node.dumpState()).blocks.length).toBeLessThanOrEqual(HEADERS_KEPT + (351 % 100) + 1)
+    expect((await live.read((n) => n.dumpState())).blocks.length).toBeLessThanOrEqual(HEADERS_KEPT + (351 % 100) + 1)
     expect(live.head().number).toBe(351)
   })
 })
@@ -92,6 +92,53 @@ test('a rejected block changes nothing', async () => {
   const [mine, theirs] = [await a.apply(w.timestamp(6), good), await ref.apply(w.timestamp(6), good)]
   expect(mine.header.hash).toBe(theirs.header.hash)
 }, 30_000)
+
+test('concurrent applies run one at a time; each block holds exactly its own txs; a fresh boot matches', async () => {
+  const w = workload()
+  const db = new Database(':memory:')
+  const store = new ChainStore(bunSql(db))
+  const n = await ChainNode.create(store, await w.genesis(), cfg)
+  const t = [[], await w.nextBlock(1), await w.nextBlock(2), await w.nextBlock(3)] as Hex[][]
+  await n.apply(w.timestamp(1), t[1]!)
+  const [b2, b3] = await Promise.all([n.apply(w.timestamp(2), t[2]!), n.apply(w.timestamp(3), t[3]!)])
+  for (const [b, i] of [[b2, 2], [b3, 3]] as const) {
+    expect(b.header.number).toBe(i)
+    expect(b.txs).toEqual(t[i]!)
+    expect(b.header.transactions.length).toBe(t[i]!.length)
+    expect(b.receipts.length).toBe(t[i]!.length)
+  }
+  expect(store.blocks(2, 3).map((b) => b.txs)).toEqual([t[2]!, t[3]!])
+  const booted = await ChainNode.boot(new ChainStore(bunSql(Database.deserialize(db.serialize()))), cfg)
+  expect(await booted.stateRoot()).toBe(await n.stateRoot())
+}, 30_000)
+
+test('read during an apply (and its due rebuild) waits and sees a live node with the new block', async () => {
+  const w = workload()
+  const n = await ChainNode.create(new ChainStore(bunSql()), await w.genesis(), { wasm, rebuildEvery: 1 })
+  await n.apply(w.timestamp(1), await w.nextBlock(1))
+  const txs = await w.nextBlock(2)
+  const applying = n.apply(w.timestamp(2), txs)
+  const height = await n.read((node) => node.request({ method: 'eth_blockNumber' }))
+  expect(BigInt(height as string)).toBe(2n)
+  await applying
+}, 30_000)
+
+test('a block that would mine a tx not sent by this apply is rejected and rolled back', async () => {
+  const w = workload()
+  const store = new ChainStore(bunSql())
+  const n = await ChainNode.create(store, await w.genesis(), cfg)
+  await n.apply(w.timestamp(1), await w.nextBlock(1))
+  const [head, dump] = [n.head(), store.stateDump()]
+  const stray = await HOLDERS[7]!.signTransaction({ type: 'eip1559', chainId: 777, nonce: 0, to: SENDERS[2]!.address, value: 0n, gas: 21_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+  await n.read((node) => node.request({ method: 'eth_sendRawTransaction', params: [stray] }))
+  await expect(n.apply(w.timestamp(2), await w.nextBlock(2))).rejects.toThrow('are not the sent txs')
+  expect(n.head()).toEqual(head)
+  expect(store.stateDump()).toEqual(dump)
+}, 30_000)
+
+test('boot on a store with no chain says so', async () => {
+  await expect(ChainNode.boot(new ChainStore(bunSql()), cfg)).rejects.toThrow('no chain: call create first')
+})
 
 describe('diffState', () => {
   const A = '0xaa', B = '0xbb', C = '0xcc', S1 = '0x01', S2 = '0x02'

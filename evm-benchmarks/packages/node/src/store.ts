@@ -19,6 +19,11 @@ export interface StoredBlock {
 
 export const HEADERS_KEPT = 256
 
+/** webevm keeps a slot written to zero in its dump (as `0x`); the store drops it, as the trie does. */
+export const nonZero = (slots: Record<string, string> = {}) => Object.fromEntries(Object.entries(slots).filter(([, v]) => !/^0x0*$/.test(v)))
+
+const NO_CHAIN = 'no chain: call create first'
+
 export class ChainStore {
   constructor(private sql: Sql) {
     for (const ddl of [
@@ -41,7 +46,7 @@ export class ChainStore {
       this.applyDiff({
         accounts: dump.accounts,
         code: dump.code,
-        storage: dump.storage,
+        storage: Object.fromEntries(Object.entries(dump.storage).map(([a, slots]) => [a, nonZero(slots)])),
       })
       for (const header of dump.blocks) {
         this.putBlock({
@@ -63,7 +68,7 @@ export class ChainStore {
 
   head(): SerializedBlock {
     const [row] = this.sql.exec('SELECT header FROM blocks ORDER BY number DESC LIMIT 1')
-    if (!row) throw new Error('empty chain')
+    if (!row) throw new Error(NO_CHAIN)
     return JSON.parse(row.header as string)
   }
 
@@ -79,6 +84,7 @@ export class ChainStore {
 
   /** State-only dump (last HEADERS_KEPT headers as stored; empty receipts/transactions maps) for webevm `loadState`. */
   stateDump(): SerializedState {
+    if (!this.exists()) throw new Error(NO_CHAIN)
     const rows = (q: string) => this.sql.exec(q)
     const storage: SerializedState['storage'] = {}
     for (const r of rows('SELECT addr, slot, v FROM storage')) (storage[r.addr as string] ??= {})[r.slot as string] = r.v as string

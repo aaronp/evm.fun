@@ -84,6 +84,37 @@ describe('ChainStore', () => {
     expect(s.head().number).toBe(3)
   })
 
+  test('commit deletes a code row', () => {
+    const s = new ChainStore(bunSql())
+    s.create(fixture(3))
+    s.commit(block(4), { ...empty(), code: { [A]: null } })
+    expect(s.stateDump().code).toEqual({})
+  })
+
+  test('create drops zero-valued slots', () => {
+    const s = new ChainStore(bunSql())
+    s.create({ ...fixture(3), storage: { [A]: { [S1]: '0x', [S2]: '0x02' }, [B]: { [S1]: '0x00' } } })
+    expect(s.stateDump().storage).toEqual({ [A]: { [S2]: '0x02' } })
+  })
+
+  test('create rolls back fully if it fails partway', () => {
+    const s = new ChainStore(bunSql())
+    const bad = fixture(3)
+    bad.accounts[C] = '0xcc'
+    bad.blocks.push(header(3)) // duplicate block number: the last insert fails
+    expect(() => s.create(bad)).toThrow()
+    expect(s.exists()).toBe(false)
+    s.create(fixture(3))
+    expect(s.stateDump().accounts).toEqual(fixture(3).accounts)
+    expect(s.blocks(1, 3).length).toBe(3)
+  })
+
+  test('stateDump and head on a store with no chain say so', () => {
+    const s = new ChainStore(bunSql())
+    expect(() => s.stateDump()).toThrow('no chain: call create first')
+    expect(() => s.head()).toThrow('no chain: call create first')
+  })
+
   test('exists is false before create, true after; create twice throws', () => {
     const s = new ChainStore(bunSql())
     expect(s.exists()).toBe(false)
