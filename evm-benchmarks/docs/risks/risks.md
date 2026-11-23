@@ -1014,7 +1014,7 @@ A join's claim tx carries the plaintext code into a block, and every member can 
 |---|---|---|
 | Invites are single use by default | Preventive | Partial |
 | The admin can cancel an unused code (`revokeInvite`) and remove a writer | Corrective | Partial |
-| evm.fun warns on a writer code with more than one use (plan 17 part 2) | Preventive | Partial |
+| evm.fun defaults an invite to reader with one use, and warns on a writer code with more than one use (plan 18) | Preventive | Partial |
 
 ## R56 · A signed tx can be replayed on another chain
 - impact: 3
@@ -1047,6 +1047,6 @@ Each signed `GET /blocks` poll writes a request nonce and runs EVM `canRead` (pl
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
-| Devices poll every 5 s or slower, with back-off when idle (plan 17 part 2) | Preventive | Partial |
+| evm.fun followers poll every 5, 15 (default) or 60 s, or only on Sync now (Manual); polling pauses while the tab is hidden and backs off after failures (plan 18) | Preventive | Partial |
 | Cursor writes at most once a minute when idle; pages capped at 100 blocks | Preventive | Partial |
 | Cap or stream `state` (later) | Preventive | Partial |

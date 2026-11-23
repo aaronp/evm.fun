@@ -97,3 +97,25 @@ A device is a key that is a member of a chain's `ChainAccess` (reader or writer)
 **`Follower`** (`src/follower.ts`): `Follower.open(client, chainId, wasm)` boots a local webevm node from `state` and checks the state root; `sync()` replays `blocks` pages, checking each block's parent, hash and state root; `read(fn)` reads the local node; `status` is `following`, `removed` (a `403`: `FollowerRemoved`) or `mismatch` (a bad block, or an empty page whose head is behind ours or has another hash at our number); `cloudHead` is the cloud's head as last seen. After either stop, `sync` and `read` throw the same error again; `dispose()` frees the node.
 
 `make e2e-node` covers it with two devices: join, follow across blocks, cursors, being 2 blocks behind, removal, and the refused codes.
+
+# evm.fun side: deploy, follow, join, devices (plan 18)
+
+Design: [devices follow](../../docs/superpowers/specs/2026-11-23-devices-follow-design.md); decision: ADR-0024.
+
+- **Deploy makes a follower.** After Deploy, the owner's browser copy is a read-only follower of the cloud chain (pages say "Read-only until B: this chain lives on the cloud"). A chain deployed earlier converts when opened: quietly if the cloud block at the deployed head has the same hash, otherwise you choose Export or Convert anyway.
+- **Join a chain** (Cloud page): the admin invites a device from the chain's Devices panel (reader with 1 use by default; a writer code with more than one use shows a warning, risk R55). The code is shown once; the join link has no code in it. On the other device pick an account, open the link and paste the code; the chain appears under "Chains you follow".
+- **Followers are pointers.** Workspace files hold a follower as a pointer (node URL, chain id, following account, last head) plus its contract and asset records, not the chain. Opening one makes no request; its state is fetched from the cloud's `state` when needed and root-checked.
+- **Sync.** Polling is 5, 15 (default), 60 s or Manual (Sync now); it pauses while the tab is hidden and backs off after failures (risk R57). Statuses: following, removed (the admin removed this key), mismatch, needs the account's key.
+- **Devices panel** (admin and members): each device's name, role, block, behind and last seen; the admin invites a reader or writer and removes a device in one submit.
+
+## Browser checklist (`make dev-services`, `make dev`)
+
+1. **Deploy.** Deploy a chain from Chains with a root-admin code. The card shows "Block #N · in sync", Sync now, and a Devices panel listing you as admin "(this device)".
+2. **Invite.** Devices → Invite a device: writer with Uses 2 shows the multi-use warning. Set it back to reader, 1 use, Invite. The code is shown once with Copy code and a join link without the code.
+3. **Join.** In a second browser profile select a different account, open the join link and paste the code. The chain is under Cloud → "Chains you follow" and opens read-only; in the first browser the phone row appears within one sync.
+4. **Sync interval.** Set Manual on Cloud: positions update only on Sync now.
+5. **Remove.** Remove the phone row and confirm. In the second browser, within one sync, the card shows "Removed from <name>: your copy is no longer updated" with Delete, and the picker badge says "removed".
+6. **Acting account.** Change the acting account in the first browser: the Devices panel and admin controls stay the same.
+7. **Missing key.** Delete that account (or open the workspace in another browser): the card shows "Needs 0x…'s key" with a link to Accounts, and the Devices panel is hidden.
+8. **Join form URL.** On Cloud change the node URL and Use this node: the Join form's Worker URL follows unless you typed in it.
+9. **Themes and phone width.** Check all three themes and phone width: the Devices table scrolls sideways inside its panel and the invite form wraps.

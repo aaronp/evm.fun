@@ -1299,3 +1299,69 @@ Claude's calls (spec "Deviations"): the browser signs the two set-up txs and upl
 - Live target: `make deploy` to `cloud.mychain.dev`; nothing deploys from CI. The Pages build gets the URL from repo variable `NODE_URL`.
 - Guessable codes and the per-IP limit: risk R52.
 
+
+---
+id: ADR-0024
+title: "Every device is a follower until B; followers are saved as pointers in workspace files"
+status: accepted
+date: 2026-11-23
+tags: architecture, chains, web, access
+decision: all-follow
+---
+
+## Goal
+Show a deployed chain on every device of its owner, with real positions and no drifting copies, before any device can write to it through the cloud node.
+
+## Hypothesis
+- We believe: making the owner's browser copy a read-only follower of the cloud chain, like any other device, is enough for "follow and show" (plan 17 part 2)
+- Will result in: Deploy, join, invite, remove and the Devices panel working against one chain with no reconciliation
+- Measured by: `make e2e-node` and the browser checklist in the evm.fun README section
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| nodrift | No drift | 5 | Higher = every copy is the cloud chain's own blocks. |
+| simple | Simple | 4 | Higher = less to change now. |
+| later | Ready for B | 3 | Higher = B (follow and use) needs less rework. |
+
+## Solution: all-follow — every device is a follower, including the owner's
+| criterion | score |
+| --- | --- |
+| nodrift | 5 |
+| simple | 3 |
+| later | 4 |
+
+Pros:
+- One kind of copy; positions are real everywhere
+- Device management is just txs sent to the cloud chain
+
+Cons:
+- The owner's copy goes read-only after Deploy ("Read-only until B: this chain lives on the cloud")
+
+## Solution: owner-writable — the owner's copy stays writable
+| criterion | score |
+| --- | --- |
+| nodrift | 1 |
+| simple | 4 |
+| later | 2 |
+
+Pros:
+- Less change now
+
+Cons:
+- The owner's copy and the cloud chain drift apart, and B must reconcile them
+
+## Decision
+all-follow. Decided with Aaron (design option (ii) rejected): Deploy converts the owner's copy to a follower (a chain deployed earlier converts when opened: quietly if its head matches the cloud block hash, else the user picks Export or Convert anyway).
+
+Claude's call: a follower is saved in workspace files as a pointer (node URL, chain id, the account that follows, last known head) together with its contract and asset records, not as a copy of the chain; opening it makes no request, and the follower boots from the cloud's `state` on demand.
+
+## Consequences
+- No playground page writes to a deployed chain until B; they show a read-only message.
+- A workspace file stays small, and a follower's state is never trusted from the file: it is re-fetched and root-checked.
+- A removed or mismatched follower stops and says so; the user deletes it or joins again.
+- Polling cost and the multi-use writer code: risks R55 and R57.
