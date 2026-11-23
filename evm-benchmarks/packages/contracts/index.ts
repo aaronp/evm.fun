@@ -7,6 +7,8 @@ import OrderBookJson from './artifacts/OrderBook.json'
 import SettlementJson from './artifacts/Settlement.json'
 import PoolJson from './artifacts/Pool.json'
 import HashLockJson from './artifacts/HashLock.json'
+import ChainAccessJson from './artifacts/ChainAccess.json'
+import AliasesJson from './artifacts/Aliases.json'
 
 export type Contract = {abi: Abi; bytecode: Hex}
 export const MintableToken = MintableTokenJson as Contract
@@ -17,3 +19,5 @@ export const OrderBook = OrderBookJson as Contract
 export const Settlement = SettlementJson as Contract
 export const Pool = PoolJson as Contract
 export const HashLock = HashLockJson as Contract
+export const ChainAccess = ChainAccessJson as Contract
+export const Aliases = AliasesJson as Contract
