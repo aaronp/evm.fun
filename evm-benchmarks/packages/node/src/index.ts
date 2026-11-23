@@ -1,3 +1,5 @@
 export * from './sql'
 export * from './store'
 export * from './node'
+export * from './auth'
+export * from './client'
