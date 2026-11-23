@@ -3,11 +3,11 @@
   "title": "evm.fun",
   "subtitle": "Kanban board",
   "status": {
-    "label": "65 open",
+    "label": "64 open",
     "tone": "neutral"
   },
   "heading": {
-    "primary": "1/66",
+    "primary": "2/66",
     "label": "tasks done"
   },
   "legend": [
@@ -17,26 +17,26 @@
       "color": "#3b6fd8"
     },
     {
+      "id": "Next",
+      "label": "Next",
+      "color": "#b7791f"
+    },
+    {
       "id": "Doing",
       "label": "Doing",
-      "color": "#b7791f"
+      "color": "#7c4dcc"
     },
     {
       "id": "Done",
       "label": "Done",
-      "color": "#7c4dcc"
-    },
-    {
-      "id": "Next",
-      "label": "Next",
       "color": "#2f855a"
     }
   ],
   "report": {
-    "Backlog": 64,
+    "Backlog": 56,
+    "Next": 8,
     "Doing": 0,
-    "Done": 1,
-    "Next": 1
+    "Done": 2
   },
   "source": {
     "label": "docs/board/board.md",

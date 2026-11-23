@@ -36,17 +36,6 @@ Spiked (views spike, [docs/spikes/cf-views.md](../spikes/cf-views.md)): single-u
 Spiked ([docs/spikes/cf-views.md](../spikes/cf-views.md)): `Aliases.sol` in genesis; recipes `self-describing` (view functions listed in the alias) and `erc20`; per-alias access contract (a view-only key gets its alias, 403 elsewhere; open reads make it a plain GET). Cost: 4 calls ~1 ms (access-controls), GBP 10 holders 15 calls + 1 log scan ~1.3 ms, 200 holders ~4.4 ms; the holder scan grows with history.
 ```
 
-### Remote chain: incremental state storage
-- id: t-129
-- parent: t-112
-- tags: chains, cloudflare, size-M
-- history:
-  - Backlog @ 2026-11-22T21:41:18Z
-
-```md
-From the t-128 spike: the DO rewrites a full `dumpState` (with history) every block. Persist only changed accounts/code/slots per block (webevm PersistenceAdapter diff, or a revm StateStore over DO SQLite), keep history in the blocks table, add checkpoints.
-```
-
 ### webevm: per-block timestamp and history-free dump
 - id: t-130
 - parent: t-112
@@ -707,6 +696,8 @@ Currently the playground is served via GH pages.
 Having a real means to deploy their chains would be awesome
 ```
 
+## Next
+
 ### Documentation
 - id: t-137
 - history:
@@ -736,6 +727,36 @@ I think we want:
 3. We can view and edit our 'indexer' when deploying new contracts on the chain: the means to control read/write permissions for a smart contract on our chain, as well as view the materialised data for the contract
 
 4. We can use the same code/hash permission exchange to expose a 'write' URL for a contract: i.e. swap the token for a key, and use it to save our 'tools' (including a new interactive draw tool as a PoC), and our 'relay' ACL for a relay topic.
+
+**End-to-end demo (Aaron, 2026-11-23): an N-node revm cluster per chain.** The CF node runs on demand; browsers and other permitted devices join as nodes.
+
+a. A user creates a chain in their browser (evm.fun).
+b. They deploy a contract on it (a wizard, an ERC-20, …).
+c. They ask to deploy it to CF; Aaron gives them a deploy code.
+d. They click Deploy: their CF node comes up with the same state (a 2-node cluster). — t-134 (sync after deploy: t-132)
+e. On another device/browser they create a key, choose their deployed chain, and enter a code they issued for their own chain, sending it with their public key. — t-131, t-133
+f. That browser starts a revm node that joins the cluster and syncs.
+g. They deploy/update contracts on their chain from either device.
+```
+
+### Chain store: incremental state storage
+- id: t-129
+- parent: t-136
+- tags: chains, cloudflare, size-M
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+  - Next @ 2026-11-23T12:50:38Z
+
+```md
+Before t-134. A `ChainStore` (`packages/node`) that persists only what each block changed, and a node lifecycle that boots from current state and rebuilds every N blocks, so per-block work and memory stay flat. Design: [chain store](../superpowers/specs/2026-11-23-chain-store-design.md).
+
+Why (cost spike, [docs/spikes/cf-cost.md](../spikes/cf-cost.md)): the spike rewrites a full dump with all history every block (170 ms, 39.5 MB per 1-tx block at 10,000 blocks) and webevm keeps all history in memory (228 MB at 10,000 vs the DO's 128 MB). With diffs: 2.5–4.5 ms, ~3 KB per 1-tx block; boot 56 ms at any height. Cost is $0 beyond the $5/month minimum in every scenario either way. webevm has no pruning/change-set API; `loadState` accepts a trimmed dump.
+```
+
+```dod
+- [ ] `ChainStore` on DO SQLite and `bun:sqlite`; `node.ts` boot / apply / rebuild every N blocks
+- [ ] 10,000-block Bun test: same root and next block after a fresh boot; flat per-block time and writes; heap under 128 MB
+- [ ] Docs (t-137): how a node stores its chain
 ```
 
 ### Deploy to Cloudflare: `make deploy` and deploy codes
@@ -767,7 +788,7 @@ Roadmap item 1: turn the CF spike (`spike/cf-chain`, [docs/spikes](../spikes/)) 
 - "Deploy chain" uploads the chosen playground chain's current state as the new chain's genesis. Afterwards the browser copy follows the remote chain (t-132).
 - A typed code like `my-first-friend` is guessable. The UI offers a generated code, and the worker limits failed attempts per IP and per code.
 
-**Builds on:** t-133 invites, t-130 webevm fixes (timestamps, loadState), t-129 incremental storage (can follow), t-131 device auth.
+**Builds on:** t-129 chain store (first), t-133 invites, t-130 webevm fixes (timestamps, loadState), t-131 device auth. Design: [deploy to CF](../superpowers/specs/2026-11-23-deploy-to-cf-design.md). Cost spike: [docs/spikes/cf-cost.md](../spikes/cf-cost.md).
 ```
 
 ```dod
@@ -851,8 +872,6 @@ Publish the playground (Vite build, `base: './'`) to GitHub Pages from CI on eve
 
 The workflow is in place (`.github/workflows/pages.yml`, retries Bun's exit crash, R11). Live at evm.fun after the PR #5–#7 merges (confirmed by Aaron, 2026-11-23).
 ```
-
-## Next
 
 ### Cloudflare evm worker
 - id: t-128
