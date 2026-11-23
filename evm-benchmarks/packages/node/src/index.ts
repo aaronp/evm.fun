@@ -1,6 +1,7 @@
 export * from './sql'
 export * from './store'
 export * from './node'
+export * from './follower'
 export * from './auth'
 export * from './client'
 export * from './service'

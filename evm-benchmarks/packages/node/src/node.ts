@@ -31,6 +31,19 @@ export function diffState(before: SerializedState, after: SerializedState): Stat
 }
 
 /**
+ * The webevm node config every copy of a chain uses (the cloud's ChainNode and a device's Follower), so a replayed
+ * block gets the same hash and state root. Callers add chainId and engine, and set `env.timestamp` before each mine.
+ */
+export function nodeOptions(env: { timestamp?: bigint; baseFeePerGas?: bigint }) {
+  // ponytail: webevm has no per-block timestamp knob (no evm_setNextBlockTimestamp), but it keeps
+  // options.blockEnv by reference and reads .timestamp at each mine, so we mutate it per block.
+  // Relies on webevm 0.9.1 internals; a real build wants a mine({timestamp}) option upstream (t-130).
+  // baseFee 0: gas is free on a personal chain, so a fresh joiner key with no balance can send.
+  env.baseFeePerGas = 0n
+  return { computeStateRoot: true, miningConfig: { type: 'manual' }, blockEnv: env } as const
+}
+
+/**
  * A chain's live node over its store. All node access goes through `apply` and `read`: they run one at a time,
  * because a Durable Object interleaves requests at every await and a block must hold only its own txs.
  * The inner webevm node is replaced on every rebuild, so never keep a reference to it outside a `read`.
@@ -70,18 +83,8 @@ export class ChainNode {
   private async rebuild() {
     const dump = this.store.stateDump()
     await this.#node?.dispose()
-    // ponytail: webevm has no per-block timestamp knob (no evm_setNextBlockTimestamp), but it keeps
-    // options.blockEnv by reference and reads .timestamp at each mine, so we mutate it per block.
-    // Relies on webevm 0.9.1 internals; a real build wants a mine({timestamp}) option upstream (t-130).
-    // baseFee 0: gas is free on a personal chain, so a fresh joiner key with no balance can send.
-    this.#env = { baseFeePerGas: 0n }
-    this.#node = await createNode({
-      chainId: dump.chainId,
-      computeStateRoot: true,
-      miningConfig: { type: 'manual' },
-      blockEnv: this.#env,
-      engine: await createRevmEngine({ wasm: this.cfg.wasm }),
-    })
+    this.#env = {}
+    this.#node = await createNode({ chainId: dump.chainId, ...nodeOptions(this.#env), engine: await createRevmEngine({ wasm: this.cfg.wasm }) })
     await this.#node.loadState(dump)
     this.#dump = await this.#node.dumpState()
     this.blocksSinceRebuild = 0
