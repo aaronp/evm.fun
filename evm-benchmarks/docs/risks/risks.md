@@ -215,6 +215,8 @@ Root cause of most of that rise, found 2026-11-19 at the end of plan 6: one snap
 
 Update during plan 8 (swap): the residual rate is now about 1 in 3 full runs (a Task 6 check at e5916ac: 3 runs, 1 segfault, 2 clean). A `Worker`-counting preload at e5916ac found no leaks, so the new tests dispose their chains and the rise is Bun's, not ours. Likelihood stays 4.
 
+Update 2026-11-23 (plan 15): 1 of 3 full runs crashed (exit 133) on branch chain-store, the others 787/787; same rate as before; CI retries up to 3 times (6b3f3e0).
+
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
@@ -927,3 +929,20 @@ The page reads only the newest HashLock on chain A, so an opening lock on an ear
 | Control | Type | Effectiveness |
 |---|---|---|
 | Documented limit; the contract itself still allows refund; card t-94 | Corrective | Partial |
+
+## R51 · The chain-store diff compares the whole state every block
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+`diffState` compares the full state dump before and after each block, so per-block CPU and memory are O(state), not O(touched keys). The 10,000-block soak's state is small (a few hundred rows), so it stays flat; a chain with a few MB of state would slow every block. (ADR-0022)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| `ponytail:` marker in `diffState`; switch to a touched-keys diff when state grows past a few MB | Corrective | Partial |
+| `make soak-node` fails if commit time grows more than 2x or heap reaches 128 MB | Detective | Partial |

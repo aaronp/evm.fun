@@ -1,4 +1,4 @@
-.PHONY: dev build test bench report
+.PHONY: dev build test bench report soak-node
 
 dev:     ## playground dev server (http://localhost:5173)
 	bun run web:dev
@@ -14,6 +14,9 @@ bench:   ## e.g. make bench ARGS="--approach all --scenario all --n 10000 --runs
 
 report:
 	bun run report
+
+soak-node: ## 10,000-block chain-store soak (t-129)
+	bun packages/node/soak.ts
 
 # >>> @pritzlaff/project — managed by `project add/remove/update`; edits inside are overwritten
 .PHONY: snapshot dashboard adr risks gantt agile

@@ -1152,3 +1152,81 @@ Claude's calls (spec "Settled after the builder check" 3-4): `wantLock` added to
 - `unsafe` in a report is a proxy: A's head when B answered is not recorded anywhere (two chains share no clock), so it is judged from each lock's own block unless the page passes `headAAtAnswer` (kept in the workspace file as `answers`).
 - The core `Approach` gains an optional `mine(n)` so the page can advance blocks; the sequencer's mine refuses while transactions are pending, so Advance is disabled then.
 - Older HashLocks on chain A are not searched after a redeploy (risk R50, card t-94); the secret in the browser and in files is risk R47.
+
+---
+id: ADR-0022
+title: "Incremental chain storage: state rows + block rows; boot from a state-only dump"
+status: accepted
+date: 2026-11-23
+tags: architecture, chains, cloudflare
+decision: diff-rows
+---
+
+## Goal
+A chain node must persist its chain so that per-block work and memory stay flat as the chain grows.
+
+## Hypothesis
+- We believe: storing only what each block changed (state rows plus one block row), and booting a fresh node from a state-only dump, keeps cost flat
+- Will result in: a commit of a few rows per block and a heap far under the Durable Object's 128 MB at any height
+- Measured by: a 10,000-block soak (`make soak-node`): same root and next block after a fresh boot at 2,500, 5,000 and 10,000; flat commit time and writes; heap under 128 MB
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| flat | Flat cost | 5 | Higher = per-block time, writes and memory do not grow with height. |
+| simple | Simple | 4 | Higher = less code and fewer dependencies on upstream changes. |
+| safe | Safe | 5 | Higher = a booted node cannot differ from the node that wrote the store. |
+
+## Solution: diff-rows — our own per-block diff into account/slot rows
+| criterion | score |
+| --- | --- |
+| flat | 5 |
+| simple | 4 |
+| safe | 4 |
+
+Pros:
+- Measured in the spike: 2.5-4.5 ms and about 3 KB per 1-tx block; boot 56 ms at any height
+
+Cons:
+- We compute the diffs ourselves (a whole-state compare, O(state) per block)
+
+## Solution: trimmed — keep writing a dump, minus old history
+| criterion | score |
+| --- | --- |
+| flat | 2 |
+| simple | 5 |
+| safe | 4 |
+
+Pros:
+- Smallest change
+
+Cons:
+- Still rewrites all state every block
+
+## Solution: upstream — patch webevm to expose per-block change sets
+| criterion | score |
+| --- | --- |
+| flat | 5 |
+| simple | 3 |
+| safe | 4 |
+
+Pros:
+- Cleanest diffs
+
+Cons:
+- Blocked on webevm changes (t-130)
+
+## Decision
+diff-rows. Decided with Aaron (design: chain store, t-129): tables `meta`, `accounts`, `code`, `storage`, `blocks` behind a tiny `Sql` interface that Durable Object SQLite and `bun:sqlite` both satisfy; the node rebuilds from the store on boot, every 1,000 blocks and after a rejected block.
+
+Claude's calls: a slot at zero is treated as absent (webevm keeps it as `0x`, the trie drops it) so its row is deleted; the block row and the diff are written in one transaction; a commit that throws or a rejected block rebuilds the node from the store.
+
+## Consequences
+- Soak (10,000 blocks, file-backed SQLite): commit 0.52-0.61 ms, 8 rows and about 9.9 KB per block, heap 33-41 MB, all flat; boots matched the live root and next block at 2,500, 5,000 and 10,000.
+- The diff compares whole-state dumps, so it is O(state) per block; logged as risk R51 (switch to a touched-keys diff past a few MB of state).
+- The in-memory node keeps only the last 256 headers plus up to 1,000 blocks; full history stays in the `blocks` table and is never pruned.
+- webevm 0.9.1 internals (the per-block timestamp via `blockEnv`) are still relied on (t-130).
