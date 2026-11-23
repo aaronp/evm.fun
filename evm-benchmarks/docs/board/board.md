@@ -804,6 +804,8 @@ Roadmap item 1: turn the CF spike (`spike/cf-chain`, [docs/spikes](../spikes/)) 
 - "Deploy chain" uploads the chosen playground chain's current state as the new chain's genesis. Afterwards the browser copy follows the remote chain (t-132).
 - A typed code like `my-first-friend` is guessable. The UI offers a generated code, and the worker limits failed attempts per IP and per code.
 
+**From t-129's reviews (do in t-134):** the worker passes an imported `WebAssembly.Module` and drives the chain only through `ChainNode.apply`/`read` (they serialise; never call the node from inside a `read` callback — it deadlocks); a failed lazy rebuild leaves a disposed node until the next `apply` (build the new node before disposing the old); add `dispose()` to the README; a `tx_hash → block` index for receipt lookups after a rebuild; measure real memory under workerd (`memMB` 70–85 MB in Bun is a lower bound); a small DO SQLite adapter (`toArray()`, `transactionSync`).
+
 **Builds on:** t-129 chain store (first), t-133 invites, t-130 webevm fixes (timestamps, loadState), t-131 device auth. Design: [deploy to CF](../superpowers/specs/2026-11-23-deploy-to-cf-design.md). Cost spike: [docs/spikes/cf-cost.md](../spikes/cf-cost.md).
 ```
 
