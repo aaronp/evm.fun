@@ -41,3 +41,38 @@ Result (Bun on an M-series Mac, 2026-11-23): commit 0.53-0.72 ms per block, 8 ro
 `external` only partly reflects wasm linear memory (one revm node: external +2.4 MB, rss +15.6 MB), so `memMB` is a lower bound; the real Durable Object figure is measured under workerd in t-134.
 
 Limit: `diffState` compares whole-state dumps, so it is O(state) per block. Fine for the soak's small state; switch to a touched-keys diff when state grows past a few MB (risk R51).
+
+
+# The cloud worker (t-134)
+
+`src/worker.ts` is a Cloudflare Worker with one Durable Object per chain (`ChainDO`, SQLite-backed, `ChainStore` + `ChainNode` as above). The root chain has the id `root`; every other chain has a `crypto.randomUUID()` id. Design: [deploy to CF](../../docs/superpowers/specs/2026-11-23-deploy-to-cf-design.md). Why codes live on the root chain: ADR-0023.
+
+## Routes
+
+Every request except `/health` is signed (`cf-chain v1` EIP-191 message over method, target, body hash, timestamp and nonce; headers `x-ts`, `x-nonce`, `x-sig`; 300 s skew, one use per nonce). `NodeClient` (`src/client.ts`) does the signing.
+
+| Route | Who | What |
+|---|---|---|
+| `GET /health` | anyone | `{ ok, root }`: the root chain's head, admin and `ChainAccess` address, or `null` |
+| `POST /chains` | root admin, or anyone with a deploy code | no claim: create `root` (only `ROOT_ADMIN`, once). With a `claim` tx (a code): redeem it on the root chain, then create a new chain with the signer as admin. Body: `{ dump, setup, claim? }`; `setup` is two contract creations by the signer, mined as block head+1 by the cloud node, which returns its dump |
+| `GET /chains/<id>` | readers | chain id, head, admin, `access`, `aliases` |
+| `POST /chains/<id>/submit` | writers | `{ txs }`, mined in order |
+| `GET /chains/<id>/nonce`, `GET /chains/<id>/codes` | root only (codes: root admin only) | the signer's nonce; issued codes (hash, expiry, uses left, who redeemed) |
+
+CORS allows `https://mychain.dev`, `https://aaronp.github.io` and `http://localhost:*`. Failed redeems: 10 per IP per 10 minutes, then `429`.
+
+## Local services
+
+`make dev-services` starts the worker with `wrangler dev` on `http://127.0.0.1:8799` (state in `.run/node-state`, pid and log in `.run/`), generates `.env.local` with a `ROOT_ADMIN_KEY` if missing and creates the root chain. `make dev-services-status` and `make dev-services-stop` report and stop it. `make e2e-node` runs `scripts/e2e.ts` against it (issue a code, deploy, and every refusal); it starts the worker if needed and stops it only if it started it. Only the root admin's address reaches the worker (`--var ROOT_ADMIN:<address>`).
+
+## Deploying (live)
+
+Run by hand, never from CI. One-time: add `mychain.dev` as a zone on your Cloudflare account, `bunx wrangler login` (in `packages/node`), and put `ROOT_ADMIN_KEY=0x…` in `.env.live` (git-ignored; deploy refuses to generate one). Then `make deploy`: it runs `wrangler deploy --env live --var ROOT_ADMIN:<address>` (custom domain `cloud.mychain.dev`, `workers.dev` if wrangler printed only that), creates the root chain if there is none, and prints the URL, the root chain id and "set GitHub repo variable NODE_URL to <url>". That variable makes the Pages build point evm.fun at the worker (`VITE_NODE_URL`). Import the root key into evm.fun (Accounts → Import key) to issue codes.
+
+Check the bundle without a login: `wrangler deploy --dry-run --env live` in `packages/node`.
+
+## Issuing and redeeming codes
+
+As the root admin, open evm.fun → Cloud: pick a code (one is generated: 4 words), a TTL (5 min, 1 h, 1 day) and uses (default 1), and Issue; only `keccak256(code)` and the expiry go on the root chain. Send the code out of band. The friend opens Chains → Deploy… on one of their chains and enters it: evm.fun uploads the chain's state with two set-up txs, the worker checks the code, creates the chain with the friend as admin, and evm.fun replaces its local copy with the cloud node's (same head hash) and marks it deployed. Refused: wrong, expired or used-up codes, a root create by anyone but `ROOT_ADMIN`, and a deploy whose set-up is not two creations by the signer. A deployed chain cannot be deployed again.
+
+`deployChain` (`packages/web/src/cloud/deploy.ts`) takes a required `registry` option (`replaceState`, `setDeployed`); its errors carry `step` and `chainId`.

@@ -10,6 +10,27 @@ effects.complete: random
 
 ## Backlog
 
+### Move evm.fun to mychain.dev
+- id: t-142
+- parent: t-108
+- tags: infra, web, size-S
+- history:
+  - Backlog @ 2026-11-23T18:00:00Z
+
+```md
+evm.fun is served at `aaronp.github.io/evm.fun/`. Serve it at `mychain.dev` (the worker's CORS already allows `https://mychain.dev`).
+
+Aaron's DNS steps: in Cloudflare (once `mychain.dev` is a zone, t-134), add a `CNAME` record `mychain.dev` (or `www`) → `aaronp.github.io` (DNS only), then repo Settings → Pages → Custom domain `mychain.dev`, and tick Enforce HTTPS once the certificate is issued. The Pages build adds a `CNAME` file containing `mychain.dev` to the published folder (e.g. `packages/web/public/CNAME`) so each deploy keeps the setting.
+
+Check: the app's HashRouter and relative assets still work at the root path; `cloud.mychain.dev` and `mychain.dev` share the zone, so nothing changes for the worker.
+```
+
+```dod
+- [ ] Aaron: DNS `CNAME` and the Pages custom domain set
+- [ ] A `CNAME` file in the Pages build output
+- [ ] https://mychain.dev loads the playground and reaches the worker (CORS)
+```
+
 ### Invites: single-use or multi-use within a TTL
 - id: t-133
 - parent: t-112
@@ -801,14 +822,14 @@ Roadmap item 1: turn the CF spike (`spike/cf-chain`, [docs/spikes](../spikes/)) 
 ```
 
 ```dod
-- [ ] `make dev-services` / `dev-services-status` / `dev-services-stop` start, report and stop the local worker
-- [ ] Locally: the root chain with `Accounts` is created by the configured admin key; evm.fun (dev) points at the local worker
-- [ ] As the root admin, issue a code with a TTL from evm.fun (only `hash` + `expiry` on chain)
-- [ ] A second key deploys one of its chains from evm.fun with that code; that key is the new chain's admin
-- [ ] Refused: wrong code, expired code, used-up code, and a root-chain create by anyone but the configured admin
-- [ ] End-to-end test against the local worker; nothing deploys from CI
-- [ ] Then live: `make deploy` puts the worker on your Cloudflare account and creates the root chain; prints the worker URL and root chain id; evm.fun can target it
-- [ ] Docs updated (t-137): how to deploy, issue and redeem a code
+- [x] `make dev-services` / `dev-services-status` / `dev-services-stop` start, report and stop the local worker
+- [x] Locally: the root chain with `Accounts` is created by the configured admin key; evm.fun (dev) points at the local worker
+- [x] As the root admin, issue a code with a TTL from evm.fun (only `hash` + `expiry` on chain)
+- [x] A second key deploys one of its chains from evm.fun with that code; that key is the new chain's admin
+- [x] Refused: wrong code, expired code, used-up code, and a root-chain create by anyone but the configured admin
+- [x] End-to-end test against the local worker; nothing deploys from CI
+- [ ] Then live: `make deploy` puts the worker on your Cloudflare account and creates the root chain; prints the worker URL and root chain id; evm.fun can target it. Ready; run by Aaron (one-time steps in [packages/node/README.md](../../packages/node/README.md))
+- [x] Docs updated (t-137): [how to deploy, issue and redeem a code](../../packages/node/README.md), ADR-0023, risks R52-R54
 ```
 
 ### Playground ChainHandle over a remote (Durable Object) chain

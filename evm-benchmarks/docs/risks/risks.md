@@ -946,3 +946,52 @@ The page reads only the newest HashLock on chain A, so an opening lock on an ear
 |---|---|---|
 | `ponytail:` marker in `diffState`; switch to a touched-keys diff when state grows past a few MB | Corrective | Partial |
 | `make soak-node` fails if commit time grows more than 2x or memory reaches 128 MB; commit-time flatness covers the SQL write only, the diff compute is the O(state) part this risk tracks | Detective | Partial |
+
+## R52 · Deploy codes can be guessed
+- impact: 3
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+A code the admin types (e.g. `my-first-friend`) can be guessed within its TTL, and a guessed code lets a stranger create a chain on the worker (cost and storage on Aaron's account). The per-IP limit slows guessing but IPs can be rotated. (ADR-0023)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Generated 4-word codes by default; short TTL and single use by default | Preventive | Partial |
+| 10 failed redeems per IP per 10 minutes then `429`; redeems are recorded on the root chain | Detective | Partial |
+
+## R53 · A deploy code is spent when chain creation fails after the redeem
+- impact: 2
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+The worker redeems the code on the root chain before the new chain's Durable Object is created. If the creation then fails, the code is already used and the friend must ask for another. (ADR-0023)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Stateless set-up checks run before the redeem, so a malformed upload never spends a code; the admin can issue another | Preventive | Partial |
+
+## R54 · The root admin key sits on Aaron's machine
+- impact: 4
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+`.env.live` holds `ROOT_ADMIN_KEY` in plain text and evm.fun keeps the imported key in the browser's storage. Anyone with either can issue deploy codes and act as the root admin. The worker only knows the address, so losing the key means redeploying with a new `ROOT_ADMIN`. (ADR-0023)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| `.env.*` git-ignored (mode 600 when generated); only the address goes to the worker; `deploy.ts` keeps the key out of wrangler's environment | Preventive | Partial |

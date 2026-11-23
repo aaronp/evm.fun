@@ -8,7 +8,7 @@
     "url": "https://aaronp.github.io/adr/?src=docs/adr/decisions.md&status=proposed"
   },
   "heading": {
-    "primary": "22",
+    "primary": "23",
     "label": "decision records"
   },
   "legend": [
@@ -45,7 +45,7 @@
   ],
   "report": {
     "proposed": 3,
-    "accepted": 19,
+    "accepted": 20,
     "superseded": 0,
     "deprecated": 0,
     "rejected": 0

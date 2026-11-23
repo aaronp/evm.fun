@@ -1,4 +1,4 @@
-.PHONY: dev build test bench report soak-node dev-services dev-services-status dev-services-stop e2e-node
+.PHONY: dev build test bench report soak-node dev-services dev-services-status dev-services-stop e2e-node deploy
 
 dev:     ## playground dev server (http://localhost:5173)
 	bun run web:dev
@@ -43,3 +43,6 @@ risks: ; npx risk-register docs/risks/risks.md
 gantt: ; npx gantt docs/schedule/schedule.md
 agile: ; npx agile docs/board/board.md
 # <<< @pritzlaff/project
+
+deploy: ## LIVE: worker on your Cloudflare account + root chain (needs wrangler login and .env.live); run by hand, never CI
+	bun packages/node/scripts/deploy.ts

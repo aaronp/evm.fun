@@ -1231,3 +1231,71 @@ Claude's calls: a slot at zero is treated as absent (webevm keeps it as `0x`, th
 - The diff compares whole-state dumps, so it is O(state) per block; logged as risk R51 (switch to a touched-keys diff past a few MB of state).
 - The in-memory node keeps only the last 256 headers plus up to 1,000 blocks; full history stays in the `blocks` table and is never pruned.
 - webevm 0.9.1 internals (the per-block timestamp via `blockEnv`) are still relied on (t-130).
+
+---
+id: ADR-0023
+title: "Deploy codes live on the root chain; the cloud node mines the new chain's set-up block"
+status: accepted
+date: 2026-11-23
+tags: architecture, chains, cloudflare, access
+decision: root-codes
+---
+
+## Goal
+Only people the root admin has chosen may create chains on the cloud worker, with nothing secret stored and nothing deployed from CI.
+
+## Hypothesis
+- We believe: deploy codes stored as `keccak256(code)` + expiry + uses on the root chain's `ChainAccess` (the invite mechanism, grant bit `GRANT_CREATE_CHAIN`) are enough to gate chain creation
+- Will result in: a friend creating a chain with one code and being refused for a wrong, expired or used-up code
+- Measured by: `make e2e-node` (issue, deploy, every refusal) against the local worker
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| simple | Simple | 5 | Higher = fewer new moving parts. |
+| honest | Auditable | 4 | Higher = who issued and redeemed what is on a chain. |
+| safe | Safe | 5 | Higher = a leaked store or a mistake costs less. |
+
+## Solution: root-codes — codes on the root chain
+| criterion | score |
+| --- | --- |
+| simple | 4 |
+| honest | 5 |
+| safe | 4 |
+
+Pros:
+- Reuses invites (t-133); issuing is a signed tx from evm.fun; redeems are recorded on chain; only hashes are stored
+
+Cons:
+- A short typed code is guessable (rate limit and generated 4-word codes); a code is spent even if creation then fails
+
+## Solution: kv — a worker-side KV of codes
+| criterion | score |
+| --- | --- |
+| simple | 5 |
+| honest | 2 |
+| safe | 3 |
+
+Pros:
+- No contract call to issue a code
+
+Cons:
+- A second store with its own admin API; no on-chain record of who deployed what
+
+## Decision
+root-codes. Decided with Aaron (t-134): the first chain is the root chain, created by the key named in the worker's config (`ROOT_ADMIN`, an address, not a secret); a code alone is enough (no per-use approval); the TTL bounds the risk.
+
+Claude's calls (spec "Deviations"): the browser signs the two set-up txs and uploads them with its dump, and the new chain's Durable Object mines them as block head+1 with real state roots (evm.fun's chains compute no roots); evm.fun then replaces its local chain with the returned dump and checks the head hash, so both copies are identical. View routes (`access-controls/latest`, aliases) are not ported (t-138, t-139).
+
+## Consequences
+- Interface changes: `deployChain` takes a required `registry` option (`replaceState`, `setDeployed`) so it stays testable without the wasm loader; its errors carry `step` and `chainId`; `NodeClient.baseUrl` is `readonly`; Deploy is refused once a chain is deployed.
+- Failed redeems are limited to 10 per IP per 10 minutes (`429`); request signatures are single-use within 300 s.
+- A code is spent when the redeem succeeds; if the new chain's creation then fails, the admin issues another (risk R53).
+- The root admin key is on Aaron's machine (`.env.live`, git-ignored) and in evm.fun's Accounts (risk R54); the worker holds only its address.
+- Live target: `make deploy` to `cloud.mychain.dev`; nothing deploys from CI. The Pages build gets the URL from repo variable `NODE_URL`.
+- Guessable codes and the per-IP limit: risk R52.
+
