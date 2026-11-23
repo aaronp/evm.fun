@@ -30,6 +30,19 @@ function wipe(sql: Sql) {
   sql.tx(() => { for (const t of ['meta', 'accounts', 'code', 'storage', 'blocks', 'redeems']) sql.exec(`DELETE FROM ${t}`) })
 }
 
+/** The stateless set-up checks (exactly two contract creations sent by `signer`); the root runs them before spending a code. */
+export async function checkSetup(signer: string, setup: unknown): Promise<void> {
+  if (!Array.isArray(setup) || setup.length !== 2) throw new ServiceError(400, 'setup must be exactly two txs')
+  try {
+    for (const raw of setup as Hex[]) {
+      if (parseTransaction(raw).to) throw new ServiceError(400, 'setup txs must be contract creations')
+      if ((await sender(raw)) !== signer.toLowerCase()) throw new ServiceError(403, 'setup txs must be sent by the request signer')
+    }
+  } catch (e) {
+    throw e instanceof ServiceError ? e : new ServiceError(400, `bad setup tx: ${msg(e)}`)
+  }
+}
+
 export class ChainService {
   #writes: Promise<unknown> = Promise.resolve()
 
@@ -61,15 +74,7 @@ export class ChainService {
   static async #create(sql: Sql, wasm: NodeConfig['wasm'], opts: { chainId: string; signer: string; dump: SerializedState; setup: [Hex, Hex]; timestamp: number }): Promise<ChainService> {
     const signer = opts.signer.toLowerCase()
     const setup = opts.setup as Hex[]
-    if (!Array.isArray(setup) || setup.length !== 2) throw new ServiceError(400, 'setup must be exactly two txs')
-    try {
-      for (const raw of setup) {
-        if (parseTransaction(raw).to) throw new ServiceError(400, 'setup txs must be contract creations')
-        if ((await sender(raw)) !== signer) throw new ServiceError(403, 'setup txs must be sent by the request signer')
-      }
-    } catch (e) {
-      throw e instanceof ServiceError ? e : new ServiceError(400, `bad setup tx: ${msg(e)}`)
-    }
+    await checkSetup(signer, setup)
 
     wipe(sql) // a half-created chain from an earlier crash
     const store = new ChainStore(sql)

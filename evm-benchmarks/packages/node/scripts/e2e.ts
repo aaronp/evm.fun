@@ -40,11 +40,13 @@ try {
   // ---- admin issues codes ----
   const issue = async (code: string, ttl: number, uses: number) =>
     as(admin).submit('root', [await inviteTx(admin, await as(admin).nonce('root'), root.access, code, ttl, uses)])
-  const one = generateCode(), two = generateCode(), short = generateCode()
+  const one = generateCode(), two = generateCode(), short = generateCode(), race = generateCode(), retry = generateCode()
   await issue(one, 600, 1)
   await issue(two, 600, 2)
   await issue(short, 2, 1)
-  check(true, 'admin issues a 1-use, a 2-use and a 2 s code')
+  await issue(race, 600, 1)
+  await issue(retry, 600, 1)
+  check(true, 'admin issues 1-use, 2-use and 2 s codes')
 
   // ---- B's browser chain: a fresh chain with one ERC-20 deploy ----
   const erc20 = await B.signTransaction({
@@ -79,6 +81,10 @@ try {
   const first = await fetch(url, { headers })
   const again = await fetch(url, { headers })
   check(first.status === 200 && again.status === 401, `replayed signed request → ${first.status} then ${again.status}`)
+  const nonPost = await fetch(new URL('/chains', URL_))
+  check(nonPost.status === 404, `GET /chains → ${nonPost.status}`)
+  const badTs = await fetch(url, { headers: { ...headers, 'x-ts': 'NaN', 'x-nonce': crypto.randomUUID() } })
+  check(badTs.status === 401, `non-numeric x-ts → ${badTs.status}`)
   const unsigned = await fetch(new URL('/chains', URL_), { method: 'POST', body: '{}' })
   check(unsigned.status === 401, `unsigned POST /chains → ${unsigned.status}`)
   check(unsigned.headers.get('access-control-allow-origin') === null, 'no CORS origin for a request without Origin')
@@ -91,12 +97,25 @@ try {
   check(r1.chainId !== r2.chainId, `the 2-use code deploys two chains (${r1.chainId}, ${r2.chainId})`)
   check(await status(deploy(C, two)) === 403, 'and refuses a third → 403')
 
+  // ---- a 1-use code redeemed by two deploys at once ----
+  const both = await Promise.all([deploy(B, race), deploy(C, race)].map((p) => p.then((x) => ({ s: 201, id: x.chainId }), (e) => ({ s: e.status, id: '' }))))
+  check(both.map((x) => x.s).sort().join() === '201,403', `two concurrent deploys with one 1-use code → ${both.map((x) => x.s).join(', ')}`)
+
+  // ---- a malformed set-up does not spend the code ----
+  const extra = await C.signTransaction({ type: 'eip1559', chainId: 31337, nonce: 2, gas: 100_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n, data: '0x00' })
+  const bad = as(C).createChain({ dump, setup: [...(await setupTxs(C, 0, 31337)), extra] as never, claim: await claimTx(C, await as(C).nonce('root'), retry, root.access) })
+  check(await status(bad) === 400, 'deploy with a third set-up tx → 400')
+  const rr = await deploy(C, retry)
+  check(!!rr.chainId, `the same code still works on retry → ${rr.chainId}`)
+
   // ---- codes ----
   const codes = await as(admin).codes()
   const rec = (c: string) => codes.find((x) => x.hash === codeHash(c))
   check(rec(one)?.usesLeft === 0 && rec(one)?.redeemed.map((x) => x.chainId).join() === r.chainId, 'codes: the 1-use code redeemed by B for its chain')
   check(rec(two)?.redeemed.map((x) => x.chainId).sort().join() === [r1.chainId, r2.chainId].sort().join(), 'codes: the 2-use code redeemed twice')
   check(rec(short)?.redeemed.length === 0, 'codes: the expired code never redeemed')
+  check(rec(race)?.redeemed.length === 1 && rec(race)?.redeemed[0]!.chainId === both.find((x) => x.s === 201)?.id, 'codes: the raced code redeemed once, for the winner')
+  check(rec(retry)?.redeemed.map((x) => x.chainId).join() === rr.chainId, 'codes: the retried code redeemed once')
   check(await status(as(B).codes()) === 403, 'codes by a non-admin → 403')
 
   // ---- rate limit: 10 failed redeems per IP per 10 min ----

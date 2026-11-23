@@ -5,7 +5,7 @@ import type { Hex } from 'viem'
 import type { SerializedState } from 'webevm'
 import { recoverSigner, SKEW_S } from './auth'
 import type { Sql } from './sql'
-import { ChainService, ServiceError } from './service'
+import { ChainService, ServiceError, checkSetup } from './service'
 import type { NodeConfig } from './node'
 import type { CreateChainRequest } from './client'
 
@@ -53,7 +53,8 @@ export async function handle(req: Request, deps: RouterDeps): Promise<Response> 
       method: req.method, url: req.url, body, ts: h('x-ts'), nonce: h('x-nonce'), sig: h('x-sig'), ip: h('cf-connecting-ip') || 'unknown',
     }))
   } catch (e) {
-    return json({ status: 500, body: { error: (e as Error).message } })
+    console.error(e)
+    return json({ status: 500, body: { error: 'internal error' } })
   }
 }
 
@@ -65,16 +66,23 @@ const MAX_FAILS = 10
 export class ChainHost implements ChainHandleLike {
   service: ChainService | null = null
   #boot?: Promise<void>
+  #tables = false
 
-  constructor(private sql: Sql, private wasm: NodeConfig['wasm'], private cfg: { rootAdmin: string; chain(id: string): ChainHandleLike }) {
-    sql.exec('CREATE TABLE IF NOT EXISTS nonces (nonce TEXT PRIMARY KEY, ts INTEGER NOT NULL)')
-    sql.exec('CREATE TABLE IF NOT EXISTS fails (ip TEXT NOT NULL, at INTEGER NOT NULL)')
+  constructor(private sql: Sql, private wasm: NodeConfig['wasm'], private cfg: { rootAdmin: string; chain(id: string): ChainHandleLike }) {}
+
+  /** Boot the stored chain once, if any (a Durable Object learns its chain id from its first call). Writes nothing if none. */
+  #ready(chainId: string): Promise<void> {
+    const stored = () => this.sql.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'").length > 0
+    this.#boot ??= (stored() ? ChainService.open(this.sql, this.wasm, { chainId }) : Promise.resolve(null)).then((s) => { this.service = s })
+    return this.#boot
   }
 
-  /** Boot the stored chain once, if any (a Durable Object learns its chain id from its first call). */
-  #ready(chainId: string): Promise<void> {
-    this.#boot ??= ChainService.open(this.sql, this.wasm, { chainId }).then((s) => { this.service = s })
-    return this.#boot
+  /** This host's own tables, created on first write, so a request to an unknown chain id stores nothing. */
+  #own() {
+    if (this.#tables) return
+    this.sql.exec('CREATE TABLE IF NOT EXISTS nonces (nonce TEXT PRIMARY KEY, ts INTEGER NOT NULL)')
+    this.sql.exec('CREATE TABLE IF NOT EXISTS fails (ip TEXT NOT NULL, at INTEGER NOT NULL)')
+    this.#tables = true
   }
 
   async rootInfo(): Promise<RootInfo | null> {
@@ -87,9 +95,10 @@ export class ChainHost implements ChainHandleLike {
   /** The signer of a valid, fresh, never-seen signed request; its nonce is spent here. */
   async #auth(r: ChainRequest): Promise<string | null> {
     const t = now()
-    if (!r.sig || !r.nonce || Math.abs(t - Number(r.ts)) > SKEW_S) return null
+    if (!r.sig || !r.nonce || !Number.isFinite(Number(r.ts)) || Math.abs(t - Number(r.ts)) > SKEW_S) return null
     let signer: string
     try { signer = await recoverSigner(r.method, new URL(r.url), r.body, r) } catch { return null }
+    this.#own()
     if (this.sql.exec('SELECT 1 FROM nonces WHERE nonce = ?', r.nonce).length) return null
     this.sql.exec('DELETE FROM nonces WHERE ts < ?', t - 2 * SKEW_S)
     this.sql.exec('INSERT INTO nonces VALUES (?, ?)', r.nonce, t)
@@ -111,7 +120,7 @@ export class ChainHost implements ChainHandleLike {
     const route = `${r.method} ${rest.join('/')}`
     const isRoot = id === 'root'
     await this.#ready(id)
-    const known = url.pathname === '/chains' ? isRoot : ['GET ', 'POST submit', ...(isRoot ? ['GET nonce', 'GET codes'] : [])].includes(route)
+    const known = url.pathname === '/chains' ? isRoot && r.method === 'POST' : ['GET ', 'POST submit', ...(isRoot ? ['GET nonce', 'GET codes'] : [])].includes(route)
     if (!known) return { status: 404, body: { error: 'not found' } }
     if (url.pathname !== '/chains' && !this.service) return { status: 404, body: { error: 'no such chain' } }
     const signer = await this.#auth(r)
@@ -147,6 +156,8 @@ export class ChainHost implements ChainHandleLike {
       return done(await this.create('root', signer, dump, setup), 'root')
     }
     if (!this.service) throw new ServiceError(404, 'no root chain yet')
+    // stateless set-up checks first, so a malformed upload never spends the code (a bad dump or a reverting tx still can)
+    await checkSetup(signer, setup)
     const t = now()
     this.sql.exec('DELETE FROM fails WHERE at < ?', t - FAIL_WINDOW_S)
     if (Number(this.sql.exec('SELECT count(*) AS n FROM fails WHERE ip = ?', r.ip)[0]!.n) >= MAX_FAILS)
