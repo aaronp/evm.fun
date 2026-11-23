@@ -59,7 +59,7 @@ export async function handle(req: Request, deps: RouterDeps): Promise<Response> 
     const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await req.text()
     if (body.length > max) return json(tooBig)
     return json(await deps.chain(id).serve({
-      method: req.method, url: req.url, body, ts: h('x-ts'), nonce: h('x-nonce'), sig: h('x-sig'), ip: h('cf-connecting-ip') || 'unknown', name: h('x-node-name').trim().slice(0, 32) || undefined,
+      method: req.method, url: req.url, body, ts: h('x-ts'), nonce: h('x-nonce'), sig: h('x-sig'), ip: h('cf-connecting-ip') || 'unknown', name: [...h('x-node-name').replace(/[\x00-\x1f\x7f]/g, '').trim()].slice(0, 32).join('') || undefined,
     }))
   } catch (e) {
     console.error(e)

@@ -92,4 +92,17 @@ describe('device routes', () => {
     for (let i = 0; i < 11; i++) last = await status(s.join(cid, await claimTx(stranger, 0, `wrong-${i}`, access)))
     expect(last).toBe(429)
   })
+
+  test('blocks past the 100 cap: cursor is the last delivered block, not the head; name is sanitised', async () => {
+    const a = as(admin)
+    for (let i = 0; i < 105; i++) await a.submit(cid, [await accessTx(admin, await a.nonce(cid), access, 'setReadOpen', i % 2 === 0)])
+    const long = 'a\tx' + 'y'.repeat(40)
+    const d = as(admin, long)
+    const out = await d.blocks(cid, 0)
+    expect(out.blocks.length).toBe(100)
+    expect(out.head.number).toBeGreaterThan(100)
+    const m = (await a.nodes(cid)).members.find((x) => x.address.toLowerCase() === admin.address.toLowerCase())!
+    expect(m.block).toBe(100)
+    expect(m.name).toBe(('ax' + 'y'.repeat(40)).slice(0, 32))
+  })
 })
