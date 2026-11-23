@@ -16,8 +16,9 @@ const isId = (v: unknown) => isStr(v) && /^[A-Za-z0-9_-]{1,100}$/.test(v)
 const name = (v: unknown, fallback: string) => (isStr(v) ? JSON.stringify(v.slice(0, 40)) : fallback)
 
 const parses = (u: string) => { try { return !!new URL(u) } catch { return false } }
-const deployedOk = (d: unknown) => isObj(d) && isStr(d.nodeUrl) && d.nodeUrl.length <= 2000 && /^https?:\/\/[^\s]+$/.test(d.nodeUrl) && parses(d.nodeUrl)
-  && isId(d.chainId) && str(d.at) && Number.isInteger(d.head) && d.head >= 0
+const urlOk = (u: unknown) => isStr(u) && u.length <= 2000 && /^https?:\/\/[^\s]+$/.test(u) && parses(u)
+const deployedOk = (d: unknown) => isObj(d) && urlOk(d.nodeUrl) && isId(d.chainId) && str(d.at) && Number.isInteger(d.head) && d.head >= 0
+const followsOk = (f: unknown) => isObj(f) && urlOk(f.nodeUrl) && isId(f.chainId) && isAddr(f.account)
 
 /** The text as a workspace file, or every problem found. Any error refuses the whole file. */
 export function validateWorkspace(text: string, opts: { engine: string; crossEngineOk: boolean }): { ok: WorkspaceFile } | { errors: string[] } {
@@ -43,6 +44,7 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
   if (f.activeWalkthrough !== undefined && !str(f.activeWalkthrough)) bad('Invalid activeWalkthrough')
   if (f.secrets !== undefined && !Array.isArray(f.secrets)) bad('Invalid secrets: expected an array')
   if (f.answers !== undefined && !Array.isArray(f.answers)) bad('Invalid answers: expected an array')
+  if (f.followers !== undefined && !Array.isArray(f.followers)) bad('Invalid followers: expected an array')
   if (errors.length) return { errors }
 
   const addrs = new Set<string>()
@@ -68,6 +70,16 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
     const d = decodeChainFile(encodeJson(file), opts)
     if (!d.ok) return bad(`${label}: ${d.error}`)
     chains.set(id, { ...d.file, id, ...(deployed !== undefined && { deployed }) })
+  })
+
+  const followers = new Set<string>()
+  ;(f.followers ?? []).forEach((c: any, i: number) => {
+    const at = `followers[${i}]`
+    if (!isObj(c)) return bad(`${at} is not an object`)
+    if (!isId(c.id) || chains.has(c.id) || followers.has(c.id)) return bad(`${at}.id is missing, invalid or a duplicate`)
+    if (!str(c.name) || !str(c.createdAt)) return bad(`${at} needs a name and createdAt`)
+    if (!followsOk(c.follows)) return bad(`${at}: invalid follows (needs an http(s) nodeUrl, chainId and account address)`)
+    followers.add(c.id)
   })
 
   const snapIds = new Set<string>()
@@ -110,7 +122,7 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
 
   if (f.selection !== undefined) {
     const s = f.selection
-    if (!isObj(s) || (s.chain !== undefined && !chains.has(s.chain)) || (s.account !== undefined && !(isAddr(s.account) && addrs.has(s.account.toLowerCase()))))
+    if (!isObj(s) || (s.chain !== undefined && !chains.has(s.chain) && !followers.has(s.chain)) || (s.account !== undefined && !(isAddr(s.account) && addrs.has(s.account.toLowerCase()))))
       bad('Invalid selection: its chain and account must be in this file')
   }
   if (!opts.crossEngineOk && f.engine !== opts.engine) bad(`Engine mismatch: file is from ${name(f.engine, 'unknown')}, this app runs ${opts.engine}`)
@@ -118,7 +130,8 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
   if (errors.length) return { errors }
   const secrets = (f.secrets ?? []).map(({ hash, secret, chain, lockId }: any) => ({ hash, secret, chain, lockId }))
   const answers = (f.answers ?? []).map(({ hash, headA }: any) => ({ hash, headA }))
-  return { ok: { ...f, chains: f.chains.map((c: any) => chains.get(c.id)), secrets, answers } as WorkspaceFile }
+  const kept = f.followers?.map(({ id, name, createdAt, follows: { nodeUrl, chainId, account } }: any) => ({ id, name, createdAt, follows: { nodeUrl, chainId, account } }))
+  return { ok: { ...f, chains: f.chains.map((c: any) => chains.get(c.id)), secrets, answers, ...(kept && { followers: kept }) } as WorkspaceFile }
 }
 
 /** What the wizard and ribbon dereference: run.values[k], run.steps[id].outputs/inputs. */

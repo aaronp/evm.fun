@@ -93,7 +93,7 @@ export function Shell() {
           <AddressList />
           <Routes>
             {pages.map(p => (
-              <Route key={p} path={p === 'Chains' ? '/chains/*' : `/${slug(p)}`} element={real[p] ?? <Stub name={p} />} />
+              <Route key={p} path={p === 'Chains' ? '/chains/*' : p === 'Cloud' ? '/cloud/*' : `/${slug(p)}`} element={real[p] ?? <Stub name={p} />} />
             ))}
             <Route path="/swap/report" element={<SwapReport />} />
             <Route path="/xswap/report" element={<XSwapReport />} />

@@ -34,11 +34,14 @@ export const RUNS = 'walkthroughRuns'
 
 const get = (s: WorkspaceEnv['storage'], k: string) => { try { return s.getItem(k) ?? undefined } catch { return undefined } }
 
-/** The whole workspace as plain data. Saved chains only (benchmark chains are skipped), one at a time via registry.withChain so more than LIVE_MAX work (and Save works at the cap). */
+/** The whole workspace as plain data. Saved chains only (benchmark chains are skipped), one at a time via registry.withChain so more than LIVE_MAX work (and Save works at the cap).
+ *  Followers are saved as pointers from their stored info, never opened (no state, records or snapshots). */
 export async function buildWorkspace(env: WorkspaceEnv): Promise<WorkspaceFile> {
   const { registry, kv } = env
   const contracts = createContractsRegistry(kv), assets = createWebAssets(kv)
-  const saved = (await registry.list()).filter(c => !c.ephemeral)
+  const all = (await registry.list()).filter(c => !c.ephemeral)
+  const saved = all.filter(c => !c.follows)
+  const followers = all.flatMap(({ id, name, createdAt, follows }) => (follows ? [{ id, name, createdAt, follows }] : []))
   const chains: WorkspaceFile['chains'] = []
   for (const info of saved) {
     const file = await registry.withChain(info.id, async (h): Promise<ChainFile> => {
@@ -52,7 +55,7 @@ export async function buildWorkspace(env: WorkspaceEnv): Promise<WorkspaceFile> 
     })
     chains.push({ ...file, id: info.id, ...(info.deployed && { deployed: info.deployed }) })
   }
-  const ids = new Set(saved.map(c => c.id))
+  const ids = new Set(all.map(c => c.id))
   const snaps = createSnapshotStore(kv), snapshots: Snapshot[] = []
   for (const c of saved) snapshots.push(...(await snaps.list(c.id)).map(s => ({ ...s, assets: s.assets ?? [] }))) // taken before assets were kept
   const orderbook: WorkspaceFile['orderbook'] = []
@@ -65,6 +68,7 @@ export async function buildWorkspace(env: WorkspaceEnv): Promise<WorkspaceFile> 
     format: 'evm.fun/workspace', version: 1, savedAt: new Date().toISOString(), engine: env.engine,
     accounts: env.accounts.map(({ label, address, privateKey }) => ({ label, address, privateKey })),
     chains,
+    ...(followers.length > 0 && { followers }),
     ...(selection && { selection }),
     snapshots,
     walkthroughs: { edits: await kv.list<Walkthrough>(EDITS), runs: await kv.list<Run>(RUNS) },

@@ -3,7 +3,7 @@ import type { ChainFile } from '../chain/chainFile'
 import type { Snapshot } from '../chain/snapshots'
 import type { Run, Walkthrough } from '../walkthrough/types'
 import type { Account } from '../store/accounts'
-import type { Deployed } from '../chain/handle'
+import type { ChainInfo, Deployed } from '../chain/handle'
 
 /** The whole playground in one file (spec: 2026-11-21-workspace-appbar-design). Per-browser settings are not in it. */
 export type WorkspaceFile = {
@@ -11,6 +11,9 @@ export type WorkspaceFile = {
   accounts: Account[]
   /** each exactly today's chain export, plus the chain's id (kept on Open so links, runs and order-book scopes stay valid) */
   chains: (ChainFile & { id: string; /** where it was deployed (missing = never) */ deployed?: Deployed })[]
+  /** follower chains (chain type 'follower') as pointers only: Open re-syncs them from the cloud; missing in older files = none */
+  followers?: (Pick<ChainInfo, 'id' | 'name' | 'createdAt'> & { follows: NonNullable<ChainInfo['follows']> })[]
+  /** `chain` is a chain's or a follower's id */
   selection?: { chain?: string; account?: Address }
   snapshots: Snapshot[]
   walkthroughs: { edits: Walkthrough[]; runs: Run[] }

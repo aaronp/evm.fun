@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { privateKeyToAccount } from 'viem/accounts'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { NodeClient } from '@evmb/node/src/client'
 import { useApp } from '../state'
 import { useAppBar } from '../state/appBar'
 import { accounts } from '../store/accounts'
-import { clientFor, DEFAULT_NODE_URL, nodeUrl, setNodeUrl } from '../cloud/node'
+import { clientFor, DEFAULT_NODE_URL, getSyncInterval, nodeUrl, setNodeUrl, setSyncInterval, type SyncInterval } from '../cloud/node'
+import { joinPrefill } from '../cloud/join'
+import { JoinForm } from '../components/cloud/JoinForm'
+import { Segmented } from '../ui/segmented'
 import { deployedUrl } from '../cloud/deploy'
 import { CodesPanel } from '../components/cloud/CodesPanel'
 import { Badge } from '../ui/badge'
@@ -16,6 +20,7 @@ import { Table, td, th } from '../ui/table'
 type Health = Awaited<ReturnType<NodeClient['health']>>
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const short = (s: string) => `${s.slice(0, 6)}…${s.slice(-4)}`
+const SYNC_OPTIONS = [{ value: '5', content: '5 s' }, { value: '15', content: '15 s' }, { value: '60', content: '60 s' }, { value: 'manual', content: 'Manual' }]
 
 export function Cloud() {
   useAppBar({ title: 'Cloud' })
@@ -36,6 +41,10 @@ export function Cloud() {
   const client = useMemo(() => (isAdmin ? clientFor(acct) : undefined), [isAdmin, acct?.address, url]) // eslint-disable-line react-hooks/exhaustive-deps
   const signer = useMemo(() => acct && privateKeyToAccount(acct.privateKey), [acct?.address]) // eslint-disable-line react-hooks/exhaustive-deps
   const deployed = chains.filter((c) => c.deployed)
+  const { pathname, search } = useLocation()
+  const nav = useNavigate()
+  const link = pathname === '/cloud/join' ? joinPrefill(search) : {} // #/cloud/join?node=…&chain=…
+  const [sync, setSync] = useState(() => String(getSyncInterval()))
 
   function save(next: string) {
     setNodeUrl(next)
@@ -63,6 +72,17 @@ export function Cloud() {
           </div>
         </div>
       </Panel>
+
+      <Panel title="Followers">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
+          <div className="text-text-2">Sync followers every</div>
+          <Segmented label="Sync followers every" name="sync-interval" value={sync} options={SYNC_OPTIONS} className="flex gap-1" itemClassName="px-2.5 py-1 text-xs"
+            onChange={(v) => { setSync(v); setSyncInterval(v === 'manual' ? v : (Number(v) as SyncInterval)) }} />
+          <p className="w-full text-xs text-muted">Kept in this browser only. Manual: followers sync only when you ask. Hidden tabs don't sync.</p>
+        </div>
+      </Panel>
+
+      <JoinForm acct={acct} nodeUrl={link.nodeUrl ?? url} chainId={link.chainId} onJoined={() => pathname !== '/cloud' && nav('/cloud', { replace: true })} />
 
       {root && !acct && <p className="text-sm text-muted">Select an account to issue codes or deploy chains.</p>}
       {isAdmin && client && signer && <CodesPanel client={client} account={signer} access={root!.access} />}

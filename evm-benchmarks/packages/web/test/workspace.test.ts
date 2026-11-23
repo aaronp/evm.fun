@@ -42,6 +42,8 @@ function env(base: Kv = createKv()) {
     kv,
     host: (id: string) => ({ persistence: { load: async () => stores.get(id) ?? null, save: async (s: any) => void stores.set(id, structuredClone(s)) } }),
     purge: async (id: string) => void stores.delete(id),
+    // no key for any follower here: followers sit at needs-key and never reach the network
+    follower: { wasm: async () => { throw new Error('no wasm in these tests') }, account: () => undefined },
   })
   const local = new Map<string, string>()
   const book = memoryStore(bookSchema)
@@ -657,6 +659,53 @@ describe('New / Open / Save', () => {
     await e.disposeAll()
     for (const bad of [{ ...deployed, head: -1 }, { ...deployed, nodeUrl: 'javascript:alert(1)' }, { ...deployed, nodeUrl: 'http://[' }, { ...deployed, chainId: '../x' }, 'yes'])
       expect('errors' in validateWorkspace(encodeWorkspace({ ...f, chains: [{ ...f.chains[0]!, deployed: bad as any }] }), { engine: ENGINE, crossEngineOk: false })).toBe(true)
+  })
+
+  test('followers round-trip as pointers (no state, never opened by Save); the selection may be one', async () => {
+    const src = env()
+    await src.registry.create('plain one', 'plain', [])
+    const follows = { nodeUrl: 'https://node.example', chainId: crypto.randomUUID(), account: acct.address }
+    const fh = await src.registry.addFollower({ name: 'Joined abc', follows, createdAt: '2026-01-01T00:00:00.000Z' })
+    await src.registry.close(fh.info.id)
+    src.local.set(SELECTED_CHAIN, fh.info.id)
+    const f = await buildWorkspace(src.ws)
+    expect(src.registry.peek(fh.info.id)).toBeUndefined() // Save didn't open it
+    await src.disposeAll()
+    expect(f.chains.map(c => c.chain.name)).toEqual(['plain one'])
+    expect(f.followers).toEqual([{ id: fh.info.id, name: 'Joined abc', createdAt: '2026-01-01T00:00:00.000Z', follows }])
+    expect(f.selection).toEqual({ chain: fh.info.id })
+    const e = env()
+    // known fields only
+    const text = encodeWorkspace({ ...f, followers: [{ ...f.followers![0]!, extra: 1, follows: { ...follows, x: '<b>' } } as any] })
+    expect(await openWorkspace(text, e.ws)).toEqual({ ok: true })
+    const got = (await e.registry.list()).find(c => c.type === 'follower')
+    expect(got).toEqual({ id: fh.info.id, name: 'Joined abc', type: 'follower', createdAt: '2026-01-01T00:00:00.000Z', follows })
+    expect(e.local.get(SELECTED_CHAIN)).toBe(fh.info.id)
+    expect((e.registry.peek(fh.info.id)!.approach as any).status().kind).toBe('needs-key')
+    await e.disposeAll()
+  })
+
+  test('malformed follower entries refuse the file; files without followers load', async () => {
+    const src = env()
+    const h = await src.registry.create('x', 'plain', [])
+    const f = await buildWorkspace(src.ws)
+    await src.disposeAll()
+    expect(f.followers).toBeUndefined()
+    const ok = { id: 'f1', name: 'n', createdAt: new Date().toISOString(), follows: { nodeUrl: 'http://localhost:8799', chainId: 'abc-1', account: acct.address } }
+    const errs = (followers: unknown) => {
+      const r = validateWorkspace(encodeWorkspace({ ...f, followers } as any), { engine: ENGINE, crossEngineOk: false })
+      return 'errors' in r ? r.errors : []
+    }
+    expect(errs([ok])).toEqual([])
+    for (const bad of [
+      'yes', ['x'], [{ ...ok, id: '../x' }], [{ ...ok, id: h.info.id }], [ok, ok], [{ ...ok, name: 7 }], [{ ...ok, createdAt: undefined }],
+      [{ ...ok, follows: undefined }], [{ ...ok, follows: { ...ok.follows, nodeUrl: 'javascript:alert(1)' } }], [{ ...ok, follows: { ...ok.follows, nodeUrl: 'http://[' } }],
+      [{ ...ok, follows: { ...ok.follows, chainId: '../x' } }], [{ ...ok, follows: { ...ok.follows, account: '0x12' } }],
+    ]) expect(errs(bad).length).toBeGreaterThan(0)
+    const e = env()
+    expect(await openWorkspace(encodeWorkspace(f), e.ws)).toEqual({ ok: true })
+    expect((await e.registry.list()).map(c => c.name)).toEqual(['x'])
+    await e.disposeAll()
   })
 
   test('New and Open are refused up front when this browser keeps nothing; nothing changes', async () => {
