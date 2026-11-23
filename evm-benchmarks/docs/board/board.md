@@ -752,24 +752,25 @@ Before t-134. A `ChainStore` (`packages/node`) that persists only what each bloc
 
 Why (cost spike, [docs/spikes/cf-cost.md](../spikes/cf-cost.md)): the spike rewrites a full dump with all history every block (170 ms, 39.5 MB per 1-tx block at 10,000 blocks) and webevm keeps all history in memory (228 MB at 10,000 vs the DO's 128 MB). With diffs: 2.5–4.5 ms, ~3 KB per 1-tx block; boot 56 ms at any height. Cost is $0 beyond the $5/month minimum in every scenario either way. webevm has no pruning/change-set API; `loadState` accepts a trimmed dump.
 
-Soak results, 2026-11-23, `make soak-node` exit 0 (commit = SQL write only; rows = diff keys + 1 block row; bytes = JSON of diff + block): commit 0.52-0.61 ms, 8 rows, about 9.9 KB per block, heap 33-41 MB, flat from 1,000 to 10,000 blocks.
+Soak results, 2026-11-23, `make soak-node` exit 0 (commit = SQL write only; rows = diff keys + 1 block row; bytes = JSON of diff + block): commit 0.60-0.78 ms, 8 rows, about 9.9 KB per block, memory (JS heap + external) 44-57 MB of 128 (JS heap 33-41 MB), flat from 1,000 to 10,000 blocks.
 
-    {"height":1000,"commitMsAvg":0.614,"rowsWrittenAvg":8,"bytesWrittenAvg":9833,"heapMB":35.3}
-    {"height":2000,"commitMsAvg":0.557,"rowsWrittenAvg":8,"bytesWrittenAvg":9871,"heapMB":33.2}
-    {"height":3000,"commitMsAvg":0.537,"rowsWrittenAvg":8,"bytesWrittenAvg":9866,"heapMB":40.5}
-    {"height":4000,"commitMsAvg":0.53,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.6}
-    {"height":5000,"commitMsAvg":0.523,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.8}
-    {"height":6000,"commitMsAvg":0.551,"rowsWrittenAvg":8,"bytesWrittenAvg":9867,"heapMB":40.5}
-    {"height":7000,"commitMsAvg":0.543,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.8}
-    {"height":8000,"commitMsAvg":0.532,"rowsWrittenAvg":8,"bytesWrittenAvg":9838,"heapMB":40.5}
-    {"height":9000,"commitMsAvg":0.556,"rowsWrittenAvg":8,"bytesWrittenAvg":9871,"heapMB":40.8}
-    {"height":10000,"commitMsAvg":0.531,"rowsWrittenAvg":8,"bytesWrittenAvg":9875,"heapMB":40.6}
-    OK: roots and next blocks match at 2500, 5000, 10000; heap and commit time flat
+    {"height":1000,"commitMsAvg":0.775,"rowsWrittenAvg":8,"bytesWrittenAvg":9833,"heapMB":35.3,"memMB":47.8}
+    {"height":2000,"commitMsAvg":0.712,"rowsWrittenAvg":8,"bytesWrittenAvg":9871,"heapMB":33.2,"memMB":43.9}
+    {"height":3000,"commitMsAvg":1.38,"rowsWrittenAvg":8,"bytesWrittenAvg":9866,"heapMB":40.2,"memMB":56.1}
+    {"height":4000,"commitMsAvg":0.687,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.5,"memMB":56.7}
+    {"height":5000,"commitMsAvg":0.662,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.9,"memMB":57.4}
+    {"height":6000,"commitMsAvg":0.596,"rowsWrittenAvg":8,"bytesWrittenAvg":9867,"heapMB":40.5,"memMB":56.7}
+    {"height":7000,"commitMsAvg":0.682,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.9,"memMB":57.4}
+    {"height":8000,"commitMsAvg":0.621,"rowsWrittenAvg":8,"bytesWrittenAvg":9838,"heapMB":40.5,"memMB":56.7}
+    {"height":9000,"commitMsAvg":0.632,"rowsWrittenAvg":8,"bytesWrittenAvg":9871,"heapMB":40.9,"memMB":57.5}
+    {"height":10000,"commitMsAvg":0.635,"rowsWrittenAvg":8,"bytesWrittenAvg":9875,"heapMB":40.6,"memMB":56.8}
+    OK: roots and next blocks match at 2500, 5000, 10000; memory and commit time flat
+
 ```
 
 ```dod
 - [x] `ChainStore` on DO SQLite and `bun:sqlite`; `node.ts` boot / apply / rebuild every N blocks (`Sql` interface; tested on `bun:sqlite`, the DO side is untested until t-134)
-- [x] 10,000-block soak (`make soak-node`, a script rather than a Bun test): same root and next block after a fresh boot at 2,500, 5,000 and 10,000; flat per-block time and writes; heap under 128 MB
+- [x] 10,000-block soak (`make soak-node`, a script rather than a Bun test): same root and next block after a fresh boot at 2,500, 5,000 and 10,000; flat per-block time and writes; memory (JS heap + external) under 128 MB
 - [x] Docs (t-137): [how a node stores its chain](../../packages/node/README.md), ADR-0022, risk R51
 ```
 

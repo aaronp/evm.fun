@@ -945,4 +945,4 @@ The page reads only the newest HashLock on chain A, so an opening lock on an ear
 | Control | Type | Effectiveness |
 |---|---|---|
 | `ponytail:` marker in `diffState`; switch to a touched-keys diff when state grows past a few MB | Corrective | Partial |
-| `make soak-node` fails if commit time grows more than 2x or heap reaches 128 MB | Detective | Partial |
+| `make soak-node` fails if commit time grows more than 2x or memory reaches 128 MB; commit-time flatness covers the SQL write only, the diff compute is the O(state) part this risk tracks | Detective | Partial |

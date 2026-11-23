@@ -28,10 +28,10 @@ The in-memory node keeps no old receipts or txs, and only the last 256 headers p
 
 ## Soak
 
-`make soak-node` runs 10,000 mixed blocks (ETH, ERC-20, whole-balance transfers that zero a slot) on file-backed `bun:sqlite`, `rebuildEvery: 1000`. At 2,500, 5,000 and 10,000 it boots a node from a copy of the store and checks the same root and the same next block hash as the live node. It fails on a mismatch, heap of 128 MB or more, or a last-1,000-block commit time over 2x that of blocks 1,000-2,000.
+`make soak-node` runs 10,000 mixed blocks (ETH, ERC-20, whole-balance transfers that zero a slot) on file-backed `bun:sqlite`, `rebuildEvery: 1000`. At 2,500, 5,000 and 10,000 it boots a node from a copy of the store and checks the same root and the same next block hash as the live node. It fails on a mismatch, memory (JS heap plus external, which holds wasm memory; a Durable Object's 128 MB covers both) of 128 MB or more, or a last-1,000-block commit time over 2x that of blocks 1,000-2,000.
 
-"Rows and bytes written" are measured by wrapping `store.commit`: rows = diff keys + 1 block row; bytes = JSON length of the diff plus the block; `commitMsAvg` is the SQL commit only. Heap is read after a GC, a short yield and a second GC (finalizers of disposed wasm nodes run after a tick; without the yield the reading was inflated up to 131 MB).
+"Rows and bytes written" are measured by wrapping `store.commit`: rows = diff keys + 1 block row; bytes = JSON length of the diff plus the block; `commitMsAvg` is the SQL commit only; the diff compute (the O(state) part) is not in it. Memory is read after a GC, a short yield and a second GC (finalizers of disposed wasm nodes run after a tick; without the yield the reading was inflated to about 130 MB).
 
-Result (Bun on an M-series Mac, 2026-11-23): commit 0.52-0.61 ms per block, 8 rows and about 9.9 KB per block, heap 33-41 MB, all flat from 1,000 to 10,000 blocks; boots matched at all three heights.
+Result (Bun on an M-series Mac, 2026-11-23): commit 0.60-0.78 ms (one 1.4 ms reading at 3,000 after a boot check) per block, 8 rows and about 9.9 KB per block, memory (`memMB`) 44-57 MB (JS heap 33-41 MB), all flat from 1,000 to 10,000 blocks; boots matched at all three heights.
 
 Limit: `diffState` compares whole-state dumps, so it is O(state) per block. Fine for the soak's small state; switch to a touched-keys diff when state grows past a few MB (risk R51).

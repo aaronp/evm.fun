@@ -1,7 +1,7 @@
 // 10,000-block chain-store soak (t-129): `make soak-node`. Exits non-zero on a root/hash mismatch,
-// heap >= 128 MB, or per-block commit time growing > 2x from blocks 1,000-2,000 to the last 1,000.
+// JS heap + external (wasm memory) >= 128 MB, or per-block commit time growing > 2x from blocks 1,000-2,000 to the last 1,000.
 import { Database } from 'bun:sqlite'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ChainNode, ChainStore } from './src'
@@ -11,7 +11,8 @@ import { wasm, workload } from './test/workload'
 const BLOCKS = 10_000
 const BOOT_AT = [2500, 5000, 10_000]
 const cfg = { wasm, rebuildEvery: 1000 }
-const db = new Database(join(mkdtempSync(join(tmpdir(), 'soak-')), 'chain.db'))
+const dir = mkdtempSync(join(tmpdir(), 'soak-'))
+const db = new Database(join(dir, 'chain.db'))
 const sql = bunSql(db)
 // Counts what one commit writes by wrapping store.commit: rows = diff keys + 1 block row; bytes = JSON length of diff + block; ms = the SQL commit only.
 const store = new ChainStore(sql)
@@ -20,7 +21,10 @@ const live = await ChainNode.create(store, await w.genesis(), cfg)
 
 // finalizers of disposed nodes (wasm instances) run after a tick, so collect, yield, collect before reading the heap
 const settle = async () => (Bun.gc(true), await Bun.sleep(50), Bun.gc(true))
-const heapMB = () => process.memoryUsage().heapUsed / 1048576
+const MB = 1048576
+const heapMB = () => process.memoryUsage().heapUsed / MB
+// a DO's 128 MB covers wasm linear memory and buffers too: heapUsed + external
+const memMB = () => ((m) => (m.heapUsed + m.external) / MB)(process.memoryUsage())
 const failures: string[] = []
 const commitMs: number[] = []
 let peak = 0
@@ -54,8 +58,8 @@ for (let i = 1; i <= BLOCKS; i++) {
     await settle()
     const avg = ms / 1000
     commitMs.push(avg)
-    peak = Math.max(peak, heapMB())
-    console.log(JSON.stringify({ height: i, commitMsAvg: +avg.toFixed(3), rowsWrittenAvg: +(rows / 1000).toFixed(1), bytesWrittenAvg: Math.round(bytes / 1000), heapMB: +heapMB().toFixed(1) }))
+    peak = Math.max(peak, memMB())
+    console.log(JSON.stringify({ height: i, commitMsAvg: +avg.toFixed(3), rowsWrittenAvg: +(rows / 1000).toFixed(1), bytesWrittenAvg: Math.round(bytes / 1000), heapMB: +heapMB().toFixed(1), memMB: +memMB().toFixed(1) }))
     ;[rows, bytes, ms] = [0, 0, 0]
   }
 }
@@ -70,8 +74,10 @@ for (let i = 1; i <= BLOCKS; i++) {
   if (x.header.hash !== y.header.hash) failures.push(`height ${BLOCKS + 1}: boot next block ${x.header.hash} != live ${y.header.hash}`)
 }
 await settle()
-const heap = heapMB()
-if (Math.max(peak, heap) >= 128) failures.push(`heap ${Math.max(peak, heap).toFixed(1)} MB >= 128`)
+const mem = Math.max(peak, memMB())
+if (mem >= 128) failures.push(`mem (heap + external) ${mem.toFixed(1)} MB >= 128`)
 if (commitMs[9]! > 2 * commitMs[1]!) failures.push(`commitMsAvg ${commitMs[9]} (last 1,000) > 2x ${commitMs[1]} (blocks 1,000-2,000)`)
-console.log(failures.length ? `FAIL\n${failures.join('\n')}` : 'OK: roots and next blocks match at 2500, 5000, 10000; heap and commit time flat')
+console.log(failures.length ? `FAIL\n${failures.join('\n')}` : 'OK: roots and next blocks match at 2500, 5000, 10000; memory and commit time flat')
+db.close()
+rmSync(dir, { recursive: true, force: true })
 process.exit(failures.length ? 1 : 0)
