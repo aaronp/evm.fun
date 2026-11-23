@@ -36,14 +36,22 @@ export function Accounts() {
   }
   useWizardAction('account.create', create)
   const [key, setKey] = useState('')
+  const [keyLabel, setKeyLabel] = useState('')
   const [importErr, setImportErr] = useState<string>()
   function importKey() {
     try {
-      const a = accounts.import(label.trim() || `Account ${list.length + 1}`, key)
+      const a = accounts.import(keyLabel.trim() || `Account ${list.length + 1}`, key)
       if (!account) selectAccount(a.address)
-      setLabel(''); setKey(''); setImportErr(undefined)
+      setKeyLabel(''); setKey(''); setImportErr(undefined)
       bump(n => n + 1)
     } catch (e) { setImportErr(e instanceof Error ? e.message : String(e)) }
+  }
+  const [editing, setEditing] = useState<string>()
+  const [draft, setDraft] = useState('')
+  function saveName(address: string) {
+    if (draft.trim()) accounts.rename(address, draft)
+    setEditing(undefined)
+    bump(n => n + 1)
   }
   return (
     <div className="space-y-4">
@@ -53,6 +61,7 @@ export function Accounts() {
         <Button {...mark('account.create')} type="submit">Create account</Button>
       </form>
       <form className="flex flex-wrap gap-2" onSubmit={e => { e.preventDefault(); importKey() }}>
+        <Input aria-label="Label for the imported key" className="min-w-0 flex-1 sm:flex-none" placeholder="Label" maxLength={MAX_NAME} value={keyLabel} onChange={e => setKeyLabel(e.target.value)} />
         <Input aria-label="Private key to import" type="password" autoComplete="off" className="min-w-0 flex-1 font-mono sm:max-w-md" placeholder="Or paste a private key (0x…)" value={key} onChange={e => setKey(e.target.value)} />
         <Button variant="ghost" type="submit" disabled={!key.trim()}>Import key</Button>
       </form>
@@ -62,7 +71,17 @@ export function Accounts() {
         <Card key={a.address} className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2 font-medium">
-              {a.label} {a.address === account && <Badge variant="accent">selected</Badge>}
+              {editing === a.address ? (
+                <form onSubmit={e => { e.preventDefault(); saveName(a.address) }}>
+                  <Input autoFocus aria-label={`New name for ${a.label}`} maxLength={MAX_NAME} value={draft}
+                    onChange={e => setDraft(e.target.value)} onBlur={() => saveName(a.address)}
+                    onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); setEditing(undefined) } }} />
+                </form>
+              ) : (
+                <button type="button" className="rounded hover:underline focus-visible:outline-2 focus-visible:outline-accent" title="Rename"
+                  onClick={() => { setDraft(a.label); setEditing(a.address) }}>{a.label}</button>
+              )}
+              {a.address === account && <Badge variant="accent">selected</Badge>}
             </div>
             <div className="break-all font-mono text-xs text-muted">{a.address}</div>
             <div className="text-sm"><Balance address={a.address} /></div>

@@ -180,3 +180,12 @@ test('kv: a strict set waits for the transaction and rejects when it aborts', as
     delete g.indexedDB
   }
 })
+
+test('accounts.rename changes the label only; blank or unknown is refused', () => {
+  const accounts = createAccounts()
+  const a = accounts.create('x')
+  accounts.rename(a.address.toLowerCase(), '  root  ')
+  expect(accounts.list()).toEqual([{ ...a, label: 'root' }])
+  expect(() => accounts.rename(a.address, '   ')).toThrow(/name/)
+  expect(() => accounts.rename('0x0000000000000000000000000000000000000001', 'y')).toThrow(/no account/)
+})

@@ -43,6 +43,14 @@ export function createAccounts() {
       save()
       return a
     },
+    rename(address: string, label: string) {
+      const name = label.trim()
+      if (!name) throw new Error('A name is needed')
+      const i = items.findIndex(a => a.address.toLowerCase() === address.toLowerCase())
+      if (i < 0) throw new Error(`no account ${address}`)
+      items[i] = { ...items[i]!, label: name }
+      save()
+    },
     remove(address: string) {
       items = items.filter(a => a.address.toLowerCase() !== address.toLowerCase())
       save()
