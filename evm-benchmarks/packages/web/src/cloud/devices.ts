@@ -1,0 +1,34 @@
+// The Devices panel's admin actions on a cloud chain: invite a device with a code, remove a member.
+import type { Hex, LocalAccount } from 'viem'
+import { GRANT_READER, GRANT_WRITER, accessTx, inviteTx, type Member, type NodeClient } from '@evmb/node/src/client'
+
+export type DeviceRole = 'reader' | 'writer'
+
+/** Shown when a writer code can be used more than once (risk R55). */
+export const multiUseWriterWarning = (role: DeviceRole, uses: number): string | undefined =>
+  role === 'writer' && uses > 1 ? 'Anyone who can read this chain could see a multi-use writer code once it is used. Prefer single-use.' : undefined
+
+/** Commit an invite for `code` on chain `chainId`; `client` signs as `admin`. Only the code's hash goes on chain. */
+export async function inviteDevice(o: { client: NodeClient; chainId: string; admin: LocalAccount; code: string; ttlS: number; uses: number; role: DeviceRole }) {
+  const { nonce, access } = await o.client.joinInfo(o.chainId)
+  const grants = o.role === 'writer' ? GRANT_WRITER : GRANT_READER
+  await o.client.submit(o.chainId, [await inviteTx(o.admin, nonce, access, o.code.trim(), o.ttlS, o.uses, grants)])
+}
+
+/**
+ * Remove `member` from chain `chainId` in one submit (consecutive nonces): removeWriter and removeReader for a writer
+ * (`nodes` lists only the highest role, and removing a role it lacks is a no-op), removeReader for a reader, then
+ * setReadOpen(false) if `closeReads`. `client` signs as `admin`.
+ */
+export async function removeDevice(o: { client: NodeClient; chainId: string; admin: LocalAccount; member: Member; closeReads: boolean }) {
+  const { member: m } = o
+  if (m.role === 'admin') throw new Error("The chain's admin can't be removed")
+  const { nonce, access } = await o.client.joinInfo(o.chainId)
+  const calls: [Parameters<typeof accessTx>[3], Parameters<typeof accessTx>[4]][] = [
+    ...(m.role === 'writer' ? [['removeWriter', m.address] as const] : []),
+    ['removeReader', m.address],
+    ...(o.closeReads ? [['setReadOpen', false] as const] : []),
+  ]
+  const txs: Hex[] = await Promise.all(calls.map(([fn, arg], i) => accessTx(o.admin, nonce + i, access, fn, arg)))
+  await o.client.submit(o.chainId, txs)
+}

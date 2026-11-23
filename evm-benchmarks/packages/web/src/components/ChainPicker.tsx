@@ -3,6 +3,7 @@ import { useApp } from '../state'
 import { pageOf } from '../routes'
 import { Badge } from '../ui/badge'
 import { Select } from '../ui/input'
+import { FollowerBadge } from './cloud/DevicesPanel'
 
 /** The app-wide chain switcher. Switching drops chain-specific detail (`?asset=`, a tx report) and stays on the page; locked while a tx is in flight. */
 export function ChainPicker() {
@@ -17,6 +18,7 @@ export function ChainPicker() {
         {chains.map(c => <option key={c.id} value={c.id}>{c.name}{c.ephemeral ? ' (benchmark)' : ''}</option>)}
       </Select>
       {chain && <span className="hidden lg:inline-flex"><Badge>{chain.info.type}</Badge></span>}
+      {chain && <span className="hidden sm:inline-flex"><FollowerBadge chain={chain} /></span>}
     </div>
   )
 }

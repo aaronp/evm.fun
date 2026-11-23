@@ -25,6 +25,8 @@ const hidden = () => typeof document !== 'undefined' && document.visibilityState
  */
 export function followerApproach(o: {
   follows: Follows
+  /** the chain's name in this browser, for the "removed" message */
+  name?(): string
   /** the follow account's key in this browser and its label (sent as the device name); looked up on every sync until found */
   key(): { account: LocalAccount; label: string } | undefined
   /** called just before the first open, so a failed compile is retried on the next sync */
@@ -51,7 +53,7 @@ export function followerApproach(o: {
   }
   const classify = (e: unknown): FollowerStatus => {
     const detail = e instanceof Error ? e.message : String(e)
-    if (e instanceof FollowerRemoved) return { kind: 'removed', detail: `Removed from chain ${chainId}: your copy is no longer updated` }
+    if (e instanceof FollowerRemoved) return { kind: 'removed', detail: `Removed from ${o.name?.() ?? `chain ${chainId}`}: your copy is no longer updated` }
     if (e instanceof FollowerMismatch) return { kind: 'mismatch', detail: `Your copy differs from the cloud: ${detail}` }
     if (e instanceof NodeError && e.status === 401) return { kind: 'clock', detail: `Check this device's clock (${e.error})` }
     if (e instanceof NodeError && e.status === 404) return { kind: 'gone', detail: 'This chain no longer exists' }
@@ -135,4 +137,15 @@ export function followerApproach(o: {
       await f?.dispose()
     },
   }
+}
+
+/** A live follower handle's status (undefined for other chains, or a follower not opened yet). */
+export const followerStatus = (h?: { approach: unknown }): FollowerStatus | undefined =>
+  (h?.approach as { status?(): FollowerStatus } | undefined)?.status?.()
+
+/** The short badge for a follower status. */
+export function statusBadge(s: FollowerStatus): { text: string; tone: 'success' | 'warn' | 'danger' } {
+  if (s.kind === 'following') return { text: s.behind ? `${s.behind} behind` : 'in sync', tone: s.behind ? 'warn' : 'success' }
+  const text = { removed: 'removed', mismatch: 'differs', 'needs-key': 'needs key', unreachable: 'unreachable', clock: 'check clock', gone: 'gone' }[s.kind]
+  return { text, tone: s.kind === 'unreachable' || s.kind === 'clock' || s.kind === 'needs-key' ? 'warn' : 'danger' }
 }

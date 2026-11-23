@@ -11,6 +11,9 @@ import { JoinForm } from '../components/cloud/JoinForm'
 import { Segmented } from '../ui/segmented'
 import { deployedUrl } from '../cloud/deploy'
 import { CodesPanel } from '../components/cloud/CodesPanel'
+import { FollowerBadge } from '../components/cloud/DevicesPanel'
+import { followerStatus } from '../cloud/followerChain'
+import { registry } from '../chain/revm'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
@@ -24,7 +27,9 @@ const SYNC_OPTIONS = [{ value: '5', content: '5 s' }, { value: '15', content: '1
 
 export function Cloud() {
   useAppBar({ title: 'Cloud' })
-  const { account, chains } = useApp()
+  const { account, chains, selectChain } = useApp()
+  const [, bump] = useState(0) // a follower's status or block changed
+  useEffect(() => registry.watch(() => bump((n) => n + 1)), [])
   const acct = accounts.list().find((a) => a.address === account)
   const [url, setUrl] = useState(nodeUrl)
   const [draft, setDraft] = useState(url)
@@ -40,7 +45,8 @@ export function Cloud() {
   const isAdmin = !!root && !!acct && root.admin.toLowerCase() === acct.address.toLowerCase()
   const client = useMemo(() => (isAdmin ? clientFor(acct) : undefined), [isAdmin, acct?.address, url]) // eslint-disable-line react-hooks/exhaustive-deps
   const signer = useMemo(() => acct && privateKeyToAccount(acct.privateKey), [acct?.address]) // eslint-disable-line react-hooks/exhaustive-deps
-  const deployed = chains.filter((c) => c.deployed)
+  const deployed = chains.filter((c) => c.deployed && !c.follows) // deployed before deploys converted: they convert when opened
+  const followed = chains.filter((c) => c.follows)
   const { pathname, search } = useLocation()
   const nav = useNavigate()
   const link = pathname === '/cloud/join' ? joinPrefill(search) : {} // #/cloud/join?node=…&chain=…
@@ -88,9 +94,32 @@ export function Cloud() {
       {isAdmin && client && signer && <CodesPanel client={client} account={signer} access={root!.access} />}
       {root && acct && !isAdmin && <p className="text-sm text-muted">Only the root admin issues deploy codes. Ask them for one, then use <b className="text-text-2">Deploy…</b> on the Chains page.</p>}
 
-      <Panel title="Your deployed chains">
-        {deployed.length === 0 ? <p className="p-4 text-muted">None yet. Pick a chain on the Chains page and choose Deploy….</p> : (
+      <Panel title="Chains you follow">
+        {followed.length === 0 ? <p className="p-4 text-muted">None yet. Deploy a chain from the Chains page, or join one above.</p> : (
           <Table>
+            <table className="w-full">
+              <thead><tr className="border-b border-line"><th className={th}>Chain</th><th className={th}>Cloud chain</th><th className={th}>Status</th><th className={th}><span className="sr-only">Open</span></th></tr></thead>
+              <tbody>
+                {followed.map((c) => {
+                  const h = registry.peek(c.id), s = followerStatus(h)
+                  return (
+                    <tr key={c.id} className="border-b border-line last:border-0 align-top">
+                      <td className={`${td} break-all`}>{c.name}</td>
+                      <td className={`${td} break-all font-mono text-xs`} title={deployedUrl(c.follows!)}>{c.follows!.chainId}</td>
+                      <td className={td}>{h ? <span className="inline-flex flex-wrap items-center gap-2"><FollowerBadge chain={h} />{s?.kind === 'following' && <span className="text-xs text-text-2">#{s.block}</span>}</span> : <span className="text-xs text-muted">not open{c.lastHeight === undefined ? '' : ` · #${c.lastHeight}`}</span>}</td>
+                      <td className={td}><Button variant="ghost" size="sm" onClick={() => { void selectChain(c.id); nav('/chains') }}>Open</Button></td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </Table>
+        )}
+      </Panel>
+
+      {deployed.length > 0 && <Panel title="Deployed, not following yet">
+        <p className="px-4 pt-3 text-xs text-muted">These switch to following their cloud chain when you open them on the Chains page.</p>
+        <Table>
             <table className="w-full">
               <thead><tr className="border-b border-line"><th className={th}>Chain</th><th className={th}>Cloud chain</th><th className={th}>Head</th><th className={th}>Deployed</th></tr></thead>
               <tbody>
@@ -104,9 +133,8 @@ export function Cloud() {
                 ))}
               </tbody>
             </table>
-          </Table>
-        )}
-      </Panel>
+        </Table>
+      </Panel>}
     </div>
   )
 }

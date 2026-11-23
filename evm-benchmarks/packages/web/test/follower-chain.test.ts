@@ -125,7 +125,7 @@ describe('follower chains', () => {
     expect(status(h).kind).toBe('following')
     await c.submit(cid, [await accessTx(admin, await c.nonce(cid), access, 'removeReader', phone.address)])
     await syncNow(h)
-    expect(status(h)).toMatchObject({ kind: 'removed' })
+    expect(status(h)).toEqual({ kind: 'removed', detail: 'Removed from d: your copy is no longer updated' })
     await expect(h.request('eth_blockNumber', [])).rejects.toThrow()
     await registry.remove(h.info.id)
   })

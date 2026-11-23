@@ -48,7 +48,7 @@ export function createChainRegistry(deps: {
     if (!deps.follower || !info.follows) throw new Error(`chain ${info.id} can't follow a cloud chain here`)
     const { account, wasm, onAccountsChange } = deps.follower, follows = info.follows
     return makeHandle(info, followerApproach({
-      follows, key: () => account(follows.account), wasm, onKeysChange: onAccountsChange,
+      follows, name: () => info.name, key: () => account(follows.account), wasm, onKeysChange: onAccountsChange,
       onStatus: () => emit(info.id), onHead: () => emit(info.id),
     }))
   }

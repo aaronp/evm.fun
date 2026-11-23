@@ -16,13 +16,15 @@ const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 export function JoinForm({ acct, nodeUrl, chainId: initialChain = '', onJoined }: { acct?: Account; nodeUrl: string; chainId?: string; onJoined?(): void }) {
   const { refresh, selectChain, setBusy } = useApp()
   const [url, setUrl] = useState(nodeUrl)
+  const [urlEdited, setUrlEdited] = useState(false)
   const [chainId, setChainId] = useState(initialChain)
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
   const [running, setRunning] = useState(false)
   const [flash, setFlash] = useState<{ tone: 'success' | 'warn'; text: string }>()
   const id = chainId.trim()
-  useEffect(() => { if (initialChain) { setUrl(nodeUrl); setChainId(initialChain) } }, [nodeUrl, initialChain]) // another join link
+  useEffect(() => { if (initialChain) { setUrl(nodeUrl); setUrlEdited(false); setChainId(initialChain) } }, [nodeUrl, initialChain]) // another join link
+  useEffect(() => { if (!urlEdited) setUrl(nodeUrl) }, [nodeUrl]) // eslint-disable-line react-hooks/exhaustive-deps -- the node-URL setting changed: follow it until edited here
 
   async function join() {
     if (!acct) return
@@ -36,7 +38,9 @@ export function JoinForm({ acct, nodeUrl, chainId: initialChain = '', onJoined }
       await selectChain(h.info.id)
       onJoined?.()
     } catch (e) {
-      setFlash({ tone: 'warn', text: `Couldn't join: ${message(e)}` })
+      const joined = (e as { joined?: string }).joined // the code was spent and the chain saved: it opens from the Chains page
+      setFlash({ tone: 'warn', text: joined ? message(e) : `Couldn't join: ${message(e)}` })
+      if (joined) { setCode(''); await refresh().catch(() => {}) }
     } finally {
       setRunning(false); setBusy(false)
     }
@@ -48,7 +52,7 @@ export function JoinForm({ acct, nodeUrl, chainId: initialChain = '', onJoined }
         <p className="text-text-2">Follow a chain someone deployed, using the invite code they gave you. Your copy is read-only and stays in sync with the cloud.</p>
         <label className={fieldLabel}>
           Worker URL
-          <Input className="font-mono" value={url} onChange={(e) => setUrl(e.target.value)} disabled={running} />
+          <Input className="font-mono" value={url} onChange={(e) => { setUrl(e.target.value); setUrlEdited(true) }} disabled={running} />
         </label>
         <label className={fieldLabel}>
           Chain id

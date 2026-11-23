@@ -288,6 +288,6 @@ test('Cloud sits under Setup after Chains; it renders the node and checks it; co
   expect(groups[0].items.map(([n]) => n)).toEqual(['Get started', 'Accounts', 'Chains', 'Cloud'])
   const html = renderToString(h(MemoryRouter, { initialEntries: ['/cloud'] }, h(AppState, null, h(AppBarProvider, null, real.Cloud!)))).replaceAll('<!-- -->', '')
   expect(html).toContain('Checking http://localhost:8799…')
-  expect(html).toContain('Your deployed chains')
+  expect(html).toContain('Chains you follow')
   expect([expiresIn(100, 200), expiresIn(500, 200), expiresIn(200 + 7200, 200), expiresIn(200 + 2 * 86400, 200)]).toEqual(['expired', '5 min', '2 h', '2 days'])
 })

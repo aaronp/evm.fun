@@ -6,7 +6,7 @@ import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry } from '../src/chain/registry'
-import { joinChain, joinName, joinPrefill } from '../src/cloud/join'
+import { joinChain, joinLink, joinName, joinPrefill } from '../src/cloud/join'
 import type { FollowerStatus } from '../src/cloud/followerChain'
 
 // The worker stand-in, as in cloud-deploy.test.ts: packages/node's router over in-process ChainHosts on bun:sqlite.
@@ -86,6 +86,21 @@ describe('joinChain', () => {
     }
   })
 
+  test('joined but not opened: the chain stays listed and can be opened later', async () => {
+    const phone = privateKeyToAccount(generatePrivateKey())
+    const kv = createKv()
+    const client = new NodeClient(url, phone, { name: 'phone' })
+    // no follower support here, so opening fails after the code is spent
+    const e = await joinChain({ client, chainId, code: await invite(GRANT_READER), account: phone, name: 'Later', registry: createChainRegistry({ kv, host: () => ({}) }) }).catch((x) => x)
+    expect(e.message).toStartWith("Joined, but couldn't open it yet: ")
+    expect(e.joined).toBeString()
+    const later = createChainRegistry({ kv, host: () => ({}), follower: { wasm: async () => wasm, account: () => ({ account: phone, label: 'phone' }) } })
+    expect(await later.list()).toMatchObject([{ id: e.joined, name: 'Later', type: 'follower', follows: { chainId, account: phone.address } }])
+    const h = await later.open(e.joined)
+    expect(status(h)).toMatchObject({ kind: 'following' })
+    await later.remove(h.info.id)
+  })
+
   test('the default name is "Joined <short id>"', () => {
     expect(joinName('0123456789abcdef')).toBe('Joined 01234567')
   })
@@ -98,5 +113,11 @@ describe('joinPrefill', () => {
     // only what a join could use: an http(s) URL that parses, a chain-id token
     expect(joinPrefill('?node=javascript%3Aalert(1)&chain=..%2Fx')).toEqual({})
     expect(joinPrefill('?node=http%3A%2F%2F%5B&chain=ok')).toEqual({ chainId: 'ok' })
+  })
+
+  test('the join link carries URL and chain id, and prefills them back', () => {
+    const link = joinLink('https://evm.fun/', 'https://node.example', 'abc-123')
+    expect(link).toBe('https://evm.fun/#/cloud/join?node=https%3A%2F%2Fnode.example&chain=abc-123')
+    expect(joinPrefill(link.slice(link.indexOf('?')))).toEqual({ nodeUrl: 'https://node.example', chainId: 'abc-123' })
   })
 })

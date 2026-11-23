@@ -16,6 +16,7 @@ import { exportChain } from '../components/exportFile'
 import { NO_FUNDS } from '../chain/snapshotUi'
 import { Explorer } from './Explorer'
 import { DeployDialog } from '../components/cloud/DeployDialog'
+import { DevicesPanel, FollowerBadge, FollowerStatusLine, syncNow } from '../components/cloud/DevicesPanel'
 import { cannotDeploy, convertDeployed, deployedUrl } from '../cloud/deploy'
 import { useWizardAction, useWizardMark } from '../walkthrough/wizard'
 import { useBlockWindow } from '../explorer/useBlockWindow'
@@ -77,6 +78,9 @@ export function Chains() {
   const converting = useRef(new Set<string>())
   const selected = useRef<string | undefined>(undefined)
   selected.current = chain?.info.id
+  const [, bumpFollowers] = useState(0) // a follower's status or head changed: redraw its badge in the list
+  useEffect(() => registry.watch(() => bumpFollowers(n => n + 1)), [])
+  const [syncing, setSyncing] = useState(false)
   const [noFunds, setNoFunds] = useState<string>() // id of the imported chain with no funded account, checked once at import
   // an import from the File menu lands here with the same check's result
   useEffect(() => {
@@ -183,6 +187,7 @@ export function Chains() {
                       <Badge>{c.type}</Badge>
                       {c.ephemeral && <Badge variant="warn">benchmark</Badge>}
                       {c.deployed && <Badge variant="success">deployed</Badge>}
+                      <FollowerBadge chain={registry.peek(c.id)} />
                       {registry.peek(c.id) && <Badge>running</Badge>}
                       {sel && <Badge variant="accent">selected</Badge>}
                     </div>
@@ -203,6 +208,7 @@ export function Chains() {
                   <Badge>{chain.info.type}</Badge>{chain.info.ephemeral && <Badge variant="warn">benchmark (not saved)</Badge>}{chain.info.deployed && <Badge variant="success">Deployed</Badge>}<span>{chain.info.createdAt}</span>
                 </div>
                 {provenanceText(chain.info.source) && <div className="mt-1 text-xs text-muted">{provenanceText(chain.info.source)}</div>}
+                {chain.info.follows && <div className="mt-1"><FollowerStatusLine chain={chain} onDelete={() => remove(chain.info)} /></div>}
                 {noFunds === chain.info.id && <div className="mt-2"><Notice onDismiss={() => setNoFunds(undefined)}>{NO_FUNDS}</Notice></div>}
               </div>
               {diverged === chain.info.id && chain.info.deployed && (
@@ -216,7 +222,10 @@ export function Chains() {
               )}
               <div className="flex flex-wrap items-center gap-2">
                 {chain.info.follows
-                  ? <div className="min-w-0 text-xs text-muted">Follows <span className="break-all font-mono text-text-2">{deployedUrl(chain.info.follows)}</span></div>
+                  ? <>
+                      <div className="min-w-0 text-xs text-muted">Follows <span className="break-all font-mono text-text-2">{deployedUrl(chain.info.follows)}</span></div>
+                      <Button variant="ghost" size="sm" disabled={syncing} onClick={() => { setSyncing(true); syncNow(chain).finally(() => setSyncing(false)) }}>{syncing ? 'Syncing…' : 'Sync now'}</Button>
+                    </>
                   : chain.info.deployed
                   ? <div className="min-w-0 text-xs text-muted">Deployed as <span className="break-all font-mono text-text-2">{deployedUrl(chain.info.deployed)}</span> at block #{chain.info.deployed.head}</div>
                   : <Button variant="ghost" size="sm" disabled={!!cannotDeploy(chain.info)} title={cannotDeploy(chain.info) ?? 'Run a copy of this chain on the cloud node'} onClick={() => deployRef.current?.showModal()}>Deploy…</Button>}
@@ -224,6 +233,7 @@ export function Chains() {
               </div>
             </Card>
           )}
+          {chain?.info.follows && <DevicesPanel key={chain.info.id} chain={chain} />}
           {chains.length > 0 && <Explorer win={win} />}
         </section>
       </div>
