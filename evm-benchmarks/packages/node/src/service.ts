@@ -230,13 +230,16 @@ export class ChainService {
     return this.sql
   }
 
-  /** Record a device's position: only when `block` is past the stored one, or the stored one is a minute old. */
+  /**
+   * Record a device's position: only when `block` is past the stored one, or the stored one is a minute old.
+   * The stored block never goes down, and an empty name keeps the stored one.
+   */
   touch(address: string, name: string | undefined, block: number, at: number): void {
     const sql = this.#cursors()
     const addr = address.toLowerCase()
-    const [row] = sql.exec('SELECT block, seenAt FROM cursors WHERE address = ?', addr)
+    const [row] = sql.exec('SELECT name, block, seenAt FROM cursors WHERE address = ?', addr)
     if (row && block <= Number(row.block) && at - Number(row.seenAt) < CURSOR_REFRESH_S) return
-    sql.exec('INSERT OR REPLACE INTO cursors VALUES (?, ?, ?, ?)', addr, name ?? null, block, at)
+    sql.exec('INSERT OR REPLACE INTO cursors VALUES (?, ?, ?, ?)', addr, name || (row?.name ?? null), Math.max(block, Number(row?.block ?? block)), at)
   }
 
   /** The access list (admin, writers, readers; each once, with its highest role) joined with the devices' cursors. */

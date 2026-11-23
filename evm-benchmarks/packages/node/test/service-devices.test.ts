@@ -133,4 +133,15 @@ describe('nodes and cursors', () => {
     await adminTx('removeReader', [phone.address])
     expect((await s.nodes()).members.map((x) => x.address)).toEqual([admin.address, laptop.address])
   })
+
+  test('touch keeps the stored name when none is given, and never lowers the stored block', async () => {
+    const seen = async () => (await s.nodes()).members.find((x) => x.address === laptop.address)!
+    expect(await seen()).toMatchObject({ name: 'laptop', block: 6, seenAt: 1119 })
+    s.touch(laptop.address, undefined, 7, 1120)
+    expect(await seen()).toMatchObject({ name: 'laptop', block: 7, seenAt: 1120 })
+    s.touch(laptop.address, '', 8, 1121)
+    expect(await seen()).toMatchObject({ name: 'laptop', block: 8, seenAt: 1121 })
+    s.touch(laptop.address, 'laptop-2', 3, 1181) // a minute on, a lower block: seenAt and name only
+    expect(await seen()).toMatchObject({ name: 'laptop-2', block: 8, seenAt: 1181 })
+  })
 })
