@@ -105,4 +105,14 @@ describe('device routes', () => {
     expect(m.block).toBe(100)
     expect(m.name).toBe(('ax' + 'y'.repeat(40)).slice(0, 32))
   })
+
+  test('a non-Latin1 device name round-trips; an undecodable one is no name', async () => {
+    const a = as(admin)
+    await a.submit(cid, [await accessTx(admin, await a.nonce(cid), access, 'setReadOpen', false)]) // moves the head past the stored cursor
+    await as(admin, 'Café tablet ☕').blocks(cid, 100)
+    const find = async () => (await a.nodes(cid)).members.find((x) => x.address.toLowerCase() === admin.address.toLowerCase())!
+    expect((await find()).name).toBe('Café tablet ☕')
+    const res = await fetch(new URL(`/chains/${cid}/nodes`, url), { headers: { 'x-node-name': '%E0%A4%A' } })
+    expect(res.status).toBe(401) // unsigned, but the router must not 500 on a bad escape
+  })
 })

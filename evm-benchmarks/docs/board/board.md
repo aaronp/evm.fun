@@ -53,6 +53,8 @@ Check: the app's HashRouter and relative assets still work at the root path; `cl
 One invite mechanism `{hash, expiry, usesLeft, grants}`: the creator commits hash(code); a claimer reveals the code. Single-use (usesLeft = 1, a captured code is worthless after the claim) or multi-use until expiry (a group joins with one code). Grants a role: a device/key on a chain's access contract, or a slot to create a new chain in the root registry.
 
 Spiked (views spike, [docs/spikes/cf-views.md](../spikes/cf-views.md)): single-use refused on the second claim; one multi-use code let 3 keys join then was refused after expiry; a 2-use code refused the third claim. The chain-creation grant is sketched only; deploy codes (t-134) reuse this mechanism.
+
+Part 1 done (worker + Follower): `POST /chains/:id/join` redeems a reader/writer code; a create-chain code is refused (403). Part 2: the join UI in evm.fun.
 ```
 
 ### Views: readable current state per contract (aliases + recipes)
@@ -855,6 +857,8 @@ Roadmap item 1: turn the CF spike (`spike/cf-chain`, [docs/spikes](../spikes/)) 
 Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-follow-design.md) (A: follow and show). From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
 
 Demo (t-136): after Deploy (t-134), the browser chain follows the cloud node, so they form a 2-node cluster; needed for node cursors (t-140). Uses t-129's `ChainNode` for replay.
+
+Part 1 done (worker + Follower): `Follower` in `packages/node` boots from `GET /state` and replays `GET /blocks` with root and hash checks. Part 2: the browser handle and real-browser check.
 ```
 
 ```dod
@@ -906,11 +910,13 @@ Demo steps e–f, the indexer demo. **From t-134:** `POST /chains/:id/submit` is
 
 ```md
 Finished by the devices work: `GET /chains/:id/nodes` replaces `/nodes/latest`. Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-follow-design.md) (A: follow and show). Demo step g. The cloud node records the block it last delivered to each device key and serves `GET /chains/:id/nodes/latest`; evm.fun shows a Nodes panel ("phone: block 412, 6 behind, 2 min ago"). Show only, for now. Design: [node cursors](../superpowers/specs/2026-11-23-node-cursors-design.md). Needs t-132.
+
+Part 1 done (worker + Follower): `GET /chains/:id/nodes` serves each member's block, behind and last seen. Part 2: the Nodes panel and the view in evm.fun (first DoD item).
 ```
 
 ```dod
 - [ ] Two device keys following a deployed chain show their blocks and last-seen times in the view and the panel
-- [ ] A device that stops fetching falls behind as the chain advances; a key without read access gets 403
+- [x] A device that stops fetching falls behind as the chain advances; a key without read access gets 403 (worker side, `make e2e-node`)
 - [ ] Docs updated (t-137)
 ```
 

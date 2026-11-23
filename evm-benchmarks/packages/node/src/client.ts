@@ -70,7 +70,7 @@ export class NodeClient {
     const text = body === undefined ? '' : JSON.stringify(body)
     const headers: Record<string, string> = text ? { 'content-type': 'application/json' } : {}
     if (sign) {
-      if (this.opts.name) headers['x-node-name'] = this.opts.name
+      if (this.opts.name) headers['x-node-name'] = encodeURIComponent(this.opts.name)
       if (!this.account) throw new Error('this request needs a signing account')
       const s = await signRequest(this.account, method, url, text)
       Object.assign(headers, { 'x-ts': s.ts, 'x-nonce': s.nonce, 'x-sig': s.sig })

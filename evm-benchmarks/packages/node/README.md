@@ -76,3 +76,23 @@ Check the bundle without a login: `wrangler deploy --dry-run --env live` in `pac
 As the root admin, open evm.fun → Cloud: pick a code (one is generated: 4 words), a TTL (5 min, 1 h, 1 day) and uses (default 1), and Issue; only `keccak256(code)` and the expiry go on the root chain when it is issued. Redeeming puts the plaintext code on the root chain: the claim tx carries it into a root block (root reads are closed: only the root admin, and any reader it adds, can read root). Send the code out of band. The friend opens Chains → Deploy… on one of their chains and enters it: evm.fun uploads the chain's state with two set-up txs, the worker checks the code, creates the chain with the friend as admin, and evm.fun replaces its local copy with the cloud node's (same head hash) and marks it deployed. Refused: wrong, expired or used-up codes, a root create by anyone but `ROOT_ADMIN`, and a deploy whose set-up is not two creations by the signer. A deployed chain cannot be deployed again.
 
 `deployChain` (`packages/web/src/cloud/deploy.ts`) takes a required `registry` option (`replaceState`, `setDeployed`); its errors carry `step` and `chainId`.
+
+
+# Devices on a deployed chain (plan 17, part 1)
+
+A device is a key that is a member of a chain's `ChainAccess` (reader or writer). Design: [devices follow](../../docs/superpowers/specs/2026-11-23-devices-follow-design.md).
+
+| Route | Who | What |
+|---|---|---|
+| `GET /chains/<id>/state` | members | `{ head, dump }`: the chain's current state, to boot a copy |
+| `GET /chains/<id>/blocks?after=N` | members | `{ head, blocks }`: up to 100 blocks after N (header and raw txs) |
+| `GET /chains/<id>/nodes` | members | `{ head, admin, readOpen, members }`: each member's role, name, block, behind and last seen. Replaces `/nodes/latest` of the cursor design |
+| `POST /chains/<id>/join` | anyone signed | `{ claim }`: a `claim` tx for a reader or writer code the admin issued with `inviteTx(…, grants)`. Redeems it and returns `{ head, role }`. A create-chain code is refused (`403`); failed joins count toward the 10-per-IP `429` |
+
+**Joining.** The admin issues a code (`inviteTx` with `GRANT_READER` or `GRANT_WRITER`), sends it out of band; the device signs `claimTx` (nonce 0 is fine for a new key) and calls `join`.
+
+**The cursor rule.** Every `blocks` fetch records, for the signing key, the last block it was delivered (not the head: a page is capped at 100). The stored block never goes down, and a write happens only when the block advances or the stored one is a minute old. `behind` is head minus that block. A key removed from the access list gets `403` on all of these and disappears from `nodes`. A device name goes in `x-node-name` (`NodeClient` option `name`), percent-encoded so any characters survive; the worker decodes it, drops control characters and keeps 32 code points.
+
+**`Follower`** (`src/follower.ts`): `Follower.open(client, chainId, wasm)` boots a local webevm node from `state` and checks the state root; `sync()` replays `blocks` pages, checking each block's parent, hash and state root; `read(fn)` reads the local node; `status` is `following`, `removed` (a `403`: `FollowerRemoved`) or `mismatch`. After either stop, `sync` and `read` throw the same error again; `dispose()` frees the node.
+
+`make e2e-node` covers it with two devices: join, follow across blocks, cursors, being 2 blocks behind, removal, and the refused codes.

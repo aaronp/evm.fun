@@ -4,9 +4,10 @@ import { join } from 'node:path'
 import { encodeDeployData, type Hex, type LocalAccount } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { MintableToken } from '@evmb/contracts'
-import { MAX_CREATE_BYTES, NodeClient, NodeError, claimTx, codeHash, generateCode, inviteTx, setupTxs, type CreateChainResult } from '../src/client'
+import { GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, MAX_CREATE_BYTES, NodeClient, NodeError, accessTx, claimTx, codeHash, generateCode, inviteTx, setupTxs, type CreateChainResult } from '../src/client'
 import { signRequest } from '../src/auth'
-import { ensureKey, freshDump } from './bootstrap'
+import { Follower, FollowerRemoved } from '../src/follower'
+import { ensureKey, freshDump, wasm } from './bootstrap'
 
 const URL_ = process.argv[2] ?? 'http://127.0.0.1:8799'
 const ENV = join(import.meta.dir, '../../../.env.local')
@@ -23,11 +24,12 @@ const status = (p: Promise<unknown>) => p.then(() => 0, (e) => (e instanceof Nod
 const admin = privateKeyToAccount(ensureKey(ENV).key)
 const B = privateKeyToAccount(generatePrivateKey())
 const C = privateKeyToAccount(generatePrivateKey())
+const D = privateKeyToAccount(generatePrivateKey())
 // every request carries the run's IP header, so the rate-limit counter starts at zero
 const realFetch = fetch
 globalThis.fetch = ((u: RequestInfo | URL, init: RequestInit = {}) =>
   realFetch(u, { ...init, headers: { ...(init.headers as Record<string, string>), 'cf-connecting-ip': IP } })) as typeof fetch
-const as = (a: LocalAccount) => new NodeClient(URL_, a)
+const as = (a: LocalAccount, name?: string) => new NodeClient(URL_, a, { name })
 const anon = new NodeClient(URL_)
 
 try {
@@ -127,6 +129,48 @@ try {
   check(rec(retry)?.redeemed.map((x) => x.chainId).join() === rr.chainId, 'codes: the retried code redeemed once')
   check(rec(spent)?.usesLeft === 0 && /^failed: bad dump/.test(rec(spent)?.redeemed[0]?.chainId ?? ''), `codes: the spent code records the failed create (${rec(spent)?.redeemed[0]?.chainId})`)
   check(await status(as(B).codes()) === 403, 'codes by a non-admin → 403')
+
+  // ---- devices: B's chain with C (reader) and D (writer) following it ----
+  const cid = r.chainId, bAccess = info.access
+  const bc = as(B, 'B laptop')
+  const invite = async (grants: number, code = generateCode()) => {
+    await bc.submit(cid, [await inviteTx(B, await bc.nonce(cid), bAccess, code, 300, 1, grants)])
+    return code
+  }
+  const blocks = async (n: number) => {
+    for (let i = 0; i < n; i++) await bc.submit(cid, [await accessTx(B, await bc.nonce(cid), bAccess, 'setReadOpen', false)])
+  }
+  const member = async (a: LocalAccount) => (await bc.nodes(cid)).members.find((m) => m.address.toLowerCase() === a.address.toLowerCase())
+  const codeC = await invite(GRANT_READER), codeD = await invite(GRANT_WRITER)
+  const cc = as(C, 'C phone'), dc = as(D, 'Café tablet ☕')
+  check((await cc.join(cid, await claimTx(C, 0, codeC, bAccess))).role === 'reader', 'C joins B’s chain as a reader with a 1-use code')
+  check((await dc.join(cid, await claimTx(D, 0, codeD, bAccess))).role === 'writer', 'D joins as a writer')
+  const fc = await Follower.open(cc, cid, wasm), fd = await Follower.open(dc, cid, wasm)
+  try {
+    const head0 = (await bc.state(cid)).head
+    check(fc.head.hash === head0.hash && fd.head.hash === head0.hash, `C and D boot at B's head #${head0.number}`)
+    await blocks(3)
+    const bh = (await bc.state(cid)).head
+    const [hc, hd] = [await fc.sync(), await fd.sync()]
+    check(hc.hash === bh.hash && hd.hash === bh.hash && bh.number === head0.number + 3, `after 3 blocks both followers reach #${bh.number} with B's hash`)
+    const ms = await Promise.all([member(B), member(C), member(D)])
+    check(ms[0]?.role === 'admin' && ms[1]?.role === 'reader' && ms[2]?.role === 'writer', 'nodes: B admin, C reader, D writer')
+    check(ms[1]?.name === 'C phone' && ms[2]?.name === 'Café tablet ☕' && ms[1]?.block === bh.number && ms[2]?.block === bh.number, `nodes: names (incl. non-ASCII) and blocks ${ms[1]?.block}, ${ms[2]?.block}`)
+    await blocks(2)
+    await fd.sync() // C stops polling
+    const bh2 = (await bc.state(cid)).head
+    const [mc, md] = [await member(C), await member(D)]
+    check(mc?.behind === 2 && mc.block === bh.number && md?.behind === 0 && md.block === bh2.number, `nodes: C ${mc?.behind} behind, D ${md?.behind} behind`)
+    await bc.submit(cid, [await accessTx(B, await bc.nonce(cid), bAccess, 'removeReader', C.address)])
+    check(await fc.sync().then(() => false, (e) => e instanceof FollowerRemoved) && fc.status === 'removed', 'removed C: its next sync is FollowerRemoved (403)')
+    check(await status(cc.blocks(cid, 0)) === 403, 'removed C: GET blocks → 403')
+    check(!(await member(C)), 'nodes omits C after removal')
+    const root1 = await invite(GRANT_CREATE_CHAIN)
+    check(await status(as(D).join(cid, await claimTx(D, 0, root1, bAccess))) === 403, 'a create-chain code used to join → 403')
+    check(await status(as(C).join(cid, await claimTx(C, 0, codeC, bAccess))) === 403, 'C’s reused 1-use code → 403')
+  } finally {
+    await fc.dispose(); await fd.dispose()
+  }
 
   // ---- rate limit: 10 failed redeems per IP per 10 min ----
   for (let i = 0; i < 10; i++) await status(deploy(C, `wrong-${i}`))

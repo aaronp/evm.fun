@@ -15,6 +15,7 @@ Each should be able to see where the others are, e.g. "phone: block 412, 6 behin
   to that key. Devices may send a name (`x-node-name`, e.g. "phone"); the latest name wins.
 - **Kept in the cloud node's own storage**, a `cursors` table beside the chain store — not on chain, so recording a
   position never makes a block.
+- **Superseded route (devices design):** `GET /chains/:id/nodes` (members with role, name, block, behind, seenAt; see [devices](2026-11-23-devices-follow-design.md)) replaces `/nodes/latest` below.
 - **Served as a view:** `GET /chains/:id/nodes/latest` → `{ head: {block, hash}, nodes: [{address, name, block, hash,
   behind, seenAt}] }`, readable by whoever can read the chain (same rule as `access-controls/latest`).
 - **evm.fun:** a deployed chain shows a **Nodes** panel (cloud head + each node's block, behind, last seen), refreshed
