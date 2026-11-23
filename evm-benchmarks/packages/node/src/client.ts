@@ -52,21 +52,25 @@ const call = (account: LocalAccount, nonce: number, to: Address, data: Hex) =>
 export const claimTx = (account: LocalAccount, nonce: number, code: string, access: Address) =>
   call(account, nonce, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: 'claim', args: [code] }))
 
-export const inviteTx = (account: LocalAccount, nonce: number, access: Address, code: string, ttlS: number, uses: number) =>
-  call(account, nonce, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: 'invite', args: [codeHash(code), BigInt(ttlS), uses, GRANT_CREATE_CHAIN] }))
+export const inviteTx = (account: LocalAccount, nonce: number, access: Address, code: string, ttlS: number, uses: number, grants = GRANT_CREATE_CHAIN) =>
+  call(account, nonce, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: 'invite', args: [codeHash(code), BigInt(ttlS), uses, grants] }))
+
+export const accessTx = (account: LocalAccount, nonce: number, access: Address, fn: 'removeReader' | 'removeWriter' | 'setReadOpen', arg: Address | boolean) =>
+  call(account, nonce, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: fn, args: [arg] } as never))
 
 export class NodeError extends Error {
   constructor(readonly status: number, readonly error: string) { super(`${status}: ${error}`) }
 }
 
 export class NodeClient {
-  constructor(readonly baseUrl: string, private account?: LocalAccount) {}
+  constructor(readonly baseUrl: string, private account?: LocalAccount, private opts: { name?: string } = {}) {}
 
   private async req<T>(method: string, path: string, body?: unknown, sign = true): Promise<T> {
     const url = new URL(path, this.baseUrl)
     const text = body === undefined ? '' : JSON.stringify(body)
     const headers: Record<string, string> = text ? { 'content-type': 'application/json' } : {}
     if (sign) {
+      if (this.opts.name) headers['x-node-name'] = this.opts.name
       if (!this.account) throw new Error('this request needs a signing account')
       const s = await signRequest(this.account, method, url, text)
       Object.assign(headers, { 'x-ts': s.ts, 'x-nonce': s.nonce, 'x-sig': s.sig })
@@ -79,7 +83,11 @@ export class NodeClient {
 
   health() { return this.req<{ ok: true; root: null | RootInfo }>('GET', '/health', undefined, false) }
   info(chainId: string) { return this.req<RemoteChainInfo>('GET', `/chains/${chainId}`) }
-  async nonce(chainId: 'root') { return (await this.req<{ nonce: number }>('GET', `/chains/${chainId}/nonce`)).nonce }
+  async nonce(chainId: string) { return (await this.req<{ nonce: number }>('GET', `/chains/${chainId}/nonce`)).nonce }
+  state(chainId: string) { return this.req<{ head: BlockSummary; dump: SerializedState }>('GET', `/chains/${chainId}/state`) }
+  blocks(chainId: string, after: number) { return this.req<{ head: BlockSummary; blocks: BlockRecord[] }>('GET', `/chains/${chainId}/blocks?after=${after}`) }
+  nodes(chainId: string) { return this.req<NodesView>('GET', `/chains/${chainId}/nodes`) }
+  join(chainId: string, claim: Hex) { return this.req<{ head: BlockSummary; role: 'reader' | 'writer' }>('POST', `/chains/${chainId}/join`, { claim }) }
   submit(chainId: string, txs: Hex[]) { return this.req<{ head: BlockSummary }>('POST', `/chains/${chainId}/submit`, { txs }) }
   createChain(r: CreateChainRequest) { return this.req<CreateChainResult>('POST', '/chains', r) }
   codes() { return this.req<CodeRecord[]>('GET', '/chains/root/codes') }

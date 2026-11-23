@@ -10,7 +10,7 @@ import type { NodeConfig } from './node'
 import { MAX_CREATE_BYTES, type CreateChainRequest } from './client'
 
 /** A request as a chain sees it (plain data, so it crosses a Durable Object RPC boundary). */
-export interface ChainRequest { method: string; url: string; body: string; ts: string; nonce: string; sig: string; ip: string }
+export interface ChainRequest { method: string; url: string; body: string; ts: string; nonce: string; sig: string; ip: string; name?: string }
 /** A response as plain data; `handle` turns it into JSON with CORS headers. */
 export interface Reply { status: number; body: unknown }
 type RootInfo = { chainId: 'root'; admin: string; access: string; head: number }
@@ -34,7 +34,7 @@ function cors(origin: string | null): Record<string, string> {
   return {
     'access-control-allow-origin': origin,
     'access-control-allow-methods': 'GET, POST, OPTIONS',
-    'access-control-allow-headers': 'content-type, x-ts, x-nonce, x-sig',
+    'access-control-allow-headers': 'content-type, x-ts, x-nonce, x-sig, x-node-name',
     'access-control-max-age': '86400',
     vary: 'origin',
   }
@@ -59,7 +59,7 @@ export async function handle(req: Request, deps: RouterDeps): Promise<Response> 
     const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await req.text()
     if (body.length > max) return json(tooBig)
     return json(await deps.chain(id).serve({
-      method: req.method, url: req.url, body, ts: h('x-ts'), nonce: h('x-nonce'), sig: h('x-sig'), ip: h('cf-connecting-ip') || 'unknown',
+      method: req.method, url: req.url, body, ts: h('x-ts'), nonce: h('x-nonce'), sig: h('x-sig'), ip: h('cf-connecting-ip') || 'unknown', name: h('x-node-name').trim().slice(0, 32) || undefined,
     }))
   } catch (e) {
     console.error(e)
@@ -133,7 +133,7 @@ export class ChainHost implements ChainHandleLike {
     const route = `${r.method} ${rest.join('/')}`
     const isRoot = id === 'root'
     await this.#ready(id)
-    const known = url.pathname === '/chains' ? isRoot && r.method === 'POST' : ['GET ', 'POST submit', ...(isRoot ? ['GET nonce', 'GET codes'] : [])].includes(route)
+    const known = url.pathname === '/chains' ? isRoot && r.method === 'POST' : ['GET ', 'POST submit', 'GET nonce', 'GET state', 'GET blocks', 'GET nodes', 'POST join', ...(isRoot ? ['GET codes'] : [])].includes(route)
     if (!known) return { status: 404, body: { error: 'not found' } }
     if (url.pathname !== '/chains' && !this.service) return { status: 404, body: { error: 'no such chain' } }
     const signer = await this.#auth(r)
@@ -150,11 +150,49 @@ export class ChainHost implements ChainHandleLike {
         if (!Array.isArray(txs) || !txs.length) throw new ServiceError(400, 'txs must be a non-empty array')
         return { status: 200, body: { head: await s.submit(signer, txs, now()) } }
       }
+      case 'GET state':
+        await this.#reader(s, signer)
+        return { status: 200, body: await s.state() }
+      case 'GET blocks': {
+        await this.#reader(s, signer)
+        const a = url.searchParams.get('after') ?? '0'
+        if (!/^\d{1,15}$/.test(a)) throw new ServiceError(400, 'after must be a non-negative integer')
+        const out = s.blocks(Number(a))
+        // the cursor is what this reply delivers, never a client-supplied number
+        s.touch(signer, r.name, out.blocks.at(-1)?.header.number ?? out.head.number, now())
+        return { status: 200, body: out }
+      }
+      case 'GET nodes':
+        await this.#reader(s, signer)
+        return { status: 200, body: await s.nodes() }
+      case 'POST join': {
+        const { claim } = parse<{ claim: Hex }>(r.body)
+        if (typeof claim !== 'string') throw new ServiceError(400, 'claim must be a hex string')
+        return { status: 200, body: await this.#limited(r.ip, () => s.join(signer, claim, now())) }
+      }
       case 'GET nonce':
         return { status: 200, body: { nonce: await s.nonceOf(signer) } }
       default: // GET codes
         if (signer !== this.cfg.rootAdmin.toLowerCase()) throw new ServiceError(403, 'only the root admin can list codes')
         return { status: 200, body: await s.codes() }
+    }
+  }
+
+  async #reader(s: ChainService, signer: string) {
+    if (!(await s.canRead(signer))) throw new ServiceError(403, `${signer} is not a reader of this chain`)
+  }
+
+  /** Run a code check under the per-IP failure limit; a throw counts as a failure. */
+  async #limited<T>(ip: string, f: () => Promise<T>): Promise<T> {
+    const t = now()
+    this.sql.exec('DELETE FROM fails WHERE at < ?', t - FAIL_WINDOW_S)
+    if (Number(this.sql.exec('SELECT count(*) AS n FROM fails WHERE ip = ?', ip)[0]!.n) >= MAX_FAILS)
+      throw new ServiceError(429, 'too many failed codes; try again in a few minutes')
+    try {
+      return await f()
+    } catch (e) {
+      this.sql.exec('INSERT INTO fails VALUES (?, ?)', ip, t)
+      throw e
     }
   }
 
@@ -172,16 +210,7 @@ export class ChainHost implements ChainHandleLike {
     // stateless set-up checks first, so a malformed upload never spends the code (a bad dump or a reverting tx still can)
     await checkSetup(signer, setup)
     const t = now()
-    this.sql.exec('DELETE FROM fails WHERE at < ?', t - FAIL_WINDOW_S)
-    if (Number(this.sql.exec('SELECT count(*) AS n FROM fails WHERE ip = ?', r.ip)[0]!.n) >= MAX_FAILS)
-      throw new ServiceError(429, 'too many failed codes; try again in a few minutes')
-    let hash: Hex
-    try {
-      ;({ codeHash: hash } = await this.service.redeem(signer, claim, t))
-    } catch (e) {
-      this.sql.exec('INSERT INTO fails VALUES (?, ?)', r.ip, t)
-      throw e
-    }
+    const { codeHash: hash } = await this.#limited(r.ip, () => this.service!.redeem(signer, claim, t))
     // ponytail: if the create below fails the code is spent (design risk R53); it is recorded as failed and the admin issues another
     const id = crypto.randomUUID()
     const record = (chainId: string) => this.service!.recordRedeem(hash, signer, chainId, now())
