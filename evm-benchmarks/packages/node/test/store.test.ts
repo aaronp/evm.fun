@@ -17,6 +17,7 @@ const header = (number: number, transactions: string[] = []) => ({
 function fixture(n = 300): SerializedState {
   const blocks = Array.from({ length: n }, (_, i) => header(i + 1))
   if (n >= 5) blocks[4] = header(5, ['0xt1', '0xt2'])
+  if (n >= 300) blocks[n - 1] = header(n, ['0xt1'])
   return {
     version: 1, chainId: 31337,
     accounts: { [A]: '0xaa', [B]: '0xbb' },

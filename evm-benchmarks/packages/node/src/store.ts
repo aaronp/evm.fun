@@ -77,7 +77,7 @@ export class ChainStore {
       }))
   }
 
-  /** State-only dump (last HEADERS_KEPT headers, no txs or receipts) for webevm `loadState`. */
+  /** State-only dump (last HEADERS_KEPT headers as stored; empty receipts/transactions maps) for webevm `loadState`. */
   stateDump(): SerializedState {
     const rows = (q: string) => this.sql.exec(q)
     const storage: SerializedState['storage'] = {}
@@ -85,7 +85,7 @@ export class ChainStore {
     const map = (q: string) => Object.fromEntries(rows(q).map((r) => [r.addr as string, r.v as string]))
     const headers = this.sql
       .exec('SELECT header FROM blocks ORDER BY number DESC LIMIT ?', HEADERS_KEPT)
-      .map((r) => ({ ...JSON.parse(r.header as string), transactions: [] }))
+      .map((r) => JSON.parse(r.header as string))
       .reverse()
     return {
       version: 1,
