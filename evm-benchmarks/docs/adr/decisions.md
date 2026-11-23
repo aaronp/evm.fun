@@ -1221,12 +1221,12 @@ Cons:
 - Blocked on webevm changes (t-130)
 
 ## Decision
-diff-rows. Decided with Aaron (design: chain store, t-129): tables `meta`, `accounts`, `code`, `storage`, `blocks` behind a tiny `Sql` interface that Durable Object SQLite and `bun:sqlite` both satisfy; the node rebuilds from the store on boot, every 1,000 blocks and after a rejected block.
+diff-rows. Decided with Aaron (design: chain store, t-129): tables `meta`, `accounts`, `code`, `storage`, `blocks` behind a tiny `Sql` interface that Durable Object SQLite and `bun:sqlite` can each be adapted to (on a DO, `sql.exec(...).toArray()` and `transactionSync`); the node rebuilds from the store on boot, every 1,000 blocks and after a rejected block.
 
 Claude's calls: a slot at zero is treated as absent (webevm keeps it as `0x`, the trie drops it) so its row is deleted; the block row and the diff are written in one transaction; a commit that throws or a rejected block rebuilds the node from the store.
 
 ## Consequences
-- Soak (10,000 blocks, file-backed SQLite): commit 0.54-0.65 ms (SQL write only), 8 rows and about 9.9 KB per block, memory (JS heap + external) 44-58 MB of the DO's 128 MB, all flat; boots matched the live root and next block at 2,500, 5,000 and 10,000.
+- Soak (10,000 blocks, file-backed SQLite): commit 0.53-0.72 ms (SQL write only), 8 rows and about 9.9 KB per block, memory (JS heap + external) 70-85 MB of the DO's 128 MB, sampled just before the every-1,000 rebuild (the node's most history), all flat; boots matched the live root and next block at 2,500, 5,000 and 10,000.
 - `external` only partly reflects wasm linear memory (one revm node: external +2.4 MB, rss +15.6 MB), so `memMB` is a lower bound; the real Durable Object figure is measured under workerd in t-134.
 - The diff compares whole-state dumps, so it is O(state) per block; logged as risk R51 (switch to a touched-keys diff past a few MB of state).
 - The in-memory node keeps only the last 256 headers plus up to 1,000 blocks; full history stays in the `blocks` table and is never pruned.
