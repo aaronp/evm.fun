@@ -1,0 +1,9 @@
+{
+  "name": "@evmb/spike-cf-chain",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8799",
+    "demo": "bun demo.ts"
+  }
+}

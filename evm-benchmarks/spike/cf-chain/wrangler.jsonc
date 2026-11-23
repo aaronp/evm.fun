@@ -1,0 +1,8 @@
+{
+  "name": "cf-chain-spike",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-04-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": { "bindings": [{ "name": "CHAIN", "class_name": "ChainDO" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChainDO"] }]
+}

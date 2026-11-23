@@ -10,6 +10,91 @@ effects.complete: random
 
 ## Backlog
 
+### Invites: single-use or multi-use within a TTL
+- id: t-133
+- parent: t-112
+- tags: chains, access, size-S
+- history:
+  - Backlog @ 2026-11-22T22:32:43Z
+
+```md
+One invite mechanism `{hash, expiry, usesLeft, grants}`: the creator commits hash(code); a claimer reveals the code. Single-use (usesLeft = 1, a captured code is worthless after the claim) or multi-use until expiry (a group joins with one code). Grants a role: a device/key on a chain's access contract, or a slot to create a new chain in the root registry.
+
+Spiked (views spike, [docs/spikes/cf-views.md](../spikes/cf-views.md)): single-use refused on the second claim; one multi-use code let 3 keys join then was refused after expiry; a 2-use code refused the third claim. The chain-creation grant (t-134) is sketched only.
+```
+
+### Chain registry: who may create chains
+- id: t-134
+- parent: t-112
+- tags: chains, access, size-M
+- history:
+  - Backlog @ 2026-11-22T22:32:43Z
+
+```md
+A root chain holds a chain-access registry: invites grant chain-creation slots; the Worker checks the registry before creating a DO; the registry records whose chain is whose. Each chain then has its own access/governance contract.
+```
+
+### Views: readable current state per contract (aliases + recipes)
+- id: t-135
+- parent: t-112
+- tags: chains, views, size-M
+- history:
+  - Backlog @ 2026-11-22T22:32:43Z
+
+```md
+`GET /<chain>/<alias>/latest` → the contract's current state as JSON, under the alias's own read rules (separate from raw chain access; e.g. `GET /<chain>/access-controls/latest` → {read, write}). Aliases live in an on-chain registry (name → address, recipe, access contract). Recipes: contracts we design expose state via read functions (e.g. readers(), writers()); standard contracts get a recipe too (e.g. ERC-20 → balances by address, holders found from Transfer events, balances read now). A full event-folding indexer is later.
+
+Spiked ([docs/spikes/cf-views.md](../spikes/cf-views.md)): `Aliases.sol` in genesis; recipes `self-describing` (view functions listed in the alias) and `erc20`; per-alias access contract (a view-only key gets its alias, 403 elsewhere; open reads make it a plain GET). Cost: 4 calls ~1 ms (access-controls), GBP 10 holders 15 calls + 1 log scan ~1.3 ms, 200 holders ~4.4 ms; the holder scan grows with history.
+```
+
+### Remote chain: incremental state storage
+- id: t-129
+- parent: t-112
+- tags: chains, cloudflare, size-M
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+
+```md
+From the t-128 spike: the DO rewrites a full `dumpState` (with history) every block. Persist only changed accounts/code/slots per block (webevm PersistenceAdapter diff, or a revm StateStore over DO SQLite), keep history in the blocks table, add checkpoints.
+```
+
+### webevm: per-block timestamp and history-free dump
+- id: t-130
+- parent: t-112
+- tags: chains, upstream, size-S
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+
+```md
+From t-128: the block timestamp is the only nondeterminism between the DO and replicas, pinned today through a webevm internal. Upstream `mine({timestamp})` and a dump without state history.
+
+Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps accounts absent from the snapshot, so rolling back a refused block left the new sender's nonce behind (DO/replica drift). The spike rebuilds the node on rollback (~10 ms); fix upstream.
+```
+
+### Remote chain: device enrolment and auth hardening
+- id: t-131
+- parent: t-112
+- tags: chains, cloudflare, size-M
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+
+```md
+From t-128: real device enrolment (pairing / owner-signed invites — see the access-control brainstorm), owner key rotation, multiple owners or thresholds, tx-sender ↔ device binding, rate limits.
+
+Access spike (branch spike-cf-chain, 129e7fd, `bun spike/cf-chain/access.ts` → ALL PASS, 49 checks; report .superpowers/spike-cf-access-report.md): `ChainAccess.sol` in genesis at 0xacce55… (admin, readOpen, reader/writer sets); the DO checks canRead/canWrite from its own state on every request (~15–20 µs); tx senders must be writers; changes apply next block and close revoked sockets; plain GET when reads are open, self-signed short-TTL bearer tokens otherwise (~1 ms verify); gas-free chains; `invite(hash, ttl)` + `claim(code)`.
+```
+
+### Playground ChainHandle over a remote (Durable Object) chain
+- id: t-132
+- parent: t-112
+- tags: chains, web, size-M
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+
+```md
+From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
+```
+
 ### Later: multi-node cluster (phone, laptop, worker)
 - id: t-119
 - parent: t-112
@@ -642,6 +727,8 @@ Having a real means to deploy their chains would be awesome
 
 ```md
 Publish the playground (Vite build, `base: './'`) to GitHub Pages from CI on every push to master. Done when the deployed site loads, runs a walkthrough, and compiles in Studio (solc worker and revm wasm served from the static path).
+
+The workflow is in place (`.github/workflows/pages.yml`, retries Bun's exit crash, R11). Not yet checked: the deployed site runs a walkthrough and compiles in Studio.
 ```
 
 ## Next
@@ -673,6 +760,8 @@ Anyone can create an ad-hoc chain they own (in the browser for now). Options: **
 
 ```md
 A chain option where transactions cost nothing (zero gas price, no prefund needed). Done when a fresh account with 0 ETH can transact on a gas-free chain, on both approaches.
+
+Proven in the CF spike: base fee 0, a 0-ETH key transacts ([docs/spikes/cf-access.md](../spikes/cf-access.md)). Still to do on the playground's approaches.
 ```
 
 ### Owner-controlled deploy allow-list
@@ -697,12 +786,46 @@ Contract creation is refused unless the sender is on the chain's deployer list (
 The owner sees and edits the chain's policy: gas mode, deployers. Done when the owner can add/remove a deployer from the Chains page and the change applies immediately.
 ```
 
+### Roadmap
+- id: t-136
+- history:
+  - Next @ 2026-11-23T08:16:30.318Z
+
+```md
+I think we want:
+
+1. To have a 'deploy button to deploy a chain to CF from our playground. This respects our chain permissions: the user needs to supply an auth code which permits them to do this, which will require an answer for how we 'bootstrap' the first chain (admin chain), which could be "the chain deployed is allowed"
+
+2. We can control 'node' permissions -- that is, which devices/instances are allowed to read and write from the chain. This is how we allow our laptops/phones/tablets/browsers to create keys and "sync" via the CF node.
+
+3. We can view and edit our 'indexer' when deploying new contracts on the chain: the means to control read/write permissions for a smart contract on our chain, as well as view the materialised data for the contract
+
+4. We can use the same code/hash permission exchange to expose a 'write' URL for a contract: i.e. swap the token for a key, and use it to save our 'tools' (including a new interactive draw tool as a PoC), and our 'relay' ACL for a relay topic.
+```
+
+### Documentation
+- id: t-137
+- history:
+  - Next @ 2026-11-23T08:20:40.001Z
+
+```md
+We want clear TypeDoc documentation we can build/serve for each area we build
+```
+
+```dod
+- 'make doc' builds the documentation
+- we can include 'docs' as part of our built Github Pages
+```
+
 ## Doing
+
+## Done
 
 ### Cloudflare evm worker
 - id: t-128
 - history:
   - Doing @ 2026-11-22T20:12:04.505Z
+  - Done @ 2026-11-22T21:41:18Z
 
 ```md
 Spike. I'd like "my personal blockchain", where I can add devices I approve, i.e.:
@@ -736,7 +859,16 @@ For each submission: verify authorisation → check expected head → execute �
 Related: We could have the chain access / allowance governed by an initial 'identity' or 'permission' contract where existing admin keys and signing thresholds can determine which nodes can contribute to the revm chain
 ```
 
-## Done
+```dod
+Spike result (branch spike-cf-chain, commit 1c24e48, `bun spike/cf-chain/demo.ts` → ALL PASS, 26 checks; report .superpowers/spike-cf-chain-report.md):
+- [x] webevm + revm runs unchanged in a Durable Object under wrangler dev (bundle 2.5 MB / 711 KiB gz; cold request ~30 ms)
+- [x] create / submit(expectedHead → 409 when stale) / fetch / hibernating WebSocket subscribe; submissions serialised
+- [x] snapshot + block + receipts persisted in one SQLite transaction; a new DO instance continues at the same head
+- [x] EIP-191 signed requests with single-use nonce; non-members 403, owner adds/removes devices
+- [x] device replicas (Bun) replay accepted blocks: same state root and block hash every block; fresh replay of 24 blocks matches in 45 ms
+- [ ] replica in a real browser (bundles, not run); playground ChainHandle over the remote chain (not attempted)
+Findings: snapshot holds full history (~2.8 KB per small block, rewritten every block); block/genesis timestamp is the only nondeterminism and is pinned via a webevm internal.
+```
 
 ## Archive <!-- archive -->
 
