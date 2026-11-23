@@ -22,7 +22,7 @@ const message = (e: unknown) => (e instanceof NodeError ? e.error : e instanceof
 
 /** Native modal (parent calls showModal). Errors keep it open so another code can be tried, unless the cloud chain already exists. */
 export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefObject<HTMLDialogElement | null>; chain: ChainHandle; /** e.g. reload the block list */ onDeployed?: () => void }) {
-  const { account, refresh, bumpBalance, setBusy } = useApp()
+  const { account, refresh, bumpBalance, setBusy, selectChain } = useApp()
   const acct = accounts.list().find((a) => a.address === account)
   const [code, setCode] = useState('')
   const [running, setRunning] = useState(false)
@@ -45,6 +45,7 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
       })
       setResult(r)
       await refresh()
+      await selectChain(chain.info.id) // the same chain, now a follower
       bumpBalance()
       onDeployed?.()
     } catch (e) {
@@ -61,7 +62,7 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
       <form method="dialog" className="space-y-3" onSubmit={(e) => { e.preventDefault(); deploy() }}>
         <h2 id="deploy-title" className="font-display text-base font-semibold">Deploy “{chain.info.name}”</h2>
         <p className="text-sm text-text-2">
-          A copy of this chain runs on <span className="break-all font-mono text-xs">{nodeUrl()}</span>, with you as its admin. Your browser keeps its own copy, matched to the deployed one.
+          A copy of this chain runs on <span className="break-all font-mono text-xs">{nodeUrl()}</span>, with you as its admin. Your browser's copy then follows it.
         </p>
         {!acct && <Notice>Select an account first: it signs the deploy and becomes the chain's admin.</Notice>}
         {!result && !exists && (
@@ -100,6 +101,7 @@ export function DeployDialog({ dialogRef, chain, onDeployed }: { dialogRef: RefO
             <div>Chain <span className="font-mono text-xs">{result.chainId}</span></div>
             <div className="break-all">URL <span className="font-mono text-xs">{result.url}</span></div>
             <div className="break-all">Head #{result.head.number} <span className="font-mono text-xs">{result.head.hash}</span> matches your browser</div>
+            <div>Your copy now follows the cloud chain. Older transaction history isn't kept in this browser.</div>
             <div className="break-all">Admin <span className="font-mono text-xs">{acct?.address}</span></div>
           </div>
         )}

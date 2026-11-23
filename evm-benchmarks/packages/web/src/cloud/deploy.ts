@@ -1,5 +1,5 @@
 // Deploy a browser chain to the worker with a deploy code (spec: 2026-11-23-deploy-to-cf-design, "Deploying a chain").
-import { keccak256, type Hex, type LocalAccount } from 'viem'
+import { getAddress, keccak256, numberToHex, type Address, type Hex, type LocalAccount } from 'viem'
 import { MAX_CREATE_BYTES, NodeError, claimTx, setupTxs, type CreateChainResult, type NodeClient } from '@evmb/node/src/client'
 import type { ChainHandle, ChainInfo, Deployed } from '../chain/handle'
 import type { createChainRegistry } from '../chain/registry'
@@ -8,13 +8,14 @@ export type DeployStep = 'prepare' | 'code' | 'node' | 'replace'
 export const MISMATCH = "the deployed chain differs from your browser's"
 
 /** The deployed chain's URL (a stored nodeUrl is validated on Open, but never let a bad one break a page). */
-export function deployedUrl(d: Deployed): string {
+export function deployedUrl(d: Pick<Deployed, 'nodeUrl' | 'chainId'>): string {
   try { return new URL(`/chains/${d.chainId}`, d.nodeUrl).href } catch { return `${d.nodeUrl}/chains/${d.chainId}` }
 }
 
 /** Why this chain can't be deployed, if it can't. */
 export const cannotDeploy = (info: ChainInfo): string | undefined =>
-  info.deployed ? `Already deployed as ${info.deployed.chainId}`
+  info.follows ? `Already follows ${info.follows.chainId}`
+    : info.deployed ? `Already deployed as ${info.deployed.chainId}`
     : info.ephemeral ? "Benchmark chains aren't saved, so they can't be deployed"
     : info.type !== 'plain' ? 'Only plain chains can be deployed for now' : undefined
 
@@ -24,14 +25,16 @@ const msg = (e: unknown) => (e instanceof NodeError ? e.error : e instanceof Err
 
 /**
  * Upload the chain with two set-up txs signed by `account` and a claim of `code` on the root chain; on success the
- * local chain is replaced by the deployed one (same head hash) and marked deployed. Errors carry `step` (where it
- * failed). Before the cloud chain exists, nothing local changes. After, a failed match says "Deployed as <id>…",
- * the browser copy is put back and `deployed` is not recorded (the copies differ); a failed put-back is reported too.
+ * local chain is replaced by the deployed one, its head hash checked, then converted to a follower of it (same id)
+ * signing as `account`. Errors carry `step` (where it failed). Before the cloud chain exists, nothing local changes.
+ * After, a failed match says "Deployed as <id>…", the browser copy is put back and `deployed` is not recorded (the
+ * copies differ); a failed put-back is reported too. A failed conversion says "Deployed as <id>…" too and leaves a
+ * plain chain matching the cloud head with `deployed` recorded, so `convertDeployed` converts it when next opened.
  * `onStep` is called as each step starts, with its under-the-hood detail.
  */
 export async function deployChain(o: {
   chain: ChainHandle; account: LocalAccount; code: string; client: NodeClient
-  registry: Pick<ReturnType<typeof createChainRegistry>, 'replaceState' | 'setDeployed'>
+  registry: Pick<ReturnType<typeof createChainRegistry>, 'replaceState' | 'setDeployed' | 'convertToFollower'>
   onStep(step: DeployStep, detail: string): void
 }): Promise<CreateChainResult> {
   const { chain, account, client, registry, onStep } = o
@@ -70,11 +73,40 @@ export async function deployChain(o: {
     const h = await registry.replaceState(id, r.dump)
     const local = (await h.request('eth_getBlockByNumber', ['latest', false])) as { hash?: string } | null
     if (local?.hash !== r.head.hash) throw new Error(MISMATCH)
-    await registry.setDeployed(id, { nodeUrl: client.baseUrl, chainId: r.chainId, at: new Date().toISOString(), head: r.head.number })
   } catch (e) {
     let text = `Deployed as ${r.chainId} (${r.url}), but your browser copy couldn't be matched: ${msg(e)}`
     try { await registry.replaceState(id, dump) } catch (back) { text += `; putting your browser copy back failed too: ${msg(back)}` }
     throw at(new Error(text), 'replace', { chainId: r.chainId, url: r.url })
   }
+  try {
+    await registry.convertToFollower(id, { nodeUrl: client.baseUrl, chainId: r.chainId, account: account.address })
+  } catch (e) {
+    let text = `Deployed as ${r.chainId} (${r.url}), but your browser copy couldn't be switched to follow it: ${msg(e)}`
+    try {
+      await registry.setDeployed(id, { nodeUrl: client.baseUrl, chainId: r.chainId, at: new Date().toISOString(), head: r.head.number })
+    } catch (rec) { text += `; recording the deploy failed too: ${msg(rec)}` }
+    throw at(new Error(text), 'replace', { chainId: r.chainId, url: r.url })
+  }
   return r
+}
+
+/**
+ * A plain chain deployed before deploys converted (it has `deployed`): make it a follower of its cloud chain, signing
+ * as the account that deployed it (the sender of the set-up block at `deployed.head`). Converts when the local head is
+ * still `deployed.head` with nothing pending, or when `force` (the user confirmed); otherwise `'diverged'`, nothing changed.
+ */
+export async function convertDeployed(id: string, o: {
+  registry: Pick<ReturnType<typeof createChainRegistry>, 'open' | 'convertToFollower'>; force?: boolean
+}): Promise<'converted' | 'diverged'> {
+  const h = await o.registry.open(id)
+  const d = h.info.deployed
+  if (!d || h.info.type !== 'plain') throw new Error(`chain ${id} isn't a deployed plain chain`)
+  const n = Number(BigInt((await h.request('eth_blockNumber', [])) as string))
+  if (!o.force && (n !== d.head || (h.approach.pending?.() ?? 0) > 0)) return 'diverged'
+  // ponytail: after a rewrite below deployed.head this block may not be the set-up block; the follower then shows its error status
+  const b = (await h.request('eth_getBlockByNumber', [numberToHex(d.head), true])) as { transactions?: { from: Address }[] } | null
+  const from = b?.transactions?.[0]?.from
+  if (!from) throw new Error(`Can't tell which account deployed this chain (no set-up block #${d.head})`)
+  await o.registry.convertToFollower(id, { nodeUrl: d.nodeUrl, chainId: d.chainId, account: getAddress(from) })
+  return 'converted'
 }

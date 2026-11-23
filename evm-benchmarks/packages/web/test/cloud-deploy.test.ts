@@ -6,7 +6,9 @@ import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry } from '../src/chain/registry'
-import { deployChain } from '../src/cloud/deploy'
+import { convertDeployed, deployChain } from '../src/cloud/deploy'
+import { createContractsRegistry } from '../src/contracts/registry'
+import type { FollowerStatus } from '../src/cloud/followerChain'
 import { nodeUrl, setNodeUrl, DEFAULT_NODE_URL } from '../src/cloud/node'
 
 // The worker stand-in: packages/node's own router over in-process ChainHosts on bun:sqlite.
@@ -36,60 +38,87 @@ beforeAll(async () => {
 })
 afterAll(() => srv.stop(true))
 
-/** A browser registry (memory persistence) with one plain chain where `user` has sent a tx. */
+/** A browser registry (memory persistence) with one plain chain where `user` has sent a tx; `user`'s key is in this browser unless `keys.off`. */
 async function browserChain() {
   const stores = new Map<string, any>()
   const kv = createKv()
+  const keys = { off: false }
   const registry = createChainRegistry({
     kv,
     host: (id: string) => ({ persistence: { load: async () => stores.get(id) ?? null, save: async (s: any) => void stores.set(id, structuredClone(s)) } }),
     purge: async (id: string) => void stores.delete(id),
+    follower: { wasm: async () => wasm, account: (a) => (!keys.off && a.toLowerCase() === user.address.toLowerCase() ? { account: user, label: 'laptop' } : undefined) },
   })
   const chain = await registry.create('mine', 'plain', [user.address])
   await chain.send(await user.signTransaction({ type: 'eip1559', chainId: 31337, nonce: 0, to: B, value: 7n, gas: 21_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n }))
-  return { registry, kv, chain }
+  return { registry, kv, chain, stores, keys }
 }
+const status = (h: { approach: unknown }) => (h.approach as { status(): FollowerStatus }).status()
 const head = async (c: { request(m: string, p?: unknown[]): Promise<unknown> }) => ((await c.request('eth_getBlockByNumber', ['latest', false])) as { hash: string; number: string })
 
+/** A plain chain deployed before follower conversion existed: the key is missing during the deploy, so the copy stays plain with `deployed` recorded. */
+async function legacyDeploy() {
+  const chain = await browserChain()
+  const code = generateCode()
+  await issue(code)
+  chain.keys.off = true
+  const e = await deployChain({ chain: chain.chain, account: user, code, client: new NodeClient(url, user), registry: chain.registry, onStep: () => {} }).catch((x) => x)
+  chain.keys.off = false
+  const handle = chain.registry.peek(chain.chain.info.id)!
+  return { chain: { ...chain, id: chain.chain.info.id }, handle, deployed: handle.info.deployed!, r: { e } }
+}
+
 describe('deployChain', () => {
-  test('deploys, replaces the local chain, head hash matches, records deployed', async () => {
-    const { registry, kv, chain } = await browserChain()
+  test('after deploy the chain is a follower at the cloud head with the same id and records', async () => {
+    const { registry, kv, chain, stores } = await browserChain()
+    const id = chain.info.id
+    const rec = { address: '0x00000000000000000000000000000000000000aa', name: 'T', abi: [] as any[], deployer: user.address, txHash: `0x${'ab'.repeat(32)}` as const } as const
+    await createContractsRegistry(kv).add(id, rec)
     const code = generateCode()
     await issue(code)
     const r = await deployChain({ chain, account: user, code, client: new NodeClient(url, user), registry, onStep: () => {} })
-    const h = await head(chain)
+    const f = registry.peek(id)!
+    expect(f).not.toBe(chain)
+    expect(f.info).toMatchObject({ id, name: 'mine', type: 'follower', follows: { nodeUrl: url, chainId: r.chainId, account: user.address } })
+    expect(status(f)).toEqual({ kind: 'following', block: r.head.number, behind: 0 })
+    const h = await head(f)
     expect(h.hash).toBe(r.head.hash)
     expect(Number(h.number)).toBe(r.head.number)
-    expect(await chain.approach.getBalance(B)).toBe(7n) // the browser's state came back with the set-up block on top
+    expect(await f.approach.getBalance(B)).toBe(7n) // the browser's state came back with the set-up block on top
     expect(r.url).toBe(`${url}/chains/${r.chainId}`)
-    const want = { nodeUrl: url, chainId: r.chainId, head: r.head.number }
-    expect(chain.info.deployed).toMatchObject(want)
-    expect((await kv.get<any>('chains', chain.info.id)).deployed).toMatchObject(want)
-    expect((await registry.list())[0]!.lastHeight).toBe(r.head.number)
+    expect(await createContractsRegistry(kv).list(id)).toEqual([{ ...rec, chainId: id }] as any)
+    expect(await kv.get<any>('chains', id)).toMatchObject({ type: 'follower', follows: { chainId: r.chainId } })
+    expect(stores.has(id)).toBe(false) // the plain engine's state is gone
     expect((await new NodeClient(url, user).info(r.chainId)).admin.toLowerCase()).toBe(user.address.toLowerCase())
+    // a reload re-syncs it as a follower
+    await registry.close(id)
+    const again = await registry.open(id)
+    expect([again.info.type, (await head(again)).hash]).toEqual(['follower', r.head.hash])
     // deployed once: refused before any step, code unspent
-    const steps: string[] = [], again = generateCode()
-    await issue(again)
-    await expect(deployChain({ chain, account: user, code: again, client: new NodeClient(url, user), registry, onStep: (s) => steps.push(s) })).rejects.toThrow(`Already deployed as ${r.chainId}`)
+    const steps: string[] = [], code2 = generateCode()
+    await issue(code2)
+    await expect(deployChain({ chain: again, account: user, code: code2, client: new NodeClient(url, user), registry, onStep: (s) => steps.push(s) })).rejects.toThrow(`Already follows ${r.chainId}`)
     expect(steps).toEqual([])
     expect((await adminClient().codes()).find((c) => c.redeemed.length === 0 && c.usesLeft === 1)).toBeTruthy()
-    await chain.dispose()
+    await registry.remove(id)
   })
 
-  test('a refused code leaves the local chain unchanged (same head hash, no deployed field); another code then works', async () => {
+  test('a refused deploy still changes nothing (same handle, head hash, type; no deployed field); another code then works', async () => {
     const { registry, kv, chain } = await browserChain()
     const before = await head(chain)
     const e = await deployChain({ chain, account: user, code: 'not-a-real-code', client: new NodeClient(url, user), registry, onStep: () => {} }).catch((x) => x)
     expect(e).toBeInstanceOf(NodeError)
     expect(e.status).toBe(403)
     expect(await head(chain)).toEqual(before)
+    expect(registry.peek(chain.info.id)).toBe(chain)
     expect(chain.info.deployed).toBeUndefined()
+    expect(await kv.get<any>('chains', chain.info.id)).toMatchObject({ type: 'plain' })
     expect((await kv.get<any>('chains', chain.info.id)).deployed).toBeUndefined()
     const code = generateCode()
     await issue(code)
     const r = await deployChain({ chain, account: user, code, client: new NodeClient(url, user), registry, onStep: () => {} })
-    expect((await head(chain)).hash).toBe(r.head.hash)
-    await chain.dispose()
+    expect((await head(registry.peek(chain.info.id)!)).hash).toBe(r.head.hash)
+    await registry.remove(chain.info.id)
   })
 
   test('steps are reported in order, with tx hashes and the worker URL', async () => {
@@ -103,7 +132,7 @@ describe('deployChain', () => {
     expect(steps[1]![1]).toMatch(/0x[0-9a-f]{64}/)
     expect(steps[2]![1]).toContain(url)
     expect(steps[3]![1]).toContain(r.head.hash)
-    await chain.dispose()
+    await registry.remove(chain.info.id)
   })
 
   test('pending txs: refused before anything is sent', async () => {
@@ -146,7 +175,7 @@ describe('deployChain', () => {
     const { registry, kv, chain } = await browserChain()
     const before = await head(chain)
     let calls = 0
-    const flaky = { setDeployed: registry.setDeployed, replaceState: async (id: string, d: unknown) => { if (++calls === 1) throw new Error('disk full'); return registry.replaceState(id, d) } }
+    const flaky = { setDeployed: registry.setDeployed, convertToFollower: registry.convertToFollower, replaceState: async (id: string, d: unknown) => { if (++calls === 1) throw new Error('disk full'); return registry.replaceState(id, d) } }
     const code = generateCode()
     await issue(code)
     const e = await deployChain({ chain, account: user, code, client: new NodeClient(url, user), registry: flaky, onStep: () => {} }).catch((x) => x)
@@ -158,12 +187,47 @@ describe('deployChain', () => {
     expect(await head(chain)).toEqual(before)
     expect((await kv.get<any>('chains', chain.info.id)).deployed).toBeUndefined()
     // a rollback that fails too is surfaced, not swallowed
-    const broken = { setDeployed: registry.setDeployed, replaceState: async () => { throw new Error('gone') } }
+    const broken = { setDeployed: registry.setDeployed, convertToFollower: registry.convertToFollower, replaceState: async () => { throw new Error('gone') } }
     const code2 = generateCode()
     await issue(code2)
     const e2 = await deployChain({ chain, account: user, code: code2, client: new NodeClient(url, user), registry: broken as any, onStep: () => {} }).catch((x) => x)
     expect(e2.message).toMatch(/couldn't be matched: gone; putting your browser copy back failed too: gone$/)
     await chain.dispose()
+  })
+
+  test("converting fails after the cloud chain exists: says so with its id; the browser copy stays a usable plain chain at the cloud head, deployed recorded", async () => {
+    const { chain, r } = await legacyDeploy()
+    await chain.registry.remove(chain.id)
+    expect(r.e.message).toMatch(new RegExp(`^Deployed as ${r.e.chainId} \\(http://localhost:\\d+/chains/${r.e.chainId}\\), but your browser copy couldn't be switched to follow it: Needs ${user.address}'s key$`))
+    expect([r.e.step, r.e.url]).toEqual(['replace', `${url}/chains/${r.e.chainId}`])
+  })
+
+  test('convertDeployed converts at the deployed head; returns diverged after a local block, and converts only when asked', async () => {
+    // at the deployed head: converts quietly, signing as the deploying (admin) account
+    const a = await legacyDeploy()
+    expect(a.handle.info.type).toBe('plain')
+    expect(Number((await head(a.handle)).number)).toBe(a.deployed.head)
+    expect(await convertDeployed(a.chain.id, { registry: a.chain.registry })).toBe('converted')
+    const f = a.chain.registry.peek(a.chain.id)!
+    expect(f.info).toMatchObject({ type: 'follower', follows: { nodeUrl: url, chainId: a.deployed.chainId, account: user.address } })
+    expect(status(f).kind).toBe('following')
+    await a.chain.registry.remove(a.chain.id)
+    // a local block since: diverged, nothing changes until asked
+    const b = await legacyDeploy()
+    await b.handle.send(await user.signTransaction({ type: 'eip1559', chainId: 31337, nonce: 3, to: B, value: 1n, gas: 21_000n, maxFeePerGas: 2_000_000_000n, maxPriorityFeePerGas: 1_000_000_000n }))
+    expect(await convertDeployed(b.chain.id, { registry: b.chain.registry })).toBe('diverged')
+    expect(b.chain.registry.peek(b.chain.id)).toBe(b.handle)
+    expect(b.handle.info.type).toBe('plain')
+    expect(b.chain.stores.has(b.chain.id)).toBe(true)
+    expect(await convertDeployed(b.chain.id, { registry: b.chain.registry, force: true })).toBe('converted')
+    const g = b.chain.registry.peek(b.chain.id)!
+    expect(g.info.type).toBe('follower')
+    expect(Number((await head(g)).number)).toBe(b.deployed.head)
+    await b.chain.registry.remove(b.chain.id)
+    // not a deployed plain chain: refused
+    const c = await browserChain()
+    await expect(convertDeployed(c.chain.info.id, { registry: c.registry })).rejects.toThrow(/isn't a deployed plain chain/)
+    await c.registry.remove(c.chain.info.id)
   })
 
   test('benchmark and sequencer chains are refused before anything is sent', async () => {

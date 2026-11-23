@@ -14,7 +14,7 @@ import { exportChain } from '../components/exportFile'
 import { NO_FUNDS } from '../chain/snapshotUi'
 import { Explorer } from './Explorer'
 import { DeployDialog } from '../components/cloud/DeployDialog'
-import { cannotDeploy, deployedUrl } from '../cloud/deploy'
+import { cannotDeploy, convertDeployed, deployedUrl } from '../cloud/deploy'
 import { useWizardAction, useWizardMark } from '../walkthrough/wizard'
 import { useBlockWindow } from '../explorer/useBlockWindow'
 import { Button } from '../ui/button'
@@ -71,12 +71,34 @@ export function Chains() {
   const [takeTick, setTakeTick] = useState(0)
   const [listTick, setListTick] = useState(0)
   const [flash, setFlash] = useState<Flash>()
+  const [diverged, setDiverged] = useState<string>() // id of a chain deployed earlier that has moved on since
+  const converting = useRef(new Set<string>())
   const [noFunds, setNoFunds] = useState<string>() // id of the imported chain with no funded account, checked once at import
   // an import from the File menu lands here with the same check's result
   useEffect(() => {
     const id = (navState as { noFunds?: string } | null)?.noFunds
     if (id) { setNoFunds(id); nav(pathname + search, { replace: true, state: null }) } // once: a reload or Back doesn't bring it back
   }, [navState])
+  /** A plain chain deployed before deploys converted: becomes a follower when opened here (asks first if it moved on). */
+  async function convert(id: string, force = false) {
+    if (converting.current.has(id)) return
+    converting.current.add(id)
+    try {
+      if (await convertDeployed(id, { registry, force }) === 'diverged') return setDiverged(id)
+      setDiverged(undefined)
+      await refresh()
+      await selectChain(id)
+    } catch (e) {
+      setFlash({ tone: 'warn', text: `Couldn't switch this chain to follow its cloud copy: ${e instanceof Error ? e.message : String(e)}` })
+    } finally { converting.current.delete(id) }
+  }
+  useEffect(() => {
+    if (chain?.info.type === 'plain' && chain.info.deployed && !chain.info.ephemeral) void convert(chain.info.id)
+  }, [chain])
+  async function convertAnyway() {
+    if (!chain || !confirm(`Make "${chain.info.name}" follow its cloud chain? Changes made in this browser since the deploy are dropped. Export the chain first to keep them.`)) return
+    await convert(chain.info.id, true)
+  }
   const none = chain ? undefined : 'Select a chain first'
   useAppBar({
     title: 'Chains',
@@ -177,8 +199,19 @@ export function Chains() {
                 {provenanceText(chain.info.source) && <div className="mt-1 text-xs text-muted">{provenanceText(chain.info.source)}</div>}
                 {noFunds === chain.info.id && <div className="mt-2"><Notice onDismiss={() => setNoFunds(undefined)}>{NO_FUNDS}</Notice></div>}
               </div>
+              {diverged === chain.info.id && chain.info.deployed && (
+                <div role="alert" className="order-last w-full space-y-2 rounded-lg border border-warn bg-warn-soft px-3 py-2 text-sm text-warn-text">
+                  <p><span className="font-medium">Local changes since deploy.</span> This chain has moved on from block #{chain.info.deployed.head}, where it was deployed. To keep following the cloud chain, this browser's copy switches to the cloud's and drops those changes — export it first to keep them.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="ghost" size="sm" onClick={() => { exportChain(chain).catch(e => setFlash({ tone: 'warn', text: `Export failed: ${e instanceof Error ? e.message : String(e)}` })) }}><DownloadIcon /> Export chain</Button>
+                    <Button variant="ghost" size="sm" onClick={convertAnyway}>Convert anyway</Button>
+                  </div>
+                </div>
+              )}
               <div className="flex flex-wrap items-center gap-2">
-                {chain.info.deployed
+                {chain.info.follows
+                  ? <div className="min-w-0 text-xs text-muted">Follows <span className="break-all font-mono text-text-2">{deployedUrl(chain.info.follows)}</span></div>
+                  : chain.info.deployed
                   ? <div className="min-w-0 text-xs text-muted">Deployed as <span className="break-all font-mono text-text-2">{deployedUrl(chain.info.deployed)}</span> at block #{chain.info.deployed.head}</div>
                   : <Button variant="ghost" size="sm" disabled={!!cannotDeploy(chain.info)} title={cannotDeploy(chain.info) ?? 'Run a copy of this chain on the cloud node'} onClick={() => deployRef.current?.showModal()}>Deploy…</Button>}
                 <Button variant="danger" size="sm" onClick={() => remove(chain.info)}>Delete</Button>
