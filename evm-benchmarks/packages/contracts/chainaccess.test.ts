@@ -84,3 +84,24 @@ test('Aliases: only the ChainAccess admin can register', () => setup(async ({sen
   expect((await send(joiner, aliases, Aliases.abi, 'register', args)).status).toBe('reverted')
   expect((await send(admin, aliases, Aliases.abi, 'register', args)).status).toBe('success')
 }), 60_000)
+
+// grants -> [in readers, in writers, canWrite]; the create bit (4) never adds a role
+const cases: [number, boolean, boolean][] = [[1, true, false], [2, false, true], [6, false, true], [7, true, true]]
+for (const [g, isR, isW] of cases) {
+  test(`grants ${g}: claim adds ${isR ? 'reader ' : ''}${isW ? 'writer' : ''}`.trim(), () => setup(async ({acc, read}) => {
+    await acc(admin, 'invite', [hash, 3600n, 1, g])
+    expect((await acc(joiner, 'claim', [code])).status).toBe('success')
+    expect(await read('readers')).toEqual(isR ? [joiner.address] : [])
+    expect(await read('writers')).toEqual(isW ? [joiner.address] : [])
+    expect(await read('canRead', [joiner.address])).toBe(isR || isW)
+    expect(await read('canWrite', [joiner.address])).toBe(isW)
+  }), 60_000)
+}
+
+test('expiry boundary: claim at expiry succeeds, at expiry+1 is refused', () => setup(async ({acc, blockEnv}) => {
+  await acc(admin, 'invite', [hash, 60n, 2, 4])
+  blockEnv.timestamp += 60n
+  expect((await acc(joiner, 'claim', [code])).status).toBe('success')
+  blockEnv.timestamp += 1n
+  expect((await acc(joiner, 'claim', [code])).status).toBe('reverted')
+}), 60_000)
