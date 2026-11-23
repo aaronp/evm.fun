@@ -20,8 +20,8 @@
   },
   "devDependencies": {
     "@pritzlaff/adr": "^1.2.0",
-    "@pritzlaff/agile": "^1.1.0",
-    "@pritzlaff/gantt": "^1.0.1",
+    "@pritzlaff/agile": "^1.2.0",
+    "@pritzlaff/gantt": "^1.0.2",
     "@pritzlaff/project": "^0.1.1",
     "@pritzlaff/risk-register": "^0.2.0",
     "@types/bun": "^1.4.4"

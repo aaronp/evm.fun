@@ -40,7 +40,7 @@
         "noLead": "Log each risk, score it and give it an owner and a mitigation."
       },
       "starter": "---\nregister: Project\n---\n",
-      "order": 4
+      "order": 5
     },
     {
       "id": "schedule",
@@ -48,7 +48,7 @@
         "gantt"
       ],
       "name": "Schedule",
-      "tool": "Gantt",
+      "tool": "Gantt Chart",
       "package": "@pritzlaff/gantt",
       "bin": "gantt",
       "file": "docs/schedule/schedule.md",
@@ -58,11 +58,11 @@
       "viewer": "https://aaronp.github.io/gantt/",
       "dashboard": {
         "tint": "#FFEDB3",
-        "question": "Do you know when it’ll be done?",
+        "question": "Do you know how the schedules all fit together?",
         "noLead": "Lay out milestones and dependencies on a timeline."
       },
       "starter": "# Schedule\n",
-      "order": 5
+      "order": 6
     },
     {
       "id": "work",
@@ -84,7 +84,7 @@
         "noLead": "Put the work on the board and limit what is in progress."
       },
       "starter": "# Board\n\n## To Do\n\n## Doing\n\n## Done\n",
-      "order": 6
+      "order": 7
     }
   ]
 }
