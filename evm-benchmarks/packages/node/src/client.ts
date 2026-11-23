@@ -69,5 +69,5 @@ export class NodeClient {
   async nonce(chainId: 'root') { return (await this.req<{ nonce: number }>('GET', `/chains/${chainId}/nonce`)).nonce }
   submit(chainId: string, txs: Hex[]) { return this.req<{ head: BlockSummary }>('POST', `/chains/${chainId}/submit`, { txs }) }
   createChain(r: CreateChainRequest) { return this.req<CreateChainResult>('POST', '/chains', r) }
-  codes() { return this.req<CodeRecord[]>('GET', '/codes') }
+  codes() { return this.req<CodeRecord[]>('GET', '/chains/root/codes') }
 }
