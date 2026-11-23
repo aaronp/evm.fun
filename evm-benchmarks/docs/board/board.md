@@ -877,7 +877,7 @@ Demo step d. For a deployed chain, see and edit its access list (`ChainAccess`):
   - Next @ 2026-11-23T15:00:21Z
 
 ```md
-Demo steps e–f, the indexer demo. A simple key/value contract that describes its own views (self-describing recipe), deployed and updated from evm.fun on a deployed chain, registered as an alias, and its JSON view (`/chains/:id/<alias>/latest`) shown in evm.fun under the alias's own access rules. Builds on t-135 views (`docs/spikes/cf-views.md`).
+Demo steps e–f, the indexer demo. **From t-134:** `POST /chains/:id/submit` is capped at 64 KiB (`MAX_BODY_BYTES`, packages/node router) — raise it (~1 MiB) here, since a large contract deploy is ~100 KB of hex. A simple key/value contract that describes its own views (self-describing recipe), deployed and updated from evm.fun on a deployed chain, registered as an alias, and its JSON view (`/chains/:id/<alias>/latest`) shown in evm.fun under the alias's own access rules. Builds on t-135 views (`docs/spikes/cf-views.md`).
 ```
 
 ```dod
