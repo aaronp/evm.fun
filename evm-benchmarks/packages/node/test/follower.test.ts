@@ -112,6 +112,21 @@ describe('Follower', () => {
     await expect(f.sync()).rejects.toThrow('follower disposed')
   })
 
+  test('an empty page whose head is behind ours, or at our number with another hash → mismatch; cloudHead is the last seen head', async () => {
+    const real = as(admin)
+    const f0 = await open(real)
+    await mineBlocks(2)
+    await f0.sync()
+    expect(f0.cloudHead).toEqual(await cloudHead())
+    for (const lie of [(h: any) => ({ ...h, number: h.number - 1 }), (h: any) => ({ ...h, hash: '0x' + '22'.repeat(32) })]) {
+      const stub = { state: (id: string) => real.state(id), blocks: async (id: string, after: number) => ({ head: lie((await real.blocks(id, after)).head), blocks: [] }) } as unknown as NodeClient
+      const f = await open(stub)
+      const e = await f.sync().catch((x) => x)
+      expect(f.status).toBe('mismatch')
+      expect(e.message).toContain('cloud head')
+    }
+  })
+
   test('a tampered block (test stub returning a wrong stateRoot) → mismatch', async () => {
     const real = as(admin)
     const bad = '0x' + '11'.repeat(32)

@@ -16,7 +16,7 @@ const chainHost = (id: string): ChainHandleLike => {
   if (!h) hosts.set(id, (h = new ChainHost(bunSql(), wasm, { rootAdmin: admin.address, chain: chainHost })))
   return h
 }
-let srv: ReturnType<typeof Bun.serve>, url: string, access: `0x${string}`, cid: string
+let srv: ReturnType<typeof Bun.serve>, url: string, access: `0x${string}`, cid: string, dump: Awaited<ReturnType<NodeClient['state']>>['dump']
 const as = (a: typeof admin, name?: string) => new NodeClient(url, a, { name })
 let code = 0
 const issue = async (grants: number, uses = 1, ttl = 600) => {
@@ -31,7 +31,7 @@ beforeAll(async () => {
   srv = Bun.serve({ port: 0, fetch: (r) => handle(r, { chain: chainHost }) })
   url = `http://localhost:${srv.port}`
   const n = await createNode({ chainId: 31337, computeStateRoot: true, miningConfig: { type: 'manual' }, engine: await createRevmEngine({ wasm }) })
-  const dump = await n.dumpState()
+  dump = await n.dumpState()
   await n.dispose()
   const r = await as(admin).createChain({ dump, setup: await setupTxs(admin, 0, 31337) })
   cid = r.chainId
@@ -84,6 +84,34 @@ describe('device routes', () => {
     expect(await status(as(admin)['req']('GET', `/chains/${cid}/zzz`))).toBe(404)
   })
 
+  test('a non-root chain: a non-member joins from GET nonce alone; a revoked code cannot join; readOpen polls by non-members write no cursor', async () => {
+    const owner = acct('r-owner'), newbie = acct('r-newbie'), lurker = acct('r-lurker')
+    const deployCode = await issue(GRANT_CREATE_CHAIN)
+    const o = as(owner)
+    const id = (await o.createChain({ dump, setup: await setupTxs(owner, 0, 31337), claim: await claimTx(owner, await o.nonce('root'), deployCode, access) })).chainId
+    const own = (await o.info(id)).access
+    const invite = async (c: string, grants = GRANT_READER) => o.submit(id, [await inviteTx(owner, await o.nonce(id), own, c, 600, 1, grants)])
+    await invite('chain2-reader')
+    // the newcomer can't read the chain, but GET nonce gives it what a claim needs
+    const n = as(newbie)
+    expect(await status(n.info(id))).toBe(403)
+    const ji = await n.joinInfo(id)
+    expect(ji).toEqual({ nonce: 0, access: own })
+    expect((await n.join(id, await claimTx(newbie, ji.nonce, 'chain2-reader', ji.access))).role).toBe('reader')
+    // revokeInvite: an unused code can no longer join
+    await invite('chain2-revoked')
+    await o.submit(id, [await accessTx(owner, await o.nonce(id), own, 'revokeInvite', codeHash('chain2-revoked'))])
+    const l = as(lurker)
+    expect(await status(l.join(id, await claimTx(lurker, 0, 'chain2-revoked', own)))).toBe(403)
+    // readOpen: a non-member can read blocks, but only members get a cursor
+    await o.submit(id, [await accessTx(owner, await o.nonce(id), own, 'setReadOpen', true)])
+    await as(lurker, 'lurker').blocks(id, 0)
+    await as(newbie, 'newbie').blocks(id, 0)
+    const rows = (hosts.get(id)!.service as any).sql.exec('SELECT address FROM cursors').map((r: any) => r.address)
+    expect(rows).toContain(newbie.address.toLowerCase())
+    expect(rows).not.toContain(lurker.address.toLowerCase())
+  })
+
   test('bad joins count toward 429; join is writer role for a writer code', async () => {
     const w = await issue(GRANT_WRITER)
     expect((await as(other).join(cid, await claimTx(other, 0, w, access))).role).toBe('writer')
@@ -104,6 +132,14 @@ describe('device routes', () => {
     const m = (await a.nodes(cid)).members.find((x) => x.address.toLowerCase() === admin.address.toLowerCase())!
     expect(m.block).toBe(100)
     expect(m.name).toBe(('ax' + 'y'.repeat(40)).slice(0, 32))
+  })
+
+  test('bidi overrides, isolates and zero-width characters are stripped from names', async () => {
+    const a = as(admin)
+    await a.submit(cid, [await accessTx(admin, await a.nonce(cid), access, 'setReadOpen', false)])
+    await as(admin, 'a\u202Eb\u200Bc\uFEFFd\u2066e\u2069\u200Df\u202A').blocks(cid, 100)
+    const m = (await a.nodes(cid)).members.find((x) => x.address.toLowerCase() === admin.address.toLowerCase())!
+    expect(m.name).toBe('abcdef')
   })
 
   test('a non-Latin1 device name round-trips; an undecodable one is no name', async () => {

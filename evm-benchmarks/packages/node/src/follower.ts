@@ -17,8 +17,10 @@ export class Follower {
   status: 'following' | 'removed' | 'mismatch' = 'following'
   #failure?: Error
   #queue: Promise<unknown> = Promise.resolve()
+  /** The cloud's head as last seen (by `open` or `sync`). */
+  cloudHead: BlockSummary
 
-  private constructor(private client: NodeClient, readonly chainId: string, private node: SlimNode, private env: { timestamp?: bigint }, public head: BlockSummary) {}
+  private constructor(private client: NodeClient, readonly chainId: string, private node: SlimNode, private env: { timestamp?: bigint }, public head: BlockSummary) { this.cloudHead = head }
 
   static async open(client: NodeClient, chainId: string, wasm: NodeConfig['wasm']): Promise<Follower> {
     const { head, dump } = await client.state(chainId).catch((e) => {
@@ -59,6 +61,10 @@ export class Follower {
           if (e instanceof NodeError && e.status === 403) this.#stop('removed', new FollowerRemoved(this.chainId))
           throw e // transient: still following
         })
+        this.cloudHead = page.head
+        // never silently follow a different chain: an empty page must end at our head
+        if (!page.blocks.length && (page.head.number < this.head.number || (page.head.number === this.head.number && page.head.hash !== this.head.hash)))
+          this.#stop('mismatch', new Error(`cloud head ${page.head.number} (${page.head.hash}) does not match our head ${this.head.number} (${this.head.hash})`))
         for (const b of page.blocks) await this.#replay(b)
         if (!page.blocks.length || this.head.number >= page.head.number) return this.head
       }

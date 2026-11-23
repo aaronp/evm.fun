@@ -997,3 +997,56 @@ The worker redeems the code on the root chain before the new chain's Durable Obj
 | Control | Type | Effectiveness |
 |---|---|---|
 | `.env.*` git-ignored (mode 600 when generated); only the address goes to the worker; `deploy.ts` keeps the key out of wrangler's environment | Preventive | Partial |
+
+## R55 · A reader can take a multi-use writer code from the chain
+- impact: 3
+- likelihood: 2
+- target: 1x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+A join's claim tx carries the plaintext code into a block, and every member can read blocks (`GET /blocks`). While a writer code has uses left, any reader who sees an earlier claim can redeem it and become a writer. (plan 17)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Invites are single use by default | Preventive | Partial |
+| The admin can cancel an unused code (`revokeInvite`) and remove a writer | Corrective | Partial |
+| evm.fun warns on a writer code with more than one use (plan 17 part 2) | Preventive | Partial |
+
+## R56 · A signed tx can be replayed on another chain
+- impact: 3
+- likelihood: 2
+- target: 1x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+Every chain uses chainId 31337, so a tx an admin signs on one chain is valid on any other chain where the same key has the same nonce and the target contract sits at the same address (e.g. two chains the same key deployed with the same set-up nonces). Someone who can read one chain could submit the admin's tx to the other. (plan 17)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Submitting needs the signer to be a writer on the target chain, and both chains' state must line up (nonce and contract address) | Preventive | Partial |
+| A per-chain chainId (later) makes the signatures chain-specific | Preventive | Full |
+
+## R57 · Device polling and state downloads cost more than expected
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Performance
+- driver: Claude
+- approver: Aaron
+
+Each signed `GET /blocks` poll writes a request nonce and runs EVM `canRead` (plus a membership check) in the chain's Durable Object, so many devices polling often add up. `GET /state` returns the whole state with no size cap. (plan 17)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Devices poll every 5 s or slower, with back-off when idle (plan 17 part 2) | Preventive | Partial |
+| Cursor writes at most once a minute when idle; pages capped at 100 blocks | Preventive | Partial |
+| Cap or stream `state` (later) | Preventive | Partial |

@@ -57,9 +57,10 @@ Every request except `/health` is signed (`cf-chain v1` EIP-191 message over met
 | `POST /chains` | root admin, or anyone with a deploy code | no claim: create `root` (only `ROOT_ADMIN`, once). With a `claim` tx (a code): redeem it on the root chain, then create a new chain with the signer as admin. Body: `{ dump, setup, claim? }`; `setup` is two contract creations by the signer, mined as block head+1 by the cloud node, which returns its dump |
 | `GET /chains/<id>` | readers | chain id, head, admin, `access`, `aliases` |
 | `POST /chains/<id>/submit` | writers | `{ txs }`, mined in order |
-| `GET /chains/<id>/nonce`, `GET /chains/<id>/codes` | root only (codes: root admin only) | the signer's nonce; issued codes (hash, expiry, uses left, who redeemed) |
+| `GET /chains/<id>/nonce` | anyone signed | `{ nonce, access }`: the signer's nonce and the chain's `ChainAccess` address (not secret: a joining device needs it for its claim) |
+| `GET /chains/root/codes` | root admin | issued codes (hash, expiry, uses left, who redeemed) |
 
-CORS allows `https://mychain.dev`, `https://aaronp.github.io` and `http://localhost:*`. Failed redeems: 10 per IP per 10 minutes, then `429`. Bodies are capped before auth: `POST /chains` at 8 MiB (`MAX_CREATE_BYTES` in `src/client.ts`; evm.fun refuses a larger chain before using a code), every other route at 64 KiB; over the cap is `413`. A root invite is a deploy code only if it grants `GRANT_CREATE_CHAIN`; a reader/writer invite is refused (`403 not a deploy code`). If the chain creation fails after the redeem, the code stays used and `codes` lists that use as `failed: <error>`.
+CORS allows `https://mychain.dev`, `https://aaronp.github.io` and `http://localhost:*`. Failed redeems and joins: 10 per IP per chain per 10 minutes, then `429`. Bodies are capped before auth: `POST /chains` at 8 MiB (`MAX_CREATE_BYTES` in `src/client.ts`; evm.fun refuses a larger chain before using a code), every other route at 64 KiB; over the cap is `413`. A root invite is a deploy code only if it grants `GRANT_CREATE_CHAIN`; a reader/writer invite is refused (`403 not a deploy code`). If the chain creation fails after the redeem, the code stays used and `codes` lists that use as `failed: <error>`.
 
 ## Local services
 
@@ -85,14 +86,14 @@ A device is a key that is a member of a chain's `ChainAccess` (reader or writer)
 | Route | Who | What |
 |---|---|---|
 | `GET /chains/<id>/state` | members | `{ head, dump }`: the chain's current state, to boot a copy |
-| `GET /chains/<id>/blocks?after=N` | members | `{ head, blocks }`: up to 100 blocks after N (header and raw txs) |
+| `GET /chains/<id>/blocks?after=N` | members | `{ head, blocks }`: up to 100 blocks after N (header, raw txs and receipts) |
 | `GET /chains/<id>/nodes` | members | `{ head, admin, readOpen, members }`: each member's role, name, block, behind and last seen. Replaces `/nodes/latest` of the cursor design |
-| `POST /chains/<id>/join` | anyone signed | `{ claim }`: a `claim` tx for a reader or writer code the admin issued with `inviteTx(…, grants)`. Redeems it and returns `{ head, role }`. A create-chain code is refused (`403`); failed joins count toward the 10-per-IP `429` |
+| `POST /chains/<id>/join` | anyone signed | `{ claim }`: a `claim` tx for a reader or writer code the admin issued with `inviteTx(…, grants)`. Redeems it and returns `{ head, role }`. A create-chain code is refused (`403`); failed joins count toward the 10-per-IP-per-chain `429` |
 
-**Joining.** The admin issues a code (`inviteTx` with `GRANT_READER` or `GRANT_WRITER`), sends it out of band; the device signs `claimTx` (nonce 0 is fine for a new key) and calls `join`.
+**Joining.** The admin issues a code (`inviteTx` with `GRANT_READER` or `GRANT_WRITER`), sends it out of band; the device gets `{ nonce, access }` from `NodeClient.joinInfo` (it can't read the chain yet), signs `claimTx` and calls `join`. The admin can cancel an unused code with `accessTx(…, 'revokeInvite', codeHash(code))`.
 
-**The cursor rule.** Every `blocks` fetch records, for the signing key, the last block it was delivered (not the head: a page is capped at 100). The stored block never goes down, and a write happens only when the block advances or the stored one is a minute old. `behind` is head minus that block. A key removed from the access list gets `403` on all of these and disappears from `nodes`. A device name goes in `x-node-name` (`NodeClient` option `name`), percent-encoded so any characters survive; the worker decodes it, drops control characters and keeps 32 code points.
+**The cursor rule.** Every `blocks` fetch by a member (admin, writer or reader; not a key that reads only because `readOpen` is on) records, for the signing key, the last block it was delivered (not the head: a page is capped at 100). The stored block never goes down, and a write happens only when the block advances or the stored one is a minute old. `behind` is head minus that block. A key removed from the access list gets `403` on all of these and disappears from `nodes`. A device name goes in `x-node-name` (`NodeClient` option `name`), percent-encoded so any characters survive; the worker decodes it, drops control, bidi override/isolate and zero-width characters and keeps 32 code points.
 
-**`Follower`** (`src/follower.ts`): `Follower.open(client, chainId, wasm)` boots a local webevm node from `state` and checks the state root; `sync()` replays `blocks` pages, checking each block's parent, hash and state root; `read(fn)` reads the local node; `status` is `following`, `removed` (a `403`: `FollowerRemoved`) or `mismatch`. After either stop, `sync` and `read` throw the same error again; `dispose()` frees the node.
+**`Follower`** (`src/follower.ts`): `Follower.open(client, chainId, wasm)` boots a local webevm node from `state` and checks the state root; `sync()` replays `blocks` pages, checking each block's parent, hash and state root; `read(fn)` reads the local node; `status` is `following`, `removed` (a `403`: `FollowerRemoved`) or `mismatch` (a bad block, or an empty page whose head is behind ours or has another hash at our number); `cloudHead` is the cloud's head as last seen. After either stop, `sync` and `read` throw the same error again; `dispose()` frees the node.
 
 `make e2e-node` covers it with two devices: join, follow across blocks, cursors, being 2 blocks behind, removal, and the refused codes.

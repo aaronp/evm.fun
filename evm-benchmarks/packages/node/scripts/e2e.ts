@@ -143,8 +143,15 @@ try {
   const member = async (a: LocalAccount) => (await bc.nodes(cid)).members.find((m) => m.address.toLowerCase() === a.address.toLowerCase())
   const codeC = await invite(GRANT_READER), codeD = await invite(GRANT_WRITER)
   const cc = as(C, 'C phone'), dc = as(D, 'Café tablet ☕')
-  check((await cc.join(cid, await claimTx(C, 0, codeC, bAccess))).role === 'reader', 'C joins B’s chain as a reader with a 1-use code')
-  check((await dc.join(cid, await claimTx(D, 0, codeD, bAccess))).role === 'writer', 'D joins as a writer')
+  // a device builds its claim only from what a non-member can get: GET nonce gives its nonce and the chain's ChainAccess
+  const joinAs = async (who: LocalAccount, code: string) => {
+    const ji = await as(who).joinInfo(cid)
+    return as(who).join(cid, await claimTx(who, ji.nonce, code, ji.access))
+  }
+  const jiC = await cc.joinInfo(cid)
+  check(jiC.access.toLowerCase() === bAccess.toLowerCase() && await status(cc.info(cid)) === 403, 'a non-member gets the chain’s ChainAccess from GET nonce (and still cannot read it)')
+  check((await joinAs(C, codeC)).role === 'reader', 'C joins B’s chain as a reader with a 1-use code')
+  check((await joinAs(D, codeD)).role === 'writer', 'D joins as a writer')
   const fc = await Follower.open(cc, cid, wasm), fd = await Follower.open(dc, cid, wasm)
   try {
     const head0 = (await bc.state(cid)).head
@@ -166,8 +173,12 @@ try {
     check(await status(cc.blocks(cid, 0)) === 403, 'removed C: GET blocks → 403')
     check(!(await member(C)), 'nodes omits C after removal')
     const root1 = await invite(GRANT_CREATE_CHAIN)
-    check(await status(as(D).join(cid, await claimTx(D, 0, root1, bAccess))) === 403, 'a create-chain code used to join → 403')
-    check(await status(as(C).join(cid, await claimTx(C, 0, codeC, bAccess))) === 403, 'C’s reused 1-use code → 403')
+    const E = privateKeyToAccount(generatePrivateKey())
+    check(await status(joinAs(E, root1)) === 403, 'a create-chain code used to join → 403')
+    check(await status(joinAs(E, codeC)) === 403, 'C’s used 1-use code, by another key → 403')
+    const revoked = await invite(GRANT_READER)
+    await bc.submit(cid, [await accessTx(B, await bc.nonce(cid), bAccess, 'revokeInvite', codeHash(revoked))])
+    check(await status(joinAs(E, revoked)) === 403, 'a revoked unused code → 403')
   } finally {
     await fc.dispose(); await fd.dispose()
   }

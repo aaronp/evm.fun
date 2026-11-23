@@ -59,13 +59,16 @@ export async function handle(req: Request, deps: RouterDeps): Promise<Response> 
     const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await req.text()
     if (body.length > max) return json(tooBig)
     return json(await deps.chain(id).serve({
-      method: req.method, url: req.url, body, ts: h('x-ts'), nonce: h('x-nonce'), sig: h('x-sig'), ip: h('cf-connecting-ip') || 'unknown', name: [...decodeName(h('x-node-name')).replace(/[\x00-\x1f\x7f]/g, '').trim()].slice(0, 32).join('') || undefined,
+      method: req.method, url: req.url, body, ts: h('x-ts'), nonce: h('x-nonce'), sig: h('x-sig'), ip: h('cf-connecting-ip') || 'unknown', name: [...decodeName(h('x-node-name')).replace(NAME_STRIP, '').trim()].slice(0, 32).join('') || undefined,
     }))
   } catch (e) {
     console.error(e)
     return json({ status: 500, body: { error: 'internal error' } })
   }
 }
+
+/** Control characters, bidi overrides/isolates and zero-width characters: dropped from device names. */
+const NAME_STRIP = /[\x00-\x1f\x7f\u200b-\u200d\u202a-\u202e\u2066-\u2069\ufeff]/g
 
 /** x-node-name is percent-encoded by the client (header values are Latin-1); undecodable means no name. */
 const decodeName = (v: string) => { try { return decodeURIComponent(v) } catch { return '' } }
@@ -161,8 +164,8 @@ export class ChainHost implements ChainHandleLike {
         const a = url.searchParams.get('after') ?? '0'
         if (!/^\d{1,15}$/.test(a)) throw new ServiceError(400, 'after must be a non-negative integer')
         const out = s.blocks(Number(a))
-        // the cursor is what this reply delivers, never a client-supplied number
-        s.touch(signer, r.name, out.blocks.at(-1)?.header.number ?? out.head.number, now())
+        // the cursor is what this reply delivers, never a client-supplied number; only members get one (not readOpen readers)
+        if (await s.isMember(signer)) s.touch(signer, r.name, out.blocks.at(-1)?.header.number ?? out.head.number, now())
         return { status: 200, body: out }
       }
       case 'GET nodes':
@@ -174,7 +177,8 @@ export class ChainHost implements ChainHandleLike {
         return { status: 200, body: await this.#limited(r.ip, () => s.join(signer, claim, now())) }
       }
       case 'GET nonce':
-        return { status: 200, body: { nonce: await s.nonceOf(signer) } }
+        // access isn't secret: a joining device needs it to build its claim before it can read the chain
+        return { status: 200, body: { nonce: await s.nonceOf(signer), access: s.access } }
       default: // GET codes
         if (signer !== this.cfg.rootAdmin.toLowerCase()) throw new ServiceError(403, 'only the root admin can list codes')
         return { status: 200, body: await s.codes() }

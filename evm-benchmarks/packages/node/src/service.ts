@@ -115,6 +115,10 @@ export class ChainService {
 
   canRead(addr: string): Promise<boolean> { return this.call(ChainAccess.abi, 'canRead', [addr]) }
   canWrite(addr: string): Promise<boolean> { return this.call(ChainAccess.abi, 'canWrite', [addr]) }
+  /** Admin, writer or reader: excludes keys that can read only because readOpen is on. */
+  async isMember(addr: string): Promise<boolean> {
+    return (await this.call(ChainAccess.abi, 'isReader', [addr])) || (await this.canWrite(addr))
+  }
 
   async nonceOf(addr: string): Promise<number> {
     return Number(await this.node.read((n) => n.request({ method: 'eth_getTransactionCount', params: [addr, 'latest'] })))
@@ -252,11 +256,11 @@ export class ChainService {
 
   /** The access list (admin, writers, readers; each once, with its highest role) joined with the devices' cursors. */
   async nodes(): Promise<NodesView> {
+    const head = summary(this.store.head()) // before the awaits, so a block landing meanwhile never overstates `behind`
     const [admin, readOpen, writers, readers] = await Promise.all([
       this.call(ChainAccess.abi, 'admin'), this.call(ChainAccess.abi, 'readOpen'),
       this.call(ChainAccess.abi, 'writers'), this.call(ChainAccess.abi, 'readers'),
     ]) as [Address, boolean, Address[], Address[]]
-    const head = summary(this.store.head())
     const cursors = new Map(this.sql.exec('SELECT * FROM cursors').map((r) => [r.address as string, r]))
     const members: Member[] = []
     const seen = new Set<string>()

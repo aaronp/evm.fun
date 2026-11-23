@@ -55,7 +55,7 @@ export const claimTx = (account: LocalAccount, nonce: number, code: string, acce
 export const inviteTx = (account: LocalAccount, nonce: number, access: Address, code: string, ttlS: number, uses: number, grants = GRANT_CREATE_CHAIN) =>
   call(account, nonce, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: 'invite', args: [codeHash(code), BigInt(ttlS), uses, grants] }))
 
-export const accessTx = (account: LocalAccount, nonce: number, access: Address, fn: 'removeReader' | 'removeWriter' | 'setReadOpen', arg: Address | boolean) =>
+export const accessTx = (account: LocalAccount, nonce: number, access: Address, fn: 'removeReader' | 'removeWriter' | 'setReadOpen' | 'revokeInvite', arg: Address | boolean | Hex) =>
   call(account, nonce, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: fn, args: [arg] } as never))
 
 export class NodeError extends Error {
@@ -83,7 +83,9 @@ export class NodeClient {
 
   health() { return this.req<{ ok: true; root: null | RootInfo }>('GET', '/health', undefined, false) }
   info(chainId: string) { return this.req<RemoteChainInfo>('GET', `/chains/${chainId}`) }
-  async nonce(chainId: string) { return (await this.req<{ nonce: number }>('GET', `/chains/${chainId}/nonce`)).nonce }
+  async nonce(chainId: string) { return (await this.joinInfo(chainId)).nonce }
+  /** The signer's nonce and the chain's ChainAccess address: what a non-member needs to build its `claimTx`. */
+  joinInfo(chainId: string) { return this.req<{ nonce: number; access: Address }>('GET', `/chains/${chainId}/nonce`) }
   state(chainId: string) { return this.req<{ head: BlockSummary; dump: SerializedState }>('GET', `/chains/${chainId}/state`) }
   blocks(chainId: string, after: number) { return this.req<{ head: BlockSummary; blocks: BlockRecord[] }>('GET', `/chains/${chainId}/blocks?after=${after}`) }
   nodes(chainId: string) { return this.req<NodesView>('GET', `/chains/${chainId}/nodes`) }

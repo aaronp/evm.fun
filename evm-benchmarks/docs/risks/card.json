@@ -3,12 +3,12 @@
   "title": "Risks",
   "subtitle": "evm-benchmarks risks",
   "status": {
-    "label": "41 outside appetite",
+    "label": "44 outside appetite",
     "tone": "bad",
     "url": "https://aaronp.github.io/risk-register/?src=docs/risks/risks.md"
   },
   "heading": {
-    "primary": "53",
+    "primary": "56",
     "label": "open risks"
   },
   "legend": [
@@ -35,7 +35,7 @@
   ],
   "report": {
     "low": 15,
-    "medium": 32,
+    "medium": 35,
     "high": 6,
     "critical": 0
   },
