@@ -6,3 +6,7 @@ evm-benchmarks/results/
 .superpowers/
 .DS_Store
 evm-benchmarks/design/
+evm-benchmarks/.env.local
+evm-benchmarks/.env.live
+evm-benchmarks/.run/
+evm-benchmarks/packages/node/.wrangler/

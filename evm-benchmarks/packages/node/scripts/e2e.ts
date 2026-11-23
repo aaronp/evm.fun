@@ -1,0 +1,110 @@
+// End-to-end against the running local worker (make e2e-node): codes issued on root, chains deployed with them, refusals.
+//   bun packages/node/scripts/e2e.ts [url]
+import { join } from 'node:path'
+import { encodeDeployData, type Hex, type LocalAccount } from 'viem'
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
+import { MintableToken } from '@evmb/contracts'
+import { NodeClient, NodeError, claimTx, codeHash, generateCode, inviteTx, setupTxs, type CreateChainResult } from '../src/client'
+import { signRequest } from '../src/auth'
+import { ensureKey, freshDump } from './bootstrap'
+
+const URL_ = process.argv[2] ?? 'http://127.0.0.1:8799'
+const ENV = join(import.meta.dir, '../../../.env.local')
+const IP = `e2e-${crypto.randomUUID()}` // own rate-limit bucket per run (cf-connecting-ip is set by Cloudflare in production)
+
+let failures = 0
+const check = (ok: boolean, what: string) => {
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${what}`)
+  if (!ok) failures++
+}
+/** The status a request was refused with (0 if it succeeded). */
+const status = (p: Promise<unknown>) => p.then(() => 0, (e) => (e instanceof NodeError ? e.status : -1))
+
+const admin = privateKeyToAccount(ensureKey(ENV).key)
+const B = privateKeyToAccount(generatePrivateKey())
+const C = privateKeyToAccount(generatePrivateKey())
+// every request carries the run's IP header, so the rate-limit counter starts at zero
+const realFetch = fetch
+globalThis.fetch = ((u: RequestInfo | URL, init: RequestInit = {}) =>
+  realFetch(u, { ...init, headers: { ...(init.headers as Record<string, string>), 'cf-connecting-ip': IP } })) as typeof fetch
+const as = (a: LocalAccount) => new NodeClient(URL_, a)
+const anon = new NodeClient(URL_)
+
+try {
+  // ---- health and root ----
+  const h = await anon.health().catch((e) => { throw new Error(`worker not reachable at ${URL_}: ${e.message}`) })
+  check(h.ok && !!h.root, `health: root chain exists, head #${h.root?.head}`)
+  const root = h.root!
+  check(root.admin.toLowerCase() === admin.address.toLowerCase(), 'root admin is ROOT_ADMIN_KEY from .env.local')
+
+  // ---- admin issues codes ----
+  const issue = async (code: string, ttl: number, uses: number) =>
+    as(admin).submit('root', [await inviteTx(admin, await as(admin).nonce('root'), root.access, code, ttl, uses)])
+  const one = generateCode(), two = generateCode(), short = generateCode()
+  await issue(one, 600, 1)
+  await issue(two, 600, 2)
+  await issue(short, 2, 1)
+  check(true, 'admin issues a 1-use, a 2-use and a 2 s code')
+
+  // ---- B's browser chain: a fresh chain with one ERC-20 deploy ----
+  const erc20 = await B.signTransaction({
+    type: 'eip1559', chainId: 31337, nonce: 0, gas: 3_000_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n,
+    data: encodeDeployData({ abi: MintableToken.abi, bytecode: MintableToken.bytecode, args: ['Token', 'TKN'] }),
+  })
+  const dump = await freshDump([erc20])
+  // B's nonce on that chain is 1 (the ERC-20 deploy), C's is 0
+  const deploy = async (who: LocalAccount, code: string) =>
+    as(who).createChain({ dump, setup: await setupTxs(who, who === B ? 1 : 0, 31337), claim: await claimTx(who, await as(who).nonce('root'), code, root.access) })
+
+  // ---- deploy with the 1-use code ----
+  const r: CreateChainResult = await deploy(B, one)
+  check(r.head.number === 2, `B deploys chain ${r.chainId} with the 1-use code, head #${r.head.number}`)
+  check(r.url.endsWith(`/chains/${r.chainId}`), `url ${r.url}`)
+  check(r.dump.blocks.at(-1)!.hash === r.head.hash, "returned dump's head hash equals head.hash")
+  const info = await as(B).info(r.chainId)
+  check(info.admin.toLowerCase() === B.address.toLowerCase(), 'admin of the new chain is B')
+  check(info.chainId === r.chainId && info.head.hash === r.head.hash && info.head.stateRoot === r.head.stateRoot, 'info matches the create result')
+  check(await status(as(C).info(r.chainId)) === 403, 'C cannot read B’s chain (403)')
+
+  // ---- refusals ----
+  check(await status(deploy(C, one)) === 403, 'same 1-use code again → 403')
+  check(await status(deploy(C, 'not-a-real-code')) === 403, 'wrong code → 403')
+  await Bun.sleep(3000)
+  check(await status(deploy(C, short)) === 403, 'expired code (TTL 2 s, after 3 s) → 403')
+  check(await status(as(C).createChain({ dump: await freshDump(), setup: await setupTxs(C, 0, 31337) })) === 403, 'root create by a non-admin → 403')
+  check(await status(as(admin).createChain({ dump: await freshDump(), setup: await setupTxs(admin, 0, 31337) })) === 409, 'second root create by the admin → 409')
+  const url = new URL('/chains/root/nonce', URL_)
+  const s = await signRequest(C, 'GET', url, '')
+  const headers = { 'x-ts': s.ts, 'x-nonce': s.nonce, 'x-sig': s.sig }
+  const first = await fetch(url, { headers })
+  const again = await fetch(url, { headers })
+  check(first.status === 200 && again.status === 401, `replayed signed request → ${first.status} then ${again.status}`)
+  const unsigned = await fetch(new URL('/chains', URL_), { method: 'POST', body: '{}' })
+  check(unsigned.status === 401, `unsigned POST /chains → ${unsigned.status}`)
+  check(unsigned.headers.get('access-control-allow-origin') === null, 'no CORS origin for a request without Origin')
+  const pre = await fetch(new URL('/chains', URL_), { method: 'OPTIONS', headers: { origin: 'http://localhost:5173', 'access-control-request-method': 'POST' } })
+  check(pre.status === 204 && pre.headers.get('access-control-allow-origin') === 'http://localhost:5173', `CORS preflight from localhost → ${pre.status}`)
+
+  // ---- the 2-use code ----
+  const r1 = await deploy(B, two)
+  const r2 = await deploy(C, two)
+  check(r1.chainId !== r2.chainId, `the 2-use code deploys two chains (${r1.chainId}, ${r2.chainId})`)
+  check(await status(deploy(C, two)) === 403, 'and refuses a third → 403')
+
+  // ---- codes ----
+  const codes = await as(admin).codes()
+  const rec = (c: string) => codes.find((x) => x.hash === codeHash(c))
+  check(rec(one)?.usesLeft === 0 && rec(one)?.redeemed.map((x) => x.chainId).join() === r.chainId, 'codes: the 1-use code redeemed by B for its chain')
+  check(rec(two)?.redeemed.map((x) => x.chainId).sort().join() === [r1.chainId, r2.chainId].sort().join(), 'codes: the 2-use code redeemed twice')
+  check(rec(short)?.redeemed.length === 0, 'codes: the expired code never redeemed')
+  check(await status(as(B).codes()) === 403, 'codes by a non-admin → 403')
+
+  // ---- rate limit: 10 failed redeems per IP per 10 min ----
+  for (let i = 0; i < 10; i++) await status(deploy(C, `wrong-${i}`))
+  check(await status(deploy(C, one)) === 429, 'after 10 failed redeems from one IP → 429')
+} catch (e) {
+  check(false, `unexpected: ${(e as Error).message}`)
+}
+
+console.log(failures ? `${failures} FAILED` : 'ALL PASS')
+process.exit(failures ? 1 : 0)

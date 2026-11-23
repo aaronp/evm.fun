@@ -1,0 +1,10 @@
+{
+  "name": "evm-chain-node",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-04-12",
+  "compatibility_flags": ["nodejs_compat"],
+  // the root admin's address, passed at start: wrangler dev/deploy --var ROOT_ADMIN:<address>
+  "vars": { "ROOT_ADMIN": "" },
+  "durable_objects": { "bindings": [{ "name": "CHAIN", "class_name": "ChainDO" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChainDO"] }]
+}
