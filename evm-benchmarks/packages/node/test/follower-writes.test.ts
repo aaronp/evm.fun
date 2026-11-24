@@ -448,6 +448,83 @@ describe('Follower writes', () => {
     expect(f.pending()[1]!.status).toBe('pending')
   })
 
+  test('a 400 on a batch splits it: an already-mined resend confirms, only the bad tx is refused', async () => {
+    const real = as(admin)
+    let poison: Hex | undefined, drop = true, offline = false
+    const stub = {
+      account: admin,
+      state: real.state.bind(real),
+      blocks: (id: string, after: number) => {
+        if (offline) { offline = false; return Promise.reject(new Error('offline')) }
+        return real.blocks(id, after)
+      },
+      submit: async (id: string, txs: Hex[]) => {
+        if (poison && txs.includes(poison)) throw new NodeError(400, 'block rejected: boom') // apply threw: the whole request fails
+        const r = await real.submit(id, txs)
+        if (drop) { drop = false; offline = true; throw new Error('connection reset') }
+        return r
+      },
+    } as unknown as NodeClient
+    const f = keep(await Follower.open(stub, cid, wasm))
+    const t1 = await transfer(f, fresh(), fresh().address, 0n)
+    await expect(f.sync()).rejects.toThrow('offline') // t1 mined, reply lost
+    const t2 = await transfer(f, fresh(), fresh().address, 0n)
+    poison = (f.pending()[1]!).raw
+    await f.sync() // [t1, t2] → 400 → [t1] mined, [t2] → 400
+    expect(f.pending()).toMatchObject([
+      { hash: t1.transactionHash, status: 'confirmed' },
+      { hash: t2.transactionHash, status: 'refused', reason: 'block rejected: boom' },
+    ])
+    expect((await cloudTxs()).filter((h) => h === t1.transactionHash)).toHaveLength(1)
+  })
+
+  test('a 413 batch splits and all txs settle; a single tx that is too big is refused', async () => {
+    const real = as(admin)
+    let big: Hex | undefined
+    const sizes: number[] = []
+    const stub = {
+      account: admin, state: real.state.bind(real), blocks: real.blocks.bind(real),
+      submit: (id: string, txs: Hex[]) => {
+        sizes.push(txs.length)
+        return txs.length > 2 || (big && txs.includes(big)) ? Promise.reject(new NodeError(413, 'body over 1048576 bytes')) : real.submit(id, txs)
+      },
+    } as unknown as NodeClient
+    const f = keep(await Follower.open(stub, cid, wasm))
+    for (let i = 0; i < 5; i++) await transfer(f, fresh(), fresh().address, 0n)
+    big = f.pending()[4]!.raw
+    await f.sync()
+    expect(f.pending().map((t) => t.status)).toEqual(['confirmed', 'confirmed', 'confirmed', 'confirmed', 'refused'])
+    expect(f.pending()[4]!.reason).toMatch(/too large to submit/)
+    expect(sizes).toEqual([5, 2, 3, 1, 2, 1, 1]) // halves, in order; the big one alone, then refused
+  })
+
+  test('after dismissing the newest records and reopening, a new unrelated conflict gets no dependsOn', async () => {
+    const k = fresh(), p = fresh(), q = fresh(), x = fresh().address, y = fresh().address
+    await mint(k.address, 10n)
+    await mint(p.address, 10n)
+    await mint(q.address, 10n)
+    const a = keep(await Follower.open(as(admin), cid, wasm, { signer: signers(k, q) }))
+    const store = new MemoryFollowerStore()
+    const b = keep(await Follower.open(as(tablet), cid, wasm, { store, signer: signers(k, p, q) }))
+    await transfer(a, k, x, 10n)
+    await a.sync()
+    await transfer(b, k, y, 10n) // seq 0: conflicts
+    await transfer(b, p, y, 1n) // seq 1
+    await transfer(b, p, y, 1n) // seq 2
+    await b.sync()
+    expect(b.pending().map((t) => t.status)).toEqual(['conflicted', 'confirmed', 'confirmed'])
+    for (const t of b.pending().slice(1)) await b.dismiss(t.hash)
+    const c = keep(await Follower.open(as(tablet), cid, wasm, { store, signer: signers(k, p, q) }))
+    await transfer(a, q, x, 10n)
+    await a.sync()
+    await transfer(c, q, y, 10n) // unrelated, conflicts
+    await c.sync()
+    const t = c.pending().at(-1)!
+    expect(t.seq).toBeGreaterThan(2)
+    expect(t.status).toBe('conflicted')
+    expect(t.dependsOn).toBeUndefined()
+  })
+
   test('removed while the stored copy is unusable: open throws FollowerRemoved and the stored pending are refused', async () => {
     const store = new MemoryFollowerStore()
     const f = await Follower.open(as(admin), cid, wasm, { store })

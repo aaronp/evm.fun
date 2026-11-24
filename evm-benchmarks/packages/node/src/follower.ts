@@ -99,7 +99,8 @@ export class Follower {
       if (fromStore) f.#saved = head.hash
       else await f.#save(dump)
       f.#txs = (await o.store?.listPending(key)) ?? []
-      f.#seq = Math.max(-1, ...f.#txs.map((t) => t.seq)) + 1
+      // never backwards, even after the newest records were dismissed: settledAt holds the counter's old values
+      f.#seq = Math.max(0, ...f.#txs.map((t) => Math.max(t.seq + 1, t.settledAt ?? 0)))
       await f.#rerun()
     } catch (e) { await f.node.dispose(); throw e }
     return f
@@ -239,25 +240,33 @@ export class Follower {
     }
   }
 
-  /** POST the pending txs in seq order, in batches. Stops at the first failed batch; a 403 marks it and the rest `denied`. */
+  /**
+   * POST the pending txs in seq order, in batches. A 400 or 413 on a batch splits it in halves (the request fails as a
+   * whole, so it says nothing about each tx); only a single tx is refused for it. Stops at the first other failure;
+   * a 403 marks that batch and the rest `denied`.
+   */
   async #submit(): Promise<{ nonce: Map<PendingTx, string>; denied: PendingTx[]; error?: unknown }> {
-    const todo = this.#txs.filter((t) => t.status === 'pending')
     const nonce = new Map<PendingTx, string>()
+    const tooBig = `too large to submit (over the ${MAX_SUBMIT_BYTES}-byte submit limit)`
     const size = (t: PendingTx) => t.raw.length + 3 // quotes and comma in {"txs":[...]}
-    for (let i = 0; i < todo.length;) {
-      if (size(todo[i]!) + 9 > MAX_SUBMIT_BYTES) {
-        await this.#settle(todo[i++]!, { status: 'refused', reason: `larger than the ${MAX_SUBMIT_BYTES}-byte submit limit` })
-        continue
-      }
-      const batch: PendingTx[] = []
-      for (let bytes = 9; i < todo.length && batch.length < (this.o.batch ?? DEFAULT_BATCH) && bytes + size(todo[i]!) <= MAX_SUBMIT_BYTES; bytes += size(todo[i++]!)) batch.push(todo[i]!)
+    const batches: PendingTx[][] = []
+    let bytes = Infinity
+    for (const t of this.#txs.filter((t) => t.status === 'pending')) {
+      if (size(t) + 9 > MAX_SUBMIT_BYTES) { await this.#settle(t, { status: 'refused', reason: tooBig }); continue }
+      const last = batches.at(-1)
+      if (!last || last.length >= (this.o.batch ?? DEFAULT_BATCH) || bytes + size(t) > MAX_SUBMIT_BYTES) batches.push([t]), bytes = 9 + size(t)
+      else last.push(t), bytes += size(t)
+    }
+    while (batches.length) {
+      const batch = batches.shift()!
       let r
       try {
         r = await this.client.submit(this.chainId, batch.map((t) => t.raw))
       } catch (e) {
-        if (e instanceof NodeError && e.status === 403) return { nonce, denied: todo.slice(i - batch.length) }
-        if (e instanceof NodeError && (e.status === 400 || e.status === 413)) { // the same answer every time: refuse, don't retry forever
-          for (const t of batch) await this.#settle(t, { status: 'refused', reason: e.error })
+        if (e instanceof NodeError && e.status === 403) return { nonce, denied: [batch, ...batches].flat() }
+        if (e instanceof NodeError && (e.status === 400 || e.status === 413)) {
+          if (batch.length > 1) batches.unshift(batch.slice(0, batch.length >> 1), batch.slice(batch.length >> 1))
+          else await this.#settle(batch[0]!, { status: 'refused', reason: e.status === 413 ? tooBig : e.error })
           continue
         }
         return { nonce, denied: [], error: e }
