@@ -1,9 +1,9 @@
-import { kvFollowerStore } from '../cloud/followerStore'
 import type { Address, ApproachHost } from '@evmb/core'
 import plain from '@evmb/approach-01-webevm-baseline'
 import sequencer from '@evmb/approach-02-seq-memory'
 import { rebase, type Asset } from '@evmb/assets'
 import type { Kv } from '../store/kv'
+import { kvFollowerStore, removeFollowerRows } from '../cloud/followerStore'
 import { createContractsRegistry } from '../contracts/registry'
 import type { ChainSource, ContractRecord } from './chainFile'
 import { createWebAssets } from '../assets/registry'
@@ -226,6 +226,7 @@ export function createChainRegistry(deps: {
       await contracts.replace(id, [])
       await assets.removeChain(id)
       await snapshots.removeForChain(id)
+      await removeFollowerRows(deps.kv, id)
       await deps.purge?.(id)
     },
     /** Delete snapshots of chains that are neither stored nor live. */

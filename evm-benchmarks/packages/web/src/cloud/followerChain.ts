@@ -34,7 +34,8 @@ export function ago(at: number, now = Date.now() / 1000) {
 const webLock = (name: string, fn: () => Promise<void>): Promise<boolean> => {
   const locks = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks
   if (!locks) { void fn(); return Promise.resolve(true) }
-  return new Promise((res) => void locks.request(name, { ifAvailable: true }, (l) => { res(!!l); return l ? fn() : undefined }))
+  return new Promise((res) => void locks.request(name, { ifAvailable: true }, (l) => { res(!!l); return l ? fn() : undefined })
+    .catch((e) => { console.warn(`Can't take the writing-tab lock (${name}); following read-only`, e); res(false) }))
 }
 const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden'
 
@@ -96,9 +97,11 @@ export function followerApproach(o: {
     if (e instanceof NodeError && e.status === 401) return { kind: 'clock', detail: `Check this device's clock (${e.error})` }
     if (e instanceof NodeError && e.status === 404) return { kind: 'gone', detail: 'This chain no longer exists' }
     // fetch failures are TypeErrors in browsers (Bun: other errors); a 5xx or 429 also just means "retrying"
-    if (f && !(e instanceof NodeError && e.status < 500 && e.status !== 429)) {
+    // (a network-class error: a fetch TypeError, a runtime's coded socket error, or a 5xx/429; engine or store bugs stay "unreachable")
+    const network = e instanceof TypeError || (e instanceof NodeError ? e.status >= 500 || e.status === 429 : typeof (e as { code?: unknown })?.code === 'string')
+    if (f && network) {
       const at = f.lastSynced
-      return { kind: 'offline', lastSynced: at, detail: `Offline${at ? ` — last synced ${ago(at / 1000)}` : ''}. Changes are kept and sent when you're back.` }
+      return { kind: 'offline', lastSynced: at, detail: `Offline${at ? ` — last synced ${ago(at / 1000)}` : ''}.${fStore ? " Changes are kept and sent when you're back." : ''}` }
     }
     return { kind: 'unreachable', detail: e instanceof NodeError ? `${nodeUrl}: ${e.error}` : `Can't reach ${nodeUrl}` }
   }
@@ -121,15 +124,18 @@ export function followerApproach(o: {
     try {
       if (stopped || (final(status) && status.kind !== 'needs-key')) return
       if (!stopped) await acquire()
-      if (f && o.store && holding && !fStore) { await f.dispose(); f = undefined } // took over from another tab: reopen with the store
-      const first = !f
-      if (!f) {
+      // took over from another tab: open a copy with the store, keeping the read-only one (the working view) until it is up
+      const takeover = !!f && !!o.store && holding && !fStore
+      const first = !f || takeover
+      if (!f || takeover) {
         const key = o.key()
         if (!key) return set({ kind: 'needs-key', detail: `Needs ${address}'s key` })
         const next = await Follower.open(new NodeClient(nodeUrl, key.account, { name: key.label }), chainId, await o.wasm(), o.store && holding ? { store: o.store, key: o.id } : {})
-        fStore = !!(o.store && holding)
         if (stopped) return void (await next.dispose())
+        const old = f
         f = next
+        fStore = !!(o.store && holding)
+        await old?.dispose()
       }
       const before = f.head.hash
       await f.sync()
@@ -181,8 +187,7 @@ export function followerApproach(o: {
       clearTimeout(timer)
       unsubs?.forEach((u) => u())
       await running
-      await f?.dispose()
-      release?.()
+      try { await f?.dispose() } finally { release?.() }
     },
   }
 }

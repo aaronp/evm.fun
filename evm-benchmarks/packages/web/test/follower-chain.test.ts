@@ -5,6 +5,8 @@ import { ChainHost, handle, type ChainHandleLike } from '@evmb/node/src/router'
 import { GRANT_READER, NodeClient, accessTx, claimTx, generateCode, inviteTx, setupTxs } from '@evmb/node/src/client'
 import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
+import { Follower } from '@evmb/node/src/follower'
+import { kvFollowerStore, unsentChanges, unsentWarning } from '../src/cloud/followerStore'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry, LIVE_MAX } from '../src/chain/registry'
 import { createContractsRegistry } from '../src/contracts/registry'
@@ -375,5 +377,86 @@ describe('follower store and writing tab', () => {
     const h = await addFollower(registry, { name: 'd', follows: follows() })
     expect((h.approach as any).notice()).toBe("This browser isn't saving data: pending changes are lost if you close the tab.")
     await registry.remove(h.info.id)
+  })
+
+  /** A device that sent one tx (pending: it never synced) and was closed: its record sits in the store under `id`. */
+  async function leavePending(kv: ReturnType<typeof createKv>, id: string) {
+    await env({ kv }).registry.putFollower({ id, name: 'd', createdAt: new Date().toISOString(), follows: follows(), contracts: [] })
+    const f = await Follower.open(new NodeClient(url, admin, { name: 'laptop' }), cid, wasm, { store: kvFollowerStore(kv), key: id })
+    const nonce = await f.read(async (n) => Number(await n.request({ method: 'eth_getTransactionCount', params: [admin.address, 'latest'] })))
+    await f.send(await admin.signTransaction({ type: 'eip1559', chainId: 31337, nonce, to: phone.address, value: 0n, gas: 30_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n }))
+    await f.dispose()
+    expect((await kvFollowerStore(kv).listPending(id)).map((t) => t.status)).toEqual(['pending'])
+  }
+  const statuses = async (kv: ReturnType<typeof createKv>, id: string) => (await kvFollowerStore(kv).listPending(id)).map((t) => t.status)
+  const down = () => { globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch }
+
+  test('chain delete removes the stored copy and every pending record', async () => {
+    const kv = createKv()
+    const id = crypto.randomUUID()
+    await leavePending(kv, id)
+    expect(await kv.get('followerConfirmed', id)).toBeDefined()
+    await env({ kv }).registry.remove(id)
+    expect(await kv.get('followerConfirmed', id)).toBeUndefined()
+    expect(await kv.list(`followerPending:${id}`)).toEqual([])
+  })
+
+  test('a reload while offline shows its pending txs; back online they settle', async () => {
+    const kv = createKv()
+    const id = crypto.randomUUID()
+    await leavePending(kv, id)
+    down()
+    const { registry } = env({ kv, lock: () => true })
+    const h = await registry.open(id)
+    expect(status(h)).toMatchObject({ kind: 'offline' })
+    expect(await statuses(kv, id)).toEqual(['pending'])
+    globalThis.fetch = realFetch
+    await syncNow(h)
+    expect(status(h).kind).toBe('following')
+    expect(await statuses(kv, id)).toEqual(['confirmed'])
+    await registry.close(id)
+  })
+
+  test('a read-only tab that later gets the lock reopens with the store; the other tab\'s pending records survive and settle', async () => {
+    const kv = createKv()
+    const id = crypto.randomUUID()
+    await leavePending(kv, id) // tab A's record; tab A is gone
+    let granted = false
+    const { registry, events } = env({ kv, lock: () => granted })
+    const h = await registry.open(id)
+    const ap = h.approach as any
+    expect(ap.canWrite()).toBe('Open in another tab: changes are made there.')
+    expect(await bn(h)).toBeGreaterThanOrEqual(0) // the read-only view works
+    granted = true
+    const n = events.length
+    await syncNow(h)
+    expect(ap.canWrite()).toBeUndefined()
+    expect(events.length).toBeGreaterThan(n) // onHead fired for the reopened copy
+    expect(status(h).kind).toBe('following')
+    expect(await statuses(kv, id)).toEqual(['confirmed'])
+    await registry.close(id)
+  })
+
+  test('a rejected locks.request is treated as not granted and does not hang sync', async () => {
+    const nav = globalThis.navigator as any
+    Object.defineProperty(nav, 'locks', { configurable: true, value: { request: () => Promise.reject(new Error('SecurityError')) } })
+    const warn = console.warn
+    console.warn = () => {}
+    try {
+      const { registry } = env({ kv: createKv() })
+      const h = await addFollower(registry, { name: 'd', follows: follows() })
+      expect(status(h).kind).toBe('following')
+      expect((h.approach as any).canWrite()).toBe('Open in another tab: changes are made there.')
+      await registry.remove(h.info.id)
+    } finally { console.warn = warn; delete nav.locks }
+  })
+
+  test('unsentChanges counts pending records per follower chain', async () => {
+    const kv = createKv()
+    const id = crypto.randomUUID()
+    await leavePending(kv, id)
+    expect(await unsentChanges(kv, [{ id, name: 'phone chain' }, { id: 'other', name: 'x' }])).toEqual([{ name: 'phone chain', count: 1 }])
+    expect(unsentWarning([{ name: 'a', count: 2 }, { name: 'b', count: 1 }])).toBe('3 unsent changes on a, b will be lost.')
+    expect(unsentWarning([])).toBeUndefined()
   })
 })

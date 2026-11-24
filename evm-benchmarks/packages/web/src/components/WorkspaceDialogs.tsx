@@ -8,6 +8,7 @@ import { useApp } from '../state'
 import { useWizard } from '../walkthrough/wizard'
 import { useNavigate } from 'react-router-dom'
 import { saveWorkspace } from '../workspace/build'
+import { unsentChanges, unsentWarning } from '../cloud/followerStore'
 import { NOT_KEEPING, newWorkspace, openWorkspace, selectionHash, type OpenResult } from '../workspace/load'
 import { SELECTED_CHAIN } from '../workspace/build'
 import { validateWorkspace } from '../workspace/validate'
@@ -56,6 +57,7 @@ export function useWorkspaceDialogs(): { actions: FileActions; dialogs: ReactNod
   const wz = useWizard()
   const nav = useNavigate()
   const [view, setView] = useState<View>()
+  const [unsent, setUnsent] = useState<string>()
   const dialog = useRef<HTMLDialogElement>(null)
   const openInput = useRef<HTMLInputElement>(null), importInput = useRef<HTMLInputElement>(null)
   const seen = !!storage.getItem(SEEN)
@@ -85,6 +87,8 @@ export function useWorkspaceDialogs(): { actions: FileActions; dialogs: ReactNod
     if (r.restoreError && r.previousText && !saveFirst) downloadText('previous-workspace.json', r.previousText)
     setView({ kind: 'failed', name, r })
   }
+  /** Unsent follower changes would be lost by New/Open: shown in the confirm. */
+  const checkUnsent = async () => setUnsent(unsentWarning(await unsentChanges(kv, await registry.list()).catch(() => [])))
   async function doNew(saveFirst: boolean) {
     setView({ kind: 'busy', text: saveFirst ? 'Saving, then clearing…' : 'Clearing…' })
     const r = await newWorkspace(env(), { ...(saveFirst && { download }), busy: () => why.current })
@@ -94,6 +98,7 @@ export function useWorkspaceDialogs(): { actions: FileActions; dialogs: ReactNod
   async function pick(file: File) {
     const text = await file.text()
     const v = validateWorkspace(text, { engine: ENGINE, crossEngineOk: CROSS_ENGINE_OK })
+    await checkUnsent()
     setView('errors' in v ? { kind: 'errors', name: file.name, errors: v.errors } : { kind: 'open', name: file.name, text, file: v.ok })
   }
   async function doOpen(o: Extract<View, { kind: 'open' }>, saveFirst: boolean) {
@@ -110,7 +115,7 @@ export function useWorkspaceDialogs(): { actions: FileActions; dialogs: ReactNod
   const exportWhy = !chain ? 'Select a chain first' : chain.info.ephemeral ? "Benchmark chains aren't exported" : undefined
   const refuse = () => setView({ kind: 'message', tone: 'warn', text: NOT_KEEPING })
   const actions: FileActions = {
-    new: () => keeping() ? setView({ kind: 'new' }) : refuse(),
+    new: () => keeping() ? void checkUnsent().then(() => setView({ kind: 'new' })) : refuse(),
     open: () => keeping() ? openInput.current?.click() : refuse(),
     save: () => seen ? void save() : setView({ kind: 'keys' }),
     importChain: () => importInput.current?.click(),
@@ -140,6 +145,7 @@ export function useWorkspaceDialogs(): { actions: FileActions; dialogs: ReactNod
           </h2>
           {view?.kind === 'new' && <>
             <p className="text-sm">{NEW_CONFIRM}</p>
+            {unsent && <Notice tone="warn">{unsent}</Notice>}
             {keysLine}
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="ghost" onClick={close}>Cancel</Button>
@@ -161,6 +167,7 @@ export function useWorkspaceDialogs(): { actions: FileActions; dialogs: ReactNod
           </>}
           {view?.kind === 'open' && <>
             <p className="text-sm">Replace the workspace? This clears every account, chain, record and walkthrough in this browser and opens {view.name} instead.</p>
+            {unsent && <Notice tone="warn">{unsent}</Notice>}
             {keysLine}
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="ghost" onClick={close}>Cancel</Button>

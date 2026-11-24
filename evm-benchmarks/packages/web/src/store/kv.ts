@@ -81,15 +81,15 @@ export function createKv(): Kv {
   const k = (s: string, key: string) => s + SEP + key
 
   kv.get = <T>(s: string, key: string) =>
-    run(os => req(os.get(k(s, key))) as Promise<T | undefined>, () => mem.get(k(s, key)) as T | undefined)
+    run(os => req(os.get(k(s, key))) as Promise<T | undefined>, () => structuredClone(mem.get(k(s, key))) as T | undefined)
   kv.set = (s, key, value, opts) =>
-    run(async os => void (await req(os.put(value, k(s, key)))), () => void mem.set(k(s, key), value), true, opts?.strict)
+    run(async os => void (await req(os.put(value, k(s, key)))), () => void mem.set(k(s, key), structuredClone(value)), true, opts?.strict)
   kv.del = (s, key) =>
     run(async os => void (await req(os.delete(k(s, key)))), () => void mem.delete(k(s, key)), true)
   kv.list = <T>(s: string) =>
     run(
       os => req(os.getAll(IDBKeyRange.bound(s + SEP, s + SEP + '￿'))) as Promise<T[]>,
-      () => [...mem].filter(([key]) => key.startsWith(s + SEP)).map(([, v]) => v as T),
+      () => [...mem].filter(([key]) => key.startsWith(s + SEP)).map(([, v]) => structuredClone(v) as T),
     )
   kv.clear = () => run(async os => { mem.clear(); await req(os.clear()) }, () => mem.clear(), true)
   return kv
