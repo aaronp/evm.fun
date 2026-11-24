@@ -291,7 +291,7 @@ export class ChainService {
   /** The access list (admin, writers, readers; each once, with its highest role) joined with the devices' cursors. */
   async nodes(): Promise<NodesView> {
     const head = summary(this.store.head()) // before the awaits, so a block landing meanwhile never overstates `behind`
-    const [admin, { write, read, deploy, readOpen }] = await Promise.all([this.call(ChainAccess.abi, 'admin') as Promise<Address>, this.acl.list()])
+    const [admin, { write, read, deploy, deployRole, readOpen }] = await Promise.all([this.call(ChainAccess.abi, 'admin') as Promise<Address>, this.acl.list()])
     const writers = write.filter((a) => a !== admin), readers = read.filter((a) => !write.includes(a))
     const dep = new Set(deploy.map((d) => d.toLowerCase()))
     const cursors = new Map(this.sql.exec('SELECT * FROM cursors').map((r) => [r.address as string, r]))
@@ -307,7 +307,7 @@ export class ChainService {
           ? { address, role, deploy: dep.has(key), ...(c.name == null ? {} : { name: c.name as string }), block: Number(c.block), behind: Math.max(0, head.number - Number(c.block)), seenAt: Number(c.seenAt) }
           : { address, role, deploy: dep.has(key) })
       }
-    return { head, admin, readOpen, members }
+    return { head, admin, readOpen, deployRole, members }
   }
 
   dump(): Promise<SerializedState> {

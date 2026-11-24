@@ -15,7 +15,7 @@ const message = (e: unknown) => (e && typeof e === 'object' && 'error' in e ? St
 const copy = (s: string) => navigator.clipboard?.writeText(s)
 
 /** "Invite a device": step 1 creates the access code on chain, step 2 shows the link (and QR) to open on the other device. */
-export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: NodeClient; signer: Parameters<typeof inviteDevice>[0]['admin']; nodeUrl: string; chainId: string }) {
+export function InviteWizard({ deployRole, client, signer, nodeUrl, chainId }: { deployRole: boolean; client: NodeClient; signer: Parameters<typeof inviteDevice>[0]['admin']; nodeUrl: string; chainId: string }) {
   const [code, setCode] = useState(generateCode)
   const [ttl, setTtl] = useState(inviteDefaults.ttl)
   const [uses, setUses] = useState(inviteDefaults.uses)
@@ -24,7 +24,7 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
   const [singleLink, setSingleLink] = useState(inviteDefaults.singleLink)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
-  const [shared, setShared] = useState<{ link: string; code?: string; warn?: string }>() // step 2; shown once, until Invite another / Done
+  const [shared, setShared] = useState<{ link: string; code?: string; warn?: string; role?: string }>() // step 2; shown once, until Invite another / Done
   const [closed, setClosed] = useState(false)
   const n = Number(uses)
   const valid = codeUsable(code) && Number.isInteger(n) && n >= 1 && n <= 1000
@@ -35,8 +35,8 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
   async function next() {
     setBusy(true); setErr(undefined)
     try {
-      await inviteDevice({ client, chainId, admin: signer, code, ttlS: Number(ttl), uses: n, role, deploy })
-      setShared({ ...inviteShare({ base: location.origin + location.pathname, nodeUrl, chainId, code, singleLink }), ...(singleLink && { warn: singleLinkWarning(role) }) })
+      await inviteDevice({ client, chainId, admin: signer, code, ttlS: Number(ttl), uses: n, role, deploy: deployRole && deploy })
+      setShared({ role: role === 'writer' && deployRole && deploy ? 'writer who can deploy contracts' : role, ...inviteShare({ base: location.origin + location.pathname, nodeUrl, chainId, code, singleLink }), ...(singleLink && { warn: singleLinkWarning(role) }) })
       setCode(generateCode())
     } catch (e) {
       setErr(`Couldn't create the invite: ${message(e)}`)
@@ -48,7 +48,7 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
   if (shared) return (
     <div className="space-y-3 border-t border-line p-4">
       <h3 className="font-medium">Invite a device <span className="text-xs font-normal text-muted">· step 2 of 2</span></h3>
-      <p className="text-sm">Open this on another device: scan the QR code or use the link.</p>
+      <p className="text-sm">Open this on another device: scan the QR code or use the link. It joins as a {shared.role}.</p>
       <div className="flex flex-wrap items-start gap-4">
         <QrCode value={shared.link} />
         <div className="min-w-0 flex-1 space-y-3">
@@ -100,9 +100,9 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
         </label>
       </div>
       {warning && <Notice>{warning}</Notice>}
-      {role === 'writer' && (
+      {deployRole && role === 'writer' && (
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={deploy} onChange={(e) => setDeploy(e.target.checked)} />
+          <input type="checkbox" className="size-4 accent-accent" checked={deploy} onChange={(e) => setDeploy(e.target.checked)} />
           Can deploy contracts
         </label>
       )}

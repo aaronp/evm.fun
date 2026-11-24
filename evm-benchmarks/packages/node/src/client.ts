@@ -41,7 +41,7 @@ export interface CodeRecord { hash: Hex; expiry: number; usesLeft: number; redee
 /** A block as GET /chains/:id/blocks serves it: header, raw txs, receipts. */
 export type BlockRecord = StoredBlock
 export interface Member { address: Address; role: 'admin' | 'writer' | 'reader'; deploy: boolean; name?: string; block?: number; behind?: number; seenAt?: number }
-export interface NodesView { head: BlockSummary; admin: Address; readOpen: boolean; members: Member[] }
+export interface NodesView { head: BlockSummary; admin: Address; readOpen: boolean; /** false on a chain whose ChainAccess predates the deploy role (writers deploy) */ deployRole: boolean; members: Member[] }
 type RootInfo = { chainId: 'root'; admin: Address; access: Address; head: number }
 
 export const codeHash = (code: string): Hex => keccak256(toBytes(code))

@@ -25,6 +25,7 @@ test('readOpen reported, read list unchanged', async () => {
 test('deploy list is admin + deployers; canDeploy asks the contract', async () => {
   const acl = chainAcl(fake())
   expect((await acl.list()).deploy).toEqual([getAddress(a), getAddress(c)])
+  expect((await acl.list()).deployRole).toBe(true)
   expect(await acl.canDeploy(c as never)).toBe(true)
   expect(await acl.canDeploy(b as never)).toBe(false)
 })
@@ -36,6 +37,7 @@ test('an old ChainAccess (canDeploy/deployers revert) falls back to write', asyn
   }
   const acl = chainAcl(old)
   expect((await acl.list()).deploy).toEqual([getAddress(a), getAddress(b)])
+  expect((await acl.list()).deployRole).toBe(false)
   expect(await acl.canDeploy(b as never)).toBe(true)
   expect(await acl.canDeploy(c as never)).toBe(false)
 })

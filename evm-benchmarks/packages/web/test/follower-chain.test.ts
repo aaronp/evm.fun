@@ -584,6 +584,29 @@ describe('writing from a follower', () => {
     await registry.remove(h.info.id)
   })
 
+  test('a deploy refused locally is re-read: after the admin grants deploy, the next creation goes through', async () => {
+    const w = await member(GRANT_WRITER | GRANT_READER)
+    const { registry } = env({ lock: () => true, account: withKey(w) })
+    const h = await addFollower(registry, { name: 'Shop', follows: follows(w.address) })
+    const create = (nonce: number) => w.signTransaction({ type: 'eip1559', chainId: 31337, nonce, data: '0x00', value: 0n, gas: 100_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    await expect(h.send(await create(1))).rejects.toThrow("can't deploy contracts on Shop")
+    const c = adminClient()
+    await c.submit(cid, [await accessTx(admin, await c.nonce(cid), access, 'addDeployer', w.address)])
+    await syncNow(h)
+    await h.send(await create(1))
+    expect(h.approach.pending!()).toBe(1)
+    await registry.remove(h.info.id)
+  })
+
+  test('a malformed raw tx is not refused by the local deploy check', async () => {
+    const w = await member(GRANT_WRITER | GRANT_READER)
+    const { registry } = env({ lock: () => true, account: withKey(w) })
+    const h = await addFollower(registry, { name: 'Shop', follows: follows(w.address) })
+    await h.send(await sign(w, 1)).catch(() => {})
+    await expect(h.send('0xdeadbeef' as never)).rejects.not.toThrow("can't deploy")
+    await registry.remove(h.info.id)
+  })
+
   test('deploy removed with a creation pending: it settles refused with the reason, the call is unaffected', async () => {
     const w = await member(GRANT_WRITER | GRANT_READER | GRANT_DEPLOY)
     const { registry } = env({ lock: () => true, account: withKey(w) })

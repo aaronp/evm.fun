@@ -343,5 +343,6 @@ describe('deploy role', () => {
     expect(await s.acl.canDeploy(joiner.address)).toBe(true)
     expect((await s.submit(joiner.address, [await creation(joiner)], T0 + 200)).results[0]!.result).toBe('mined')
     expect((await s.nodes()).members.find((m) => m.address === joiner.address)).toMatchObject({ role: 'writer', deploy: true })
+    expect((await s.nodes()).deployRole).toBe(false)
   })
 })

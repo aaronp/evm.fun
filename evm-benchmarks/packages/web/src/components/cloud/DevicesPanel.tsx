@@ -86,7 +86,7 @@ export function DevicesPanel({ chain }: { chain: ChainHandle }) {
       actions={<Button variant="ghost" size="sm" disabled={syncing} onClick={sync}>{syncing ? 'Syncing…' : 'Sync now'}</Button>}>
       {err && <div className="p-4"><Notice>{`Couldn't list devices: ${err}`}</Notice></div>}
       {view && <Members view={view} me={f.account} admin={isAdmin && client && signer ? { client, signer, chainId: f.chainId, after: load } : undefined} />}
-      {isAdmin && client && signer && <InviteWizard client={client} signer={signer} nodeUrl={f.nodeUrl} chainId={f.chainId} />}
+      {isAdmin && client && signer && <InviteWizard deployRole={view.deployRole} client={client} signer={signer} nodeUrl={f.nodeUrl} chainId={f.chainId} />}
     </Panel>
   )
 }
@@ -141,14 +141,14 @@ function Members({ view, me, admin }: { view: NodesView; me: string; admin?: Adm
                   <span title={m.address}>{short(m.address)}</span>
                   <button type="button" className="ml-1 align-middle text-muted hover:text-text focus-visible:outline-2 focus-visible:outline-accent" aria-label={`Copy ${m.address}`} title="Copy address" onClick={() => navigator.clipboard?.writeText(m.address)}><CopyIcon /></button>
                 </td>
-                <td className={td}><Badge variant={m.role === 'admin' ? 'accent' : 'neutral'}>{m.role}</Badge>{m.role === 'writer' && m.deploy && <Badge variant="neutral" className="ml-1">deploy</Badge>}</td>
+                <td className={td}><Badge variant={m.role === 'admin' ? 'accent' : 'neutral'}>{m.role}</Badge>{view.deployRole && m.role === 'writer' && m.deploy && <Badge variant="neutral" className="ml-1">deploy</Badge>}</td>
                 <td className={td}>{m.block === undefined ? <span className="text-muted">—</span> : `#${m.block}`}</td>
                 <td className={td}>{m.behind === undefined ? <span className="text-muted">not synced yet</span> : m.behind ? `${m.behind} behind` : 'in sync'}</td>
                 <td className={`${td} whitespace-nowrap text-xs text-muted`}>{m.seenAt === undefined ? '—' : <span title={new Date(m.seenAt * 1000).toLocaleString()}>{ago(m.seenAt)}</span>}</td>
-                {admin && <td className={`${td} space-x-1`}>
-                  {m.role === 'writer' && m.deploy && <Button variant="ghost" size="sm" disabled={busy} onClick={() => dropDeploy(m)}>Remove deploy</Button>}
-                  {m.role !== 'admin' && <Button variant="danger-outline" size="sm" disabled={busy} onClick={() => { setRemoving(m); setCloseReads(false); setFlash(undefined) }}>Remove</Button>}
-                </td>}
+                {admin && <td className={td}><div className="flex flex-wrap justify-end gap-1">
+                  {view.deployRole && m.role === 'writer' && m.deploy && <Button variant="ghost" size="sm" aria-label={`Remove deploy from ${label(m)}`} disabled={busy} onClick={() => dropDeploy(m)}>Remove deploy</Button>}
+                  {m.role !== 'admin' && <Button variant="danger-outline" size="sm" aria-label={`Remove ${label(m)}`} disabled={busy} onClick={() => { setRemoving(m); setCloseReads(false); setFlash(undefined) }}>Remove</Button>}
+                </div></td>}
               </tr>
             ))}
           </tbody>

@@ -160,6 +160,7 @@ describe('nodes and cursors', () => {
     expect(v.head).toEqual(h)
     expect(v.admin).toBe(admin.address)
     expect(v.readOpen).toBe(false)
+    expect(v.deployRole).toBe(true)
     expect(v.members).toEqual([
       { address: admin.address, role: 'admin', deploy: true },
       { address: laptop.address, role: 'writer', deploy: false, name: 'laptop', block: 6, behind: h.number - 6, seenAt: 1119 },

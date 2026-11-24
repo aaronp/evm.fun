@@ -23,6 +23,8 @@ export const followsCloud = (nodeUrl: string) => `Follows ${nodeUrl}: its blocks
 export const readerOnly = (name: string) => `This device can only read ${name}.`
 const NOT_WRITER = 'is not a writer on this chain' // the Follower's refusal after a submit 403
 const NO_DEPLOY = "can't deploy contracts on this chain" // the worker's refusal of a creation
+/** A creation (no `to`); a malformed raw is not one, as in the worker. */
+const isCreation = (raw: Hex) => { try { return !parseTransaction(raw).to } catch { return false } }
 export const noDeploy = (name: string) => `This device can't deploy contracts on ${name}.`
 export const otherTab = 'Open in another tab: changes are made there.'
 export const notSaving = "This browser isn't saving data: pending changes are lost if you close the tab."
@@ -226,7 +228,7 @@ export function followerApproach(o: {
       const no = cantWrite()
       if (no) throw new Error(no)
       const follower = local()
-      if (deploy === false && raws.some((r) => !parseTransaction(r).to)) throw new Error(noDeploy(o.name?.() ?? `chain ${chainId}`))
+      if (deploy === false && raws.some(isCreation)) { roleDue = true; throw new Error(noDeploy(o.name?.() ?? `chain ${chainId}`)) } // re-read the role on the next sync: deploy may be granted meanwhile
       // a throw part-way leaves the earlier raws pending (their receipts unclaimed); every caller sends one
       for (const raw of raws) {
         const r = await follower.send(raw)
