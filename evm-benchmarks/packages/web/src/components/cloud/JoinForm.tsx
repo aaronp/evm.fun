@@ -50,7 +50,7 @@ export function JoinForm({ acct, nodeUrl, usualUrl, chainId: initialChain = '', 
   return (
     <Panel title="Join a chain">
       <form className="space-y-3 p-4" onSubmit={(e) => { e.preventDefault(); join() }}>
-        <p className="text-text-2">Follow a chain someone deployed, using the invite code they gave you. Your copy is read-only and stays in sync with the cloud.</p>
+        <p className="text-text-2">Follow a chain someone deployed, using the invite code they gave you. Your copy stays in sync with the cloud; as a writer you can also make changes.</p>
         <label className={fieldLabel}>
           Worker URL
           <Input className="font-mono" value={url} onChange={(e) => { setUrl(e.target.value); setUrlEdited(true) }} disabled={running} />

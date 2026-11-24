@@ -3,7 +3,7 @@ import { createElement as h } from 'react'
 import { renderToString } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import type { PendingTx } from '@evmb/node/src/followerStore'
-import { pendingSummary } from '../src/cloud/followerChain'
+import { pendingSummary, pendingTotals } from '../src/cloud/followerChain'
 import { PendingPanel } from '../src/components/cloud/PendingPanel'
 
 const log = { address: `0x${'22'.repeat(20)}`, topics: [], data: '0x' } as const
@@ -35,6 +35,29 @@ test('the Pending panel shows each record: status, hash, sender, outcome; confli
   for (const s of ['pending', 'confirmed', 'conflicted', 'refused']) expect(out).toContain(`>${s}</span>`)
   expect(out.match(/>Dismiss</g)).toHaveLength(4) // the settled ones
   expect(out).toContain('Dismiss settled')
+})
+
+test('app-bar totals add live and stored chains; unsent txs on a chain that is not open are named', () => {
+  const t = pendingTotals([
+    { id: 'a', name: 'A', live: true, txs: [tx(4, { status: 'confirmed' })] },
+    { id: 'b', name: 'B', live: false, txs: [tx(1), tx(2)] },
+    { id: 'c', name: 'C', live: true, txs: [tx(3), tx(5, { status: 'conflicted' })] },
+    { id: 'd', name: 'D', live: false, txs: [tx(6, { status: 'conflicted' })] },
+  ])
+  expect(t.pending).toMatchObject({ n: 3, at: { id: 'b' } })
+  expect(t.conflicted).toMatchObject({ n: 2, at: { id: 'c' } })
+  expect(t.unopened.map((c) => c.name)).toEqual(['B'])
+  expect(pendingTotals([])).toEqual({ pending: { n: 0, at: undefined }, conflicted: { n: 0, at: undefined }, unopened: [] })
+})
+
+test('a re-signed deploy that landed elsewhere says where', () => {
+  const here = `0x${'aa'.repeat(20)}`, there = `0x${'bb'.repeat(20)}`
+  const out = html([tx(1, { status: 'conflicted', first: { status: 'success', logs: [], contractAddress: here }, cloud: { status: 'success', logs: [], contractAddress: there } })])
+  expect(out).toContain(`Deployed at ${there}, not ${here}`)
+})
+
+test('each Dismiss button names its tx', () => {
+  expect(html([tx(2, { status: 'confirmed' })])).toContain('aria-label="Dismiss 0x2222…2222"')
 })
 
 test('an empty Pending panel says so', () => {

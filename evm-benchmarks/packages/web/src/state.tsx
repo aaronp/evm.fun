@@ -72,6 +72,7 @@ export function AppState({ children }: { children: ReactNode }) {
       const ids = (await registry.list()).map(c => c.id)
       const id = [link, read()].find(x => x && ids.includes(x))
       if (id) await selectChain(id)
+      void registry.openWaiting() // after the selected chain, so it always gets a slot; not awaited: never holds `loading`
     }).finally(() => setPending(n => n - 1))
   }, [refresh, selectChain])
 

@@ -28,11 +28,14 @@ export interface FollowerOptions {
 }
 
 type Log = { address: string; topics: readonly string[]; data: string }
-const outcome = (r: { status: string | number; logs: readonly Log[] }): Outcome => ({
+const outcome = (r: { status: string | number; logs: readonly Log[]; contractAddress?: string | null }): Outcome => ({
   status: r.status === 1 || r.status === '0x1' || r.status === 'success' ? 'success' : 'reverted',
   logs: r.logs.map((l) => ({ address: l.address.toLowerCase() as Address, topics: l.topics.map((t) => t.toLowerCase()) as Hex[], data: l.data.toLowerCase() as Hex })),
+  ...(r.contractAddress && { contractAddress: r.contractAddress.toLowerCase() as Address }),
 })
-const same = (a: Outcome, b: Outcome) => JSON.stringify(a) === JSON.stringify(b)
+/** Same status and logs, and the same new contract (a re-signed deploy lands elsewhere). An outcome stored without the field matches any. */
+const same = (a: Outcome, b: Outcome) => a.status === b.status && JSON.stringify(a.logs) === JSON.stringify(b.logs)
+  && (!('contractAddress' in a) || !('contractAddress' in b) || a.contractAddress === b.contractAddress)
 const removedReason = (t: PendingTx) => (t.mayBeMined ? 'removed from chain — it may have been mined before removal' : 'removed from chain')
 
 type Pass = { done: Promise<BlockSummary>; late: boolean; next?: Promise<BlockSummary> }

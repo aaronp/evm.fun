@@ -6,7 +6,7 @@ import { GRANT_READER, GRANT_WRITER, NodeClient, accessTx, claimTx, generateCode
 import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { Follower } from '@evmb/node/src/follower'
-import { kvFollowerStore, unsentChanges, unsentWarning } from '../src/cloud/followerStore'
+import { kvFollowerStore, storedTxs, unsentChanges, unsentWarning } from '../src/cloud/followerStore'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry, LIVE_MAX } from '../src/chain/registry'
 import { createContractsRegistry } from '../src/contracts/registry'
@@ -450,6 +450,33 @@ describe('follower store and writing tab', () => {
       expect((h.approach as any).canWrite()).toBe('Open in another tab: changes are made there.')
       await registry.remove(h.info.id)
     } finally { console.warn = warn; delete nav.locks }
+  })
+
+  test('openWaiting opens the follower chains with stored pending txs, which then send them', async () => {
+    const kv = createKv()
+    const id = crypto.randomUUID()
+    await leavePending(kv, id)
+    const { registry } = env({ kv, lock: () => true })
+    await registry.putFollower({ id: crypto.randomUUID(), name: 'idle', createdAt: new Date().toISOString(), follows: follows(), contracts: [] }) // nothing stored: stays closed
+    await registry.openWaiting()
+    expect(registry.liveCount()).toBe(1)
+    const h = registry.peek(id)!
+    await syncNow(h)
+    expect(await statuses(kv, id)).toEqual(['confirmed'])
+    await registry.close(id)
+  })
+
+  test('openWaiting leaves a slot under the live-chain limit; what it skips is still in the store', async () => {
+    const kv = createKv()
+    const id = crypto.randomUUID()
+    await leavePending(kv, id)
+    const { registry } = env({ kv, lock: () => true })
+    const others = []
+    for (let i = 0; i < LIVE_MAX - 1; i++) others.push(await registry.create(`c${i}`, 'plain', []))
+    await registry.openWaiting()
+    expect(registry.peek(id)).toBeUndefined()
+    expect((await storedTxs(kv, [{ id, name: 'd' }])).map((c) => c.txs.map((t) => t.status))).toEqual([['pending']])
+    for (const c of others) await registry.remove(c.info.id)
   })
 
   test('unsentChanges counts pending records per follower chain', async () => {

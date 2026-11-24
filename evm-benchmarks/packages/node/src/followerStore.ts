@@ -3,7 +3,8 @@ import type { Address, Hex } from 'viem'
 import type { SerializedState } from 'webevm'
 import type { BlockSummary } from './client'
 
-export type Outcome = { status: 'success' | 'reverted'; logs: { address: Address; topics: Hex[]; data: Hex }[] }
+/** `contractAddress`: a deploy's new contract (lowercase); absent for other txs and in records stored before it existed. */
+export type Outcome = { status: 'success' | 'reverted'; logs: { address: Address; topics: Hex[]; data: Hex }[]; contractAddress?: Address }
 
 /** A tx sent on this device; `seq` is its identity (a nonce re-sign changes `hash`, `raw` and `nonce`, never `seq`). */
 export type PendingTx = {

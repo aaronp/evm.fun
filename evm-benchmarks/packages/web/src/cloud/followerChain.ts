@@ -214,6 +214,7 @@ export function followerApproach(o: {
       const no = cantWrite()
       if (no) throw new Error(no)
       const follower = local()
+      // a throw part-way leaves the earlier raws pending (their receipts unclaimed); every caller sends one
       for (const raw of raws) {
         const r = await follower.send(raw)
         receipts.set(r.transactionHash, { hash: r.transactionHash, status: r.status === '0x1' ? 'success' : 'reverted', settledAt: performance.now(), contractAddress: r.contractAddress ?? undefined })
@@ -245,6 +246,17 @@ export function followerApproach(o: {
 
 /** What the app bar counts: txs still pending, and conflicted ones not dismissed. */
 export const pendingSummary = (txs: PendingTx[]) => ({ pending: txs.filter((t) => t.status === 'pending').length, conflicted: txs.filter((t) => t.status === 'conflicted').length })
+
+/** A follower chain's records: from its live handle, or read from the store when it isn't open (`live: false`). */
+export type ChainTxs = { id: string; name: string; live: boolean; txs: PendingTx[] }
+/** The app bar's totals over follower chains, the first chain to link each to, and the chains holding unsent txs that aren't open. */
+export function pendingTotals(chains: ChainTxs[]) {
+  const total = (k: 'pending' | 'conflicted') => {
+    const n = chains.map((c) => pendingSummary(c.txs)[k])
+    return { n: n.reduce((a, b) => a + b, 0), at: chains[n.findIndex((x) => x > 0)] }
+  }
+  return { pending: total('pending'), conflicted: total('conflicted'), unopened: chains.filter((c) => !c.live && pendingSummary(c.txs).pending > 0) }
+}
 
 /** A live follower handle's pending and undismissed settled txs ([] for other chains). */
 export const followerTxs = (h?: { approach: unknown }): PendingTx[] =>

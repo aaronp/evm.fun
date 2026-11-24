@@ -1,4 +1,4 @@
-// Join a cloud chain with an invite code: this browser then follows it (read-only), signing as the joining account.
+// Join a cloud chain with an invite code: this browser then follows it, signing as the joining account.
 import { getAddress, type LocalAccount } from 'viem'
 import { NodeClient, NodeError, claimTx } from '@evmb/node/src/client'
 import type { ChainHandle } from '../chain/handle'

@@ -24,6 +24,9 @@ function what(t: PendingTx) {
   return `${outcome(t.first)}${t.status === 'pending' ? ' (here)' : at}`
 }
 
+/** A conflicted deploy that landed at another address (re-signed with a new nonce). */
+const moved = (t: PendingTx) => t.status === 'conflicted' && !!t.cloud?.contractAddress && !!t.first.contractAddress && t.cloud.contractAddress !== t.first.contractAddress
+
 /** A follower's txs sent from this device: pending until the cloud mines them, then confirmed, conflicted or refused until dismissed. */
 export function PendingPanel({ chain }: { chain: ChainHandle }) {
   useApp() as ReturnType<typeof useApp> | undefined // re-render on its balanceTick: a follower's pending list changing bumps it
@@ -45,7 +48,7 @@ export function PendingPanel({ chain }: { chain: ChainHandle }) {
       <Panel title="Pending" badge={pending > 0 && <Badge>{pending} pending</Badge>}
         actions={settled.length > 0 && <Button variant="ghost" size="sm" onClick={() => dismiss(settled.map((t) => t.hash))}>Dismiss settled</Button>}>
         {err && <div className="p-4"><Notice onDismiss={() => setErr(undefined)}>{err}</Notice></div>}
-        {txs.length === 0 ? <p className="p-4 text-sm text-muted">Nothing waiting. Transactions you send on this chain show here until the cloud has them.</p> : (
+        {txs.length === 0 ? <p className="p-4 text-sm text-muted">Nothing waiting. Transactions you send on this chain show here until the cloud has them; settled ones stay until you dismiss them.</p> : (
           <Table>
             <table className="w-full">
               <thead><tr className="border-b border-line"><th className={th}>Status</th><th className={th}>Tx</th><th className={th}>From</th><th className={th}>Outcome</th><th className={th}><span className="sr-only">Actions</span></th></tr></thead>
@@ -57,9 +60,10 @@ export function PendingPanel({ chain }: { chain: ChainHandle }) {
                     <td className={`${td} break-all`}>{sender(t.from)}</td>
                     <td className={`${td} text-xs text-text-2`}>
                       <div className="break-words">{what(t)}</div>
+                      {moved(t) && <div className="mt-1 break-all">Deployed at {t.cloud!.contractAddress}, not {t.first.contractAddress}</div>}
                       {t.dependsOn && <div className="mt-1 text-muted" title={t.dependsOn}>After {short(t.dependsOn)} conflicted</div>}
                     </td>
-                    <td className={td}>{t.status !== 'pending' && <Button variant="ghost" size="sm" onClick={() => dismiss([t.hash])}>Dismiss</Button>}</td>
+                    <td className={td}>{t.status !== 'pending' && <Button variant="ghost" size="sm" aria-label={`Dismiss ${short(t.hash)}`} onClick={() => dismiss([t.hash])}>Dismiss</Button>}</td>
                   </tr>
                 ))}
               </tbody>

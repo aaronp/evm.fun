@@ -3,7 +3,7 @@ import plain from '@evmb/approach-01-webevm-baseline'
 import sequencer from '@evmb/approach-02-seq-memory'
 import { rebase, type Asset } from '@evmb/assets'
 import type { Kv } from '../store/kv'
-import { kvFollowerStore, removeFollowerRows } from '../cloud/followerStore'
+import { kvFollowerStore, removeFollowerRows, storedTxs } from '../cloud/followerStore'
 import { createContractsRegistry } from '../contracts/registry'
 import type { ChainSource, ContractRecord } from './chainFile'
 import { createWebAssets } from '../assets/registry'
@@ -267,6 +267,18 @@ export function createChainRegistry(deps: {
       })().finally(() => { if (opening.get(id) === p) opening.delete(id) })
       opening.set(id, p)
       return p
+    },
+    /**
+     * Open the follower chains (not yet live) that have stored pending txs, so they sync and send them. Stops one short of
+     * LIVE_MAX, leaving room to switch chain; the ones left out are counted from the store (app bar: "open <chain> to send").
+     */
+    async openWaiting() {
+      const idle = (await self.list()).filter(c => c.follows && !live.has(c.id) && !opening.has(c.id))
+      for (const c of await storedTxs(deps.kv, idle)) {
+        if (!c.txs.some(t => t.status === 'pending')) continue
+        if (live.size + opening.size >= LIVE_MAX - 1) break
+        await self.open(c.id).catch(() => {})
+      }
     },
     /** `cb(id)` when a follower's head, status, pending list or ability to write changes; returns the unsubscribe. */
     watch(cb: (id: string) => void) {

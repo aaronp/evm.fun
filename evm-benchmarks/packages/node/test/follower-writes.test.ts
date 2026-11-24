@@ -161,6 +161,31 @@ describe('Follower writes', () => {
     expect(await balanceOn(b, x)).toBe(10n)
   })
 
+  test('a deploy re-signed with a new nonce lands at another address → conflicted with both addresses', async () => {
+    const k = fresh()
+    const b = keep(await Follower.open(as(tablet), cid, wasm, { signer: signers(k) }))
+    // the logger's init code: its constructor emits no events, so only the address can tell the outcomes apart
+    const local = await b.send(await sign(k, 0, undefined, '0x666000356000a00060005260076019f3'))
+    const here = getContractAddress({ from: k.address, nonce: 0n }).toLowerCase(), there = getContractAddress({ from: k.address, nonce: 1n }).toLowerCase()
+    expect(local.contractAddress?.toLowerCase()).toBe(here)
+    mined(await as(admin).submit(cid, [await sign(k, 0, fresh().address, '0x')])) // k's nonce 0 used elsewhere first
+    await b.sync()
+    expect(b.pending()[0]).toMatchObject({ status: 'conflicted', nonce: 1, first: { status: 'success', logs: [], contractAddress: here }, cloud: { status: 'success', logs: [], contractAddress: there } })
+  })
+
+  test('an outcome stored without contractAddress still loads and confirms', async () => {
+    const k = fresh(), store = new MemoryFollowerStore()
+    const a = await Follower.open(as(admin), cid, wasm, { store })
+    await a.send(await sign(k, 0, undefined, '0x666000356000a00060005260076019f3'))
+    await a.dispose()
+    const [t] = await store.listPending(cid)
+    delete t!.first.contractAddress // as stored before the field existed
+    await store.putPending(cid, t!)
+    const f = keep(await Follower.open(as(admin), cid, wasm, { store }))
+    await f.sync()
+    expect(f.pending()[0]).toMatchObject({ status: 'confirmed' })
+  })
+
   test('a nonce-refused tx and the sender\'s later ones are re-signed after an earlier tx of the batch is mined', async () => {
     const k = fresh(), p = fresh(), x = fresh().address
     await mint(k.address, 10n)

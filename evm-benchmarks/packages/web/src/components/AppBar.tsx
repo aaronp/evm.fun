@@ -1,8 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { withParams } from '../links'
 import { registry } from '../chain/revm'
-import { followerTxs, pendingSummary } from '../cloud/followerChain'
+import { followerTxs, pendingTotals, type ChainTxs } from '../cloud/followerChain'
+import { storedTxs } from '../cloud/followerStore'
+import { kv } from '../store/kv'
+import type { PendingTx } from '@evmb/node/src/followerStore'
 import { useApp } from '../state'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
@@ -63,21 +66,35 @@ export function AppBar() {
   )
 }
 
-/** "N pending" / "N conflicted" over the running follower chains; each links to the first such chain's Pending panel. */
+/**
+ * "N pending" / "N conflicted" over the follower chains (live ones from their handle, the others from the store); each
+ * links to the first such chain's Pending panel. Unsent txs on a chain that isn't open: "open <chain> to send".
+ */
 function PendingCount() {
   const app = useApp() as ReturnType<typeof useApp> | undefined
   const { search } = useLocation()
-  const [, bump] = useState(0)
+  const [tick, bump] = useState(0)
   useEffect(() => registry.watch(() => bump(n => n + 1)), [])
-  const live = (app?.chains ?? []).filter(c => c.follows).map(c => ({ id: c.id, ...pendingSummary(followerTxs(registry.peek(c.id))) }))
-  const badge = (kind: 'pending' | 'conflicted', variant: 'neutral' | 'warn') => {
-    const n = live.reduce((s, c) => s + c[kind], 0)
-    const to = live.find(c => c[kind] > 0)
-    return to && (
-      <Link to={withParams(`/chains${search}`, { chain: to.id })} state={{ pending: true }} className="self-center rounded-full focus-visible:outline-2 focus-visible:outline-accent" title="Show pending transactions">
-        <Badge variant={variant}>{n} {kind}</Badge>
-      </Link>
-    )
-  }
-  return <>{badge('pending', 'neutral')}{badge('conflicted', 'warn')}</>
+  const followers = (app?.chains ?? []).filter(c => c.follows)
+  const idle = followers.filter(c => !registry.peek(c.id))
+  const [stored, setStored] = useState<Record<string, PendingTx[]>>({})
+  const idleKey = idle.map(c => c.id).join()
+  useEffect(() => {
+    let on = true
+    storedTxs(kv, idle).then(r => { if (on) setStored(Object.fromEntries(r.map(c => [c.id, c.txs]))) }).catch(() => {})
+    return () => { on = false }
+  }, [idleKey, tick]) // eslint-disable-line react-hooks/exhaustive-deps
+  const chains: ChainTxs[] = followers.map(c => {
+    const h = registry.peek(c.id)
+    return { id: c.id, name: c.name, live: !!h, txs: h ? followerTxs(h) : stored[c.id] ?? [] }
+  })
+  const t = pendingTotals(chains)
+  const link = (id: string, children: ReactNode, title = 'Show pending transactions') => (
+    <Link to={withParams(`/chains${search}`, { chain: id })} state={{ pending: true }} className="self-center rounded-full focus-visible:outline-2 focus-visible:outline-accent" title={title}>{children}</Link>
+  )
+  return <>
+    {t.pending.at && link(t.pending.at.id, <Badge>{t.pending.n} pending</Badge>)}
+    {t.conflicted.at && link(t.conflicted.at.id, <Badge variant="warn">{t.conflicted.n} conflicted</Badge>)}
+    {t.unopened.length > 0 && link(t.unopened[0]!.id, <span className="text-xs text-muted underline">open {t.unopened.map(c => c.name).join(', ')} to send</span>, 'Running chains are at their limit: open this chain to send its pending transactions')}
+  </>
 }
