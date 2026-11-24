@@ -76,7 +76,7 @@ export class NodeError extends Error {
 
 export class NodeClient {
   /** `timeoutMs` (default 30 s): a hung request must not block dispose, delete, New or Open; it rejects with a TimeoutError. */
-  constructor(readonly baseUrl: string, private account?: LocalAccount, private opts: { name?: string; timeoutMs?: number } = {}) {}
+  constructor(readonly baseUrl: string, readonly account?: LocalAccount, private opts: { name?: string; timeoutMs?: number } = {}) {}
 
   private async req<T>(method: string, path: string, body?: unknown, sign = true): Promise<T> {
     const url = new URL(path, this.baseUrl)
