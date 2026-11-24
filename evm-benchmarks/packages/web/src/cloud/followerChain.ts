@@ -5,7 +5,7 @@ import type { ChainInfo } from '../chain/handle'
 import type { Approach, Hex, Receipt } from '@evmb/core'
 import { NodeClient, NodeError, type BlockSummary } from '@evmb/node/src/client'
 import type { FollowerStore, PendingTx } from '@evmb/node/src/followerStore'
-import { Follower, FollowerMismatch, FollowerRemoved } from '@evmb/node/src/follower'
+import { Follower, FollowerGone, FollowerMismatch, FollowerRemoved } from '@evmb/node/src/follower'
 import type { NodeConfig } from '@evmb/node/src/node'
 import { getSyncInterval, onSyncIntervalChange } from './node'
 
@@ -44,7 +44,7 @@ const webLock = (name: string, fn: () => Promise<void>): Promise<boolean> => {
 const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden'
 
 /**
- * `open` (or the first `syncNow`) boots the Follower once and starts polling at the sync-interval setting: paused while
+ * `open` (or the first `syncNow`) boots the Follower once (from a stored copy, `open` returns before the first sync's network part) and starts polling at the sync-interval setting: paused while
  * the tab is hidden, backing off ×2 up to 60 s on errors. `dispose` stops it. Never throws for cloud errors: they become
  * the status (`onStatus`); reads throw that status's detail until the follower is open.
  */
@@ -95,6 +95,8 @@ export function followerApproach(o: {
   let stopped = false
   let unsubs: (() => void)[] | undefined
   let client: NodeClient | undefined
+  let booted!: () => void
+  const bootedOnce = new Promise<void>((r) => (booted = r)) // the first Follower is up from the stored copy
 
   /** this device's role on the chain; a failure leaves it as it was (tried again next sync) */
   const fetchRole = async () => {
@@ -106,7 +108,7 @@ export function followerApproach(o: {
     } catch { /* offline: keep the last known role */ }
   }
   /** why this tab can't write now (undefined: it can) */
-  const cantWrite = () => (o.store && f && !fStore ? otherTab : role === 'reader' ? readerOnly(o.name?.() ?? `chain ${chainId}`) : undefined)
+  const cantWrite = () => (o.store && f && !fStore ? otherTab : role === 'reader' ? readerOnly(o.name?.() ?? `chain ${chainId}`) : f && final(status) ? status.detail : undefined)
 
   const set = (s: FollowerStatus) => {
     if (JSON.stringify(s) === JSON.stringify(status)) return
@@ -118,15 +120,17 @@ export function followerApproach(o: {
     if (e instanceof FollowerRemoved) return { kind: 'removed', detail: `Removed from ${o.name?.() ?? `chain ${chainId}`}: your copy is no longer updated` }
     if (e instanceof FollowerMismatch) return { kind: 'mismatch', detail: `Your copy differs from the cloud: ${detail}` }
     if (e instanceof NodeError && e.status === 401) return { kind: 'clock', detail: `Check this device's clock (${e.error})` }
-    if (e instanceof NodeError && e.status === 404) return { kind: 'gone', detail: 'This chain no longer exists' }
-    // fetch failures are TypeErrors in browsers (Bun: other errors); a 5xx or 429 also just means "retrying"
-    // (a network-class error: a fetch TypeError, a runtime's coded socket error, or a 5xx/429; engine or store bugs stay "unreachable")
-    const network = e instanceof TypeError || (e instanceof NodeError ? e.status >= 500 || e.status === 429 : typeof (e as { code?: unknown })?.code === 'string')
+    if (e instanceof FollowerGone || (e instanceof NodeError && e.status === 404)) return { kind: 'gone', detail: 'This chain no longer exists' }
+    // a network-class error: a fetch TypeError (browsers), a timeout or abort (a hung network), a runtime's coded socket
+    // error (Bun), or a 5xx/429 ("retrying"); engine or store bugs stay "unreachable"
+    const name = (e as { name?: unknown })?.name
+    const network = e instanceof TypeError || name === 'TimeoutError' || name === 'AbortError' || (e instanceof NodeError ? e.status >= 500 || e.status === 429 : typeof (e as { code?: unknown })?.code === 'string')
     if (f && network) {
       const at = f.lastSynced
       return { kind: 'offline', lastSynced: at, detail: `Offline${at ? ` — last synced ${ago(at / 1000)}` : ''}.${fStore ? " Changes are kept and sent when you're back." : ''}` }
     }
-    return { kind: 'unreachable', detail: e instanceof NodeError ? `${nodeUrl}: ${e.error}` : `Can't reach ${nodeUrl}` }
+    // a store or engine failure says what it is, not "Can't reach"
+    return { kind: 'unreachable', detail: e instanceof NodeError ? `${nodeUrl}: ${e.error}` : network ? `Can't reach ${nodeUrl}` : detail }
   }
 
   const arm = () => {
@@ -147,6 +151,8 @@ export function followerApproach(o: {
     try {
       if (stopped || (final(status) && status.kind !== 'needs-key')) return
       if (!stopped) await acquire()
+      // first open: a closing tab (reload, close then reopen) may still be handing the lock over; ask once more
+      if (!f && !holding && o.store && !stopped) { await new Promise((r) => setTimeout(r, 250)); await acquire() }
       // took over from another tab: open a copy with the store, keeping the read-only one (the working view) until it is up
       const takeover = !!f && !!o.store && holding && !fStore
       const first = !f || takeover
@@ -163,6 +169,7 @@ export function followerApproach(o: {
         const old = f
         f = next
         fStore = !!(o.store && holding)
+        if (next.fromStore) booted()
         await old?.dispose()
       }
       const before = f.head.hash
@@ -198,7 +205,8 @@ export function followerApproach(o: {
         globalThis.document?.addEventListener('visibilitychange', onVisibility)
         unsubs = [onSyncIntervalChange(arm), o.onKeysChange?.(onKeys) ?? (() => {}), () => globalThis.document?.removeEventListener('visibilitychange', onVisibility)]
       }
-      await syncNow()
+      // with a stored copy: return once the Follower is booted from it (no network), leaving its first sync to run on
+      await Promise.race([syncNow(), bootedOnce])
     },
     async request(method, params = []) {
       return local().read((n) => n.request({ method, params }))

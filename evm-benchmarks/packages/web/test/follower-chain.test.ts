@@ -6,7 +6,7 @@ import { GRANT_READER, GRANT_WRITER, NodeClient, accessTx, claimTx, generateCode
 import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { Follower } from '@evmb/node/src/follower'
-import { kvFollowerStore, storedTxs, unsentChanges, unsentWarning } from '../src/cloud/followerStore'
+import { deletePrompt, kvFollowerStore, storedTxs, unsentChanges, unsentWarning } from '../src/cloud/followerStore'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry, LIVE_MAX } from '../src/chain/registry'
 import { createContractsRegistry } from '../src/contracts/registry'
@@ -83,6 +83,7 @@ async function addFollower(registry: ReturnType<typeof createChainRegistry>, o: 
   await registry.putFollower({ id, name: o.name, createdAt: new Date().toISOString(), follows: o.follows, contracts: [] })
   return registry.open(id)
 }
+const statuses = async (kv: ReturnType<typeof createKv>, id: string) => (await kvFollowerStore(kv).listPending(id)).map((t) => t.status)
 const bn = async (h: { request(m: string, p?: unknown[]): Promise<unknown> }) => Number(BigInt((await h.request('eth_blockNumber', [])) as string))
 
 describe('follower chains', () => {
@@ -286,6 +287,7 @@ describe('follower chains', () => {
     expect((await kv.get<any>('chains', id)).type).toBe('follower')
     await registry.close(id)
     const again = await registry.open(id) // a reload re-syncs as a follower
+    await syncNow(again) // from the stored copy, open leaves the first sync running
     expect(status(again).kind).toBe('following')
     await registry.remove(id)
   })
@@ -343,6 +345,7 @@ describe('follower store and writing tab', () => {
     globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
     const b = env({ kv })
     const h2 = await b.registry.open(info.id).catch(() => undefined)
+    await syncNow(h2!)
     expect(status(h2!)).toMatchObject({ kind: 'offline' })
     const s = status(h2!) as any
     expect(s.lastSynced).toBeGreaterThan(0)
@@ -389,7 +392,6 @@ describe('follower store and writing tab', () => {
     await f.dispose()
     expect((await kvFollowerStore(kv).listPending(id)).map((t) => t.status)).toEqual(['pending'])
   }
-  const statuses = async (kv: ReturnType<typeof createKv>, id: string) => (await kvFollowerStore(kv).listPending(id)).map((t) => t.status)
   const down = () => { globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch }
 
   test('chain delete removes the stored copy and every pending record', async () => {
@@ -409,6 +411,7 @@ describe('follower store and writing tab', () => {
     down()
     const { registry } = env({ kv, lock: () => true })
     const h = await registry.open(id)
+    await syncNow(h)
     expect(status(h)).toMatchObject({ kind: 'offline' })
     expect(await statuses(kv, id)).toEqual(['pending'])
     globalThis.fetch = realFetch
@@ -452,6 +455,15 @@ describe('follower store and writing tab', () => {
     } finally { console.warn = warn; delete nav.locks }
   })
 
+  test('a lock not free at open (the closing tab is still handing it over) is asked for once more', async () => {
+    let asks = 0
+    const { registry } = env({ kv: createKv(), lock: () => ++asks > 1 })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    expect(asks).toBe(2)
+    expect((h.approach as any).canWrite()).toBeUndefined()
+    await registry.remove(h.info.id)
+  })
+
   test('openWaiting opens the follower chains with stored pending txs, which then send them', async () => {
     const kv = createKv()
     const id = crypto.randomUUID()
@@ -486,6 +498,14 @@ describe('follower store and writing tab', () => {
     expect(await unsentChanges(kv, [{ id, name: 'phone chain' }, { id: 'other', name: 'x' }])).toEqual([{ name: 'phone chain', count: 1 }])
     expect(unsentWarning([{ name: 'a', count: 2 }, { name: 'b', count: 1 }])).toBe('3 unsent changes on a, b will be lost.')
     expect(unsentWarning([])).toBeUndefined()
+  })
+
+  test('the Delete confirm warns about unsent changes like New/Open', async () => {
+    const kv = createKv()
+    const id = crypto.randomUUID()
+    await leavePending(kv, id)
+    expect(await deletePrompt(kv, { id, name: 'phone chain' })).toBe('Delete chain "phone chain"? 1 unsent changes on phone chain will be lost.')
+    expect(await deletePrompt(kv, { id: 'other', name: 'x' })).toBe('Delete chain "x"?')
   })
 })
 
@@ -602,5 +622,98 @@ describe('writing from a follower', () => {
     expect(events.length).toBeGreaterThan(n)
     expect(await kvFollowerStore(kv).listPending(id)).toEqual([])
     await registry.remove(id)
+  })
+
+  test('a chain deleted in the cloud (404): status gone, pending refused and dismissable, sends refused', async () => {
+    const { registry } = env({ lock: () => true })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    down()
+    await h.send(await sign(admin, await nonceOf(h, admin.address)))
+    await syncNow(h)
+    await syncNow(h) // offline: still pending
+    globalThis.fetch = (async () => Response.json({ error: 'no such chain' }, { status: 404 })) as unknown as typeof fetch
+    await syncNow(h)
+    expect(status(h)).toEqual({ kind: 'gone', detail: 'This chain no longer exists' })
+    const [t] = ap(h).pendingTxs()
+    // the offline submit may have reached the cloud, so the reason says so
+    expect(t).toMatchObject({ status: 'refused', reason: 'chain deleted in the cloud — it may have been mined before it was deleted' })
+    expect(h.approach.pending!()).toBe(0)
+    expect(ap(h).canWrite()).toBe('This chain no longer exists')
+    await expect(h.send(await sign(admin, 0))).rejects.toThrow('This chain no longer exists')
+    await ap(h).dismiss(t.hash)
+    expect(ap(h).pendingTxs()).toEqual([])
+    await registry.remove(h.info.id)
+  })
+
+  test('with a stored copy, open returns without waiting on a hanging network; reads and sends work; a timeout is offline', async () => {
+    const kv = createKv()
+    const a = env({ kv, lock: () => true })
+    const h1 = await addFollower(a.registry, { name: 'd', follows: follows() })
+    const id = h1.info.id
+    await a.registry.close(id)
+    globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch // a network that never answers
+    const { registry } = env({ kv, lock: () => true })
+    const h = await Promise.race([registry.open(id), Bun.sleep(2000).then(() => { throw new Error('open waited on the network') })])
+    expect(await bn(h)).toBeGreaterThanOrEqual(0)
+    const r = await Promise.race([h.send(await sign(admin, await nonceOf(h, admin.address))), Bun.sleep(2000).then(() => { throw new Error('send waited on the network') })])
+    expect(r.status).toBe('success')
+    expect(await statuses(kv, id)).toEqual(['pending'])
+    // the client's timeout, as a browser reports it
+    globalThis.fetch = (async () => { throw new DOMException('The operation timed out.', 'TimeoutError') }) as unknown as typeof fetch
+    // h's first sync stays hung (until the client's 30 s timeout): check the classification on a second open
+    const b = env({ kv, lock: () => true })
+    const h2 = await b.registry.open(id)
+    await syncNow(h2)
+    expect(status(h2)).toMatchObject({ kind: 'offline' })
+    expect((status(h2) as any).detail).toMatch(/^Offline — last synced .+\. Changes are kept and sent when you're back\.$/)
+    globalThis.fetch = (async () => { throw new DOMException('aborted', 'AbortError') }) as unknown as typeof fetch
+    await syncNow(h2)
+    expect(status(h2)).toMatchObject({ kind: 'offline' })
+    await b.registry.close(id)
+  })
+
+  test('a store write that fails during a re-sign throws (kv strict); after a reload the transfer is mined exactly once', async () => {
+    const kv = createKv()
+    const k = privateKeyToAccount(generatePrivateKey())
+    const keyed = (a: `0x${string}`) => (a === k.address ? { account: k, label: 'k' } : keys.get(a))
+    const { registry } = env({ kv, lock: () => true, account: keyed })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    const id = h.info.id
+    down()
+    const raw = await sign(k, 0)
+    await h.send(raw)
+    await syncNow(h); await syncNow(h) // offline: pending
+    globalThis.fetch = realFetch
+    await adminClient().submit(cid, [await sign(k, 0, admin.address)]) // k's nonce 0 used on another device first
+    // IndexedDB fails from the re-sign on (only a strict write sees it: a lax one drops to memory and resolves)
+    const set = kv.set
+    kv.set = async (s, key, v, opts) => {
+      if (s.startsWith('followerPending') && (v as any).nonce === 1) { if (opts?.strict) throw new Error('QuotaExceededError'); return }
+      return set(s, key, v, opts)
+    }
+    await syncNow(h)
+    expect(status(h)).toEqual({ kind: 'unreachable', detail: 'QuotaExceededError' }) // the failed write surfaced, as itself
+    expect((await statuses(kv, id))).toEqual(['pending']) // the stored record is still the nonce-0 tx
+    await registry.close(id) // "reload"
+    kv.set = set
+    const b = env({ kv, lock: () => true, account: keyed })
+    const h2 = await b.registry.open(id)
+    await syncNow(h2); await syncNow(h2)
+    expect(ap(h2).pendingTxs().map((t: any) => [t.status, t.nonce])).toEqual([['confirmed', 1]])
+    // mined once: k sent nonce 0 (other device) and nonce 1 (this transfer), nothing more
+    expect(await nonceOf(h2, k.address)).toBe(2)
+    await b.registry.remove(id)
+  })
+
+  test('memory-fallback kv: a follower still stores and sends (writes go to memory)', async () => {
+    const kv = createKv()
+    expect(kv.persistent).toBe(false)
+    const { registry } = env({ kv, lock: () => true })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    await h.send(await sign(admin, await nonceOf(h, admin.address)))
+    expect(await statuses(kv, h.info.id)).toEqual(['pending'])
+    await syncNow(h); await syncNow(h)
+    expect(await statuses(kv, h.info.id)).toEqual(['confirmed'])
+    await registry.remove(h.info.id)
   })
 })

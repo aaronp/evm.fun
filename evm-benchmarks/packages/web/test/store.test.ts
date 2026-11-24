@@ -189,3 +189,20 @@ test('accounts.rename changes the label only; blank or unknown is refused', () =
   expect(() => accounts.rename(a.address, '   ')).toThrow(/name/)
   expect(() => accounts.rename('0x0000000000000000000000000000000000000001', 'y')).toThrow(/no account/)
 })
+
+test('kv: after a lax failure drops IndexedDB mid-session, a strict set throws (a reload would bring the old row back); memory from the start takes strict sets', async () => {
+  const g = globalThis as any
+  g.indexedDB = quotaIdb()
+  try {
+    const kv = createKv()
+    await kv.ready
+    await kv.set('snapshots', 'x', 1) // lax: fails, drops to memory
+    expect(kv.persistent).toBe(false)
+    await expect(kv.set('followerPending:c', '0', { nonce: 1 }, { strict: true })).rejects.toThrow("This browser stopped saving data")
+  } finally {
+    delete g.indexedDB
+  }
+  const mem = createKv() // no IndexedDB at all: memory is all there is
+  await mem.set('followerPending:c', '0', { nonce: 1 }, { strict: true })
+  expect(await mem.get('followerPending:c', '0')).toEqual({ nonce: 1 })
+})

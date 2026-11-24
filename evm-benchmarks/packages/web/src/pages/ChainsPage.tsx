@@ -20,6 +20,8 @@ import { DevicesPanel, FollowerBadge, FollowerStatusLine, syncNow } from '../com
 import { PendingPanel } from '../components/cloud/PendingPanel'
 import { cannotDeploy, convertDeployed, deployedUrl } from '../cloud/deploy'
 import { followsCloud } from '../cloud/followerChain'
+import { deletePrompt } from '../cloud/followerStore'
+import { kv } from '../store/kv'
 import { useWizardAction, useWizardMark } from '../walkthrough/wizard'
 import { useBlockWindow } from '../explorer/useBlockWindow'
 import { Button } from '../ui/button'
@@ -144,7 +146,7 @@ export function Chains() {
   }
 
   async function remove(c: ChainInfo) {
-    if (!confirm(`Delete chain "${c.name}"?`)) return
+    if (!confirm(await deletePrompt(kv, c))) return
     if (c.id === chain?.info.id) await selectChain(undefined)
     await registry.remove(c.id)
     await refresh()

@@ -37,6 +37,7 @@ const outcome = (r: { status: string | number; logs: readonly Log[]; contractAdd
 const same = (a: Outcome, b: Outcome) => a.status === b.status && JSON.stringify(a.logs) === JSON.stringify(b.logs)
   && (!('contractAddress' in a) || !('contractAddress' in b) || a.contractAddress === b.contractAddress)
 const removedReason = (t: PendingTx) => (t.mayBeMined ? 'removed from chain — it may have been mined before removal' : 'removed from chain')
+const goneReason = (t: PendingTx) => (t.mayBeMined ? 'chain deleted in the cloud — it may have been mined before it was deleted' : 'chain deleted in the cloud')
 
 type Pass = { done: Promise<BlockSummary>; late: boolean; next?: Promise<BlockSummary> }
 
@@ -45,16 +46,21 @@ export class FollowerRemoved extends Error {
   constructor(chainId: string) { super(`removed from chain ${chainId}`) }
 }
 
+/** The cloud chain was deleted (the cloud answered 404). */
+export class FollowerGone extends Error {
+  constructor() { super('This chain no longer exists') }
+}
+
 /** The local copy differs from the cloud's (root, hash or head). */
 export class FollowerMismatch extends Error {}
 
 /**
  * Keeps a local webevm node in step with a cloud chain. Node and store work runs one step at a time; `sync` does its
  * requests between its steps, so `send` and `read` never wait on the network. One `sync` runs at a time (a second call joins it).
- * After a removal or a mismatch the follower is stopped: `sync` and `read` throw that error again (after `dispose`, a "disposed" error).
+ * After a removal, a mismatch or the cloud chain's deletion the follower is stopped: `sync` and `read` throw that error again (after `dispose`, a "disposed" error).
  */
 export class Follower {
-  status: 'following' | 'removed' | 'mismatch' = 'following'
+  status: 'following' | 'removed' | 'mismatch' | 'gone' = 'following'
   #failure?: Error
   #queue: Promise<unknown> = Promise.resolve()
   /** The cloud's head as last seen (by `open` or `sync`). */
@@ -64,6 +70,8 @@ export class Follower {
    * The copy is stored only when the head moves, so after a reopen this is the last head change (it errs on the old side).
    */
   lastSynced?: number
+  /** Booted from the stored copy (no network) rather than the cloud. */
+  fromStore = false
 
   #saved?: string // hash of the head last written to the store
   #replayed = 0 // blocks replayed on the current node
@@ -100,8 +108,9 @@ export class Follower {
         fromStore = true
       } catch (e) { // unusable stored copy: boot from the cloud and overwrite it; if that fails too, report both
         try { booted = await Follower.#boot(chainId, wasm, await Follower.#state(client, chainId)) } catch (c) {
-          if (c instanceof FollowerRemoved) { // no Follower will exist to show it: refuse the stored pending now
-            for (const t of await o.store!.listPending(key)) if (t.status === 'pending') await o.store!.putPending(key, { ...t, status: 'refused', reason: removedReason(t) })
+          if (c instanceof FollowerRemoved || c instanceof FollowerGone) { // no Follower will exist to show it: refuse the stored pending now
+            const why = c instanceof FollowerGone ? goneReason : removedReason
+            for (const t of await o.store!.listPending(key)) if (t.status === 'pending') await o.store!.putPending(key, { ...t, status: 'refused', reason: why(t) })
             throw c
           }
           if (e instanceof Error) e.message += `; booting from the cloud failed too: ${c instanceof Error ? c.message : c}`
@@ -112,6 +121,7 @@ export class Follower {
     const { node, env, head, dump } = booted
     const f = new Follower(client, chainId, wasm, o, node, env, head)
     f.lastSynced = fromStore ? stored!.savedAt : Date.now()
+    f.fromStore = fromStore
     try {
       if (fromStore) f.#saved = head.hash
       else await f.#save(dump)
@@ -125,7 +135,7 @@ export class Follower {
 
   static #state(client: NodeClient, chainId: string): Promise<Confirmed> {
     return client.state(chainId).catch((e) => {
-      throw e instanceof NodeError && e.status === 403 ? new FollowerRemoved(chainId) : e
+      throw e instanceof NodeError && e.status === 403 ? new FollowerRemoved(chainId) : e instanceof NodeError && e.status === 404 ? new FollowerGone() : e
     })
   }
 
@@ -149,6 +159,7 @@ export class Follower {
   async #reopen() {
     const s = await Follower.#state(this.client, this.chainId).catch((e) => {
       if (e instanceof FollowerRemoved) this.#stop('removed', e)
+      if (e instanceof FollowerGone) this.#stop('gone', e)
       throw e
     })
     await this.#serial(async () => {
@@ -179,7 +190,7 @@ export class Follower {
     return run
   }
 
-  #stop(status: 'removed' | 'mismatch', e: Error): never {
+  #stop(status: 'removed' | 'mismatch' | 'gone', e: Error): never {
     if (this.#disposed) throw this.#failure ?? new Error('follower disposed') // an answer after dispose changes nothing
     this.status = status
     throw (this.#failure = e)
@@ -221,7 +232,7 @@ export class Follower {
       await this.#serial(async () => { for (const t of r.denied) await this.#settle(t, { status: 'refused', reason: `${who} is not a writer on this chain` }) })
     } catch (e) {
       err = e
-      const reason = e instanceof FollowerRemoved ? removedReason : e instanceof FollowerMismatch ? () => `chain no longer matches: ${e.message}` : undefined
+      const reason = e instanceof FollowerRemoved ? removedReason : e instanceof FollowerGone ? goneReason : e instanceof FollowerMismatch ? () => `chain no longer matches: ${e.message}` : undefined
       if (reason) await this.#serial(async () => {
         if (this.#disposed) return
         for (const t of this.#txs) if (t.status === 'pending') await this.#settle(t, { status: 'refused', reason: reason(t) })
@@ -249,6 +260,7 @@ export class Follower {
   #blocks(after: number) {
     return this.client.blocks(this.chainId, after).catch((e) => {
       if (e instanceof NodeError && e.status === 403) this.#stop('removed', new FollowerRemoved(this.chainId))
+      if (e instanceof NodeError && e.status === 404) this.#stop('gone', new FollowerGone())
       throw e // transient: still following
     })
   }
@@ -298,7 +310,7 @@ export class Follower {
   /**
    * POST the pending txs in seq order, in batches. A 400 or 413 on a batch splits it in halves (the request fails as a
    * whole, so it says nothing about each tx); only a single tx is refused for it. Stops at the first other failure;
-   * a 403 marks that batch and the rest `denied`. Only the requests run outside the queue. Each batch is marked
+   * a 403 marks that batch and the rest `denied`; a 404 (chain deleted) stops the follower. Only the requests run outside the queue. Each batch is marked
    * `mayBeMined` (stored) before it is sent; an answer that it is off chain (nonce, 403) clears it.
    */
   async #submit(): Promise<{ nonce: Map<PendingTx, string>; denied: PendingTx[]; error?: unknown }> {
@@ -318,6 +330,7 @@ export class Follower {
     })
     while (batches.length) {
       const batch = batches.shift()!
+      const unmarked = batch.filter((t) => !t.mayBeMined) // a 404 clears only these: the others may have been mined before the delete
       await this.#serial(() => this.#mark(batch, true))
       let r
       try {
@@ -326,6 +339,10 @@ export class Follower {
         if (e instanceof NodeError && e.status === 403) {
           await this.#serial(() => this.#mark(batch, false))
           return { nonce, denied: [batch, ...batches].flat() }
+        }
+        if (e instanceof NodeError && e.status === 404) {
+          await this.#serial(() => this.#mark(unmarked, false))
+          this.#stop('gone', new FollowerGone())
         }
         if (e instanceof NodeError && (e.status === 400 || e.status === 413)) {
           if (batch.length > 1) batches.unshift(batch.slice(0, batch.length >> 1), batch.slice(batch.length >> 1))

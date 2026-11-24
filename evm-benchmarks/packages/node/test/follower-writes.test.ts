@@ -6,7 +6,7 @@ import { createRevmEngine } from 'webevm/revm'
 import { ChainAccess, MintableToken } from '@evmb/contracts'
 import { ChainHost, handle, type ChainHandleLike } from '../src/router'
 import { NodeClient, NodeError, claimTx, inviteTx, mined, setupTxs, GRANT_READER, GRANT_WRITER } from '../src/client'
-import { Follower, FollowerRemoved } from '../src/follower'
+import { Follower, FollowerGone, FollowerRemoved } from '../src/follower'
 import { MemoryFollowerStore } from '../src/followerStore'
 import { bunSql } from './bunSql'
 import { wasm } from './workload'
@@ -847,5 +847,44 @@ describe('Follower writes', () => {
     const e = await f.sync().catch((x) => x)
     expect(e).toBeInstanceOf(FollowerRemoved)
     expect(f.pending()[0]).toMatchObject({ status: 'refused', reason: 'removed from chain' })
+  })
+
+  test('chain deleted in the cloud (404 on /blocks): pending refused, follower stopped, sends throw, refused records dismissable', async () => {
+    const real = as(admin)
+    let gone = false, submitted = false
+    const notFound = () => Promise.reject(new NodeError(404, 'no such chain'))
+    const stub = {
+      account: admin,
+      state: (id: string) => (gone ? notFound() : real.state(id)),
+      blocks: (id: string, a: number) => (gone ? notFound() : real.blocks(id, a)),
+      submit: () => (submitted ? notFound() : (submitted = true, Promise.reject(new Error('connection reset')))),
+    } as unknown as NodeClient
+    const store = new MemoryFollowerStore()
+    const f = keep(await Follower.open(stub, cid, wasm, { store }))
+    const k = fresh()
+    await transfer(f, k, fresh().address, 0n)
+    await expect(f.sync()).rejects.toThrow() // lost reply: mayBeMined
+    await transfer(f, k, fresh().address, 0n)
+    gone = true
+    expect(await f.sync().catch((x) => x)).toBeInstanceOf(FollowerGone)
+    expect(f.status).toBe('gone')
+    const may = 'chain deleted in the cloud — it may have been mined before it was deleted'
+    expect(f.pending().map((t) => [t.status, t.reason])).toEqual([['refused', may], ['refused', 'chain deleted in the cloud']])
+    expect((await store.listPending(cid)).map((t) => t.reason)).toEqual([may, 'chain deleted in the cloud'])
+    await expect(transfer(f, k, fresh().address, 0n)).rejects.toThrow('This chain no longer exists')
+    for (const t of f.pending()) await f.dismiss(t.hash)
+    expect(f.pending()).toEqual([])
+    expect(await store.listPending(cid)).toEqual([])
+  })
+
+  test('chain deleted while the stored copy is unusable: open throws FollowerGone and the stored pending are refused', async () => {
+    const store = new MemoryFollowerStore()
+    const f = await Follower.open(as(admin), cid, wasm, { store })
+    await transfer(f, fresh(), fresh().address, 0n)
+    await f.dispose()
+    await spoil(store)
+    const stub = { account: admin, state: () => Promise.reject(new NodeError(404, 'no such chain')) } as unknown as NodeClient
+    await expect(Follower.open(stub, cid, wasm, { store })).rejects.toBeInstanceOf(FollowerGone)
+    expect(await store.listPending(cid)).toMatchObject([{ status: 'refused', reason: 'chain deleted in the cloud' }])
   })
 })

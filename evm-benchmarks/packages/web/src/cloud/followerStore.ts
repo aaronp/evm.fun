@@ -1,4 +1,6 @@
 // A follower's confirmed copy and pending txs in the browser's kv (IndexedDB, or memory when that's unavailable).
+// Writes are strict: an IndexedDB failure throws into the Follower (which keeps memory and store in step) instead of
+// silently dropping to memory, where a reload would bring back a record the cloud has already seen re-signed.
 import type { Confirmed, FollowerStore, PendingTx } from '@evmb/node/src/followerStore'
 import type { Kv } from '../store/kv'
 
@@ -7,9 +9,9 @@ const pendingStore = (key: string) => `followerPending:${key}`
 
 export const kvFollowerStore = (kv: Kv): FollowerStore => ({
   loadConfirmed: (key) => kv.get<Confirmed>(CONFIRMED, key),
-  saveConfirmed: (key, c) => kv.set(CONFIRMED, key, c),
+  saveConfirmed: (key, c) => kv.set(CONFIRMED, key, c, { strict: true }),
   listPending: async (key) => (await kv.list<PendingTx>(pendingStore(key))).sort((a, b) => a.seq - b.seq),
-  putPending: (key, tx) => kv.set(pendingStore(key), String(tx.seq), tx),
+  putPending: (key, tx) => kv.set(pendingStore(key), String(tx.seq), tx, { strict: true }),
   deletePending: (key, seq) => kv.del(pendingStore(key), String(seq)),
 })
 
@@ -39,3 +41,7 @@ export async function unsentChanges(kv: Kv, chains: { id: string; name: string }
 /** "3 unsent changes on A, B will be lost" (undefined when there are none). */
 export const unsentWarning = (u: { name: string; count: number }[]) =>
   u.length ? `${u.reduce((n, c) => n + c.count, 0)} unsent changes on ${u.map((c) => c.name).join(', ')} will be lost.` : undefined
+
+/** The chain Delete confirm, with the unsent-changes warning New/Open show. */
+export const deletePrompt = async (kv: Kv, c: { id: string; name: string }) =>
+  [`Delete chain "${c.name}"?`, unsentWarning(await unsentChanges(kv, [c]).catch(() => []))].filter(Boolean).join(' ')

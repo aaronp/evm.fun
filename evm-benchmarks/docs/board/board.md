@@ -1069,16 +1069,16 @@ Built and tested (915 tests); not yet run in a browser. Left to check: both mode
 - history:
   - Backlog @ 2026-11-22T21:41:18Z
   - Next @ 2026-11-23T15:00:21Z
-  - Doing @ 2026-11-24T14:00:00Z
+  - Doing @ 2026-11-24T17:17:13Z
 
 ```md
 Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-follow-design.md) (A: follow and show). From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
 
 Demo (t-136): after Deploy (t-134), the browser chain follows the cloud node, so they form a 2-node cluster; needed for node cursors (t-140). Uses t-129's `ChainNode` for replay.
 
-Part 1 done (worker + Follower): `Follower` in `packages/node` boots from `GET /state` and replays `GET /blocks` with root and hash checks. A (follow and show) done: Deploy converts the owner's copy to a read-only follower, earlier deploys convert on open, and followers are saved as pointers in workspace files (ADR-0024). B (follow and use) remaining: submitting from the browser through the cloud node, so pages can write to a deployed chain.
+Part 1 done (worker + Follower): `Follower` in `packages/node` boots from `GET /state` and replays `GET /blocks` with root and hash checks. A (follow and show) done: Deploy converts the owner's copy to a read-only follower, earlier deploys convert on open, and followers are saved as pointers in workspace files (ADR-0024). B (follow and use) came next: submitting from the browser through the cloud node, so pages can write to a deployed chain (below).
 
-B part 1 done (worker + Follower writes): per-tx submit answers, idempotent resends, a 512 KiB cap, a chain ACL on the submitting key, `FollowerStore` and `Follower.send`/`sync` with pending, conflicted and refused txs; proven by a two-device race in `make e2e-node` (ADR-0025, risks R59-R60). B part 2 done in code (plan 21, tested; not yet run in a browser): every page writes to a deployed chain through `Follower.send` and sees its result at once, online or offline. Pending txs are kept in IndexedDB and settle as confirmed, conflicted or refused. One writing tab per chain (Web Lock). A chain opens offline with "Offline — last synced …". The Pending panel and an app-bar count show what is waiting. Followers with stored pending txs open at startup. A re-signed deploy shows conflicted ("Deployed at <cloud>, not <local>"). Spec: [follow and use](../superpowers/specs/2026-11-24-follow-and-use-design.md).
+B part 1 done (worker + Follower writes): per-tx submit answers, idempotent resends, a 512 KiB cap, a chain ACL on the submitting key, `FollowerStore` and `Follower.send`/`sync` with pending, conflicted and refused txs; proven by a two-device race in `make e2e-node` (ADR-0025, risks R59-R60). B part 2 done in code (plan 21, tested; not yet run in a browser): every page writes to a deployed chain through `Follower.send` and sees its result at once, online or offline. Pending txs are kept in IndexedDB and settle as confirmed, conflicted or refused. One writing tab per chain (Web Lock). A chain with a stored copy opens from it at once, without waiting on the network; offline (including a network that hangs until a timeout) it shows "Offline — last synced …". A chain deleted in the cloud refuses its pending txs and further sends. The Pending panel and an app-bar count show what is waiting. Followers with stored pending txs open at startup. A re-signed deploy shows conflicted ("Deployed at <cloud>, not <local>"). Spec: [follow and use](../superpowers/specs/2026-11-24-follow-and-use-design.md).
 
 Browser checklist (Aaron; also in `.superpowers/sdd/2026-11-24-plan21-follow-and-use-web/task-3-report.md`):
 1. `make dev-services`; two browsers or profiles ("phone", "tablet"), both joined as writers to one deployed chain.
@@ -1092,6 +1092,9 @@ Browser checklist (Aaron; also in `.superpowers/sdd/2026-11-24-plan21-follow-and
 9. A writer removed by the admin: its next send is refused ("… is not a writer on this chain"), then the device shows the reader message.
 10. Pending panel, app-bar badges (incl. "open <chain> to send") and status line in the three themes and at 375 px: the table scrolls inside the panel, no page-level horizontal scroll.
 11. New and Open warn about unsent changes on followers (R59).
+12. Send offline on a follower, then Delete that chain (Chains list, and the status line's Delete): the confirm says "1 unsent changes on <chain> will be lost".
+13. A hanging network: devtools Network throttling set to a custom profile with no response (or offline after the page loads), reload. The chain opens from storage at once, pages read and send, the status line shows "Offline — last synced … Changes are kept and sent when you're back." after the timeout (about 30 s), and the tx settles once the network is back.
+14. Delete the cloud chain (admin) while a device has a pending tx: on its next sync the status says "This chain no longer exists", the record is refused ("chain deleted in the cloud …") and can be dismissed, and a send is refused.
 ```
 
 ```dod

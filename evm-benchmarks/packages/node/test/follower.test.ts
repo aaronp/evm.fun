@@ -87,7 +87,7 @@ describe('Follower', () => {
     expect(await Follower.open(as(phone), cid, wasm).catch((x) => x)).toBeInstanceOf(FollowerRemoved)
   })
 
-  test('a 500 or 404 from blocks leaves the follower following; the next sync succeeds', async () => {
+  test('a 500 or 429 from blocks leaves the follower following; the next sync succeeds (a 404 stops it: chain deleted)', async () => {
     const real = as(admin)
     let fail: number | undefined
     const stub = {
@@ -96,7 +96,7 @@ describe('Follower', () => {
     } as unknown as NodeClient
     const f = await open(stub)
     await mineBlocks(1)
-    for (const s of [500, 404]) {
+    for (const s of [500, 429]) {
       fail = s
       expect(await f.sync().catch((x) => x)).toMatchObject({ status: s })
       expect(f.status).toBe('following')
