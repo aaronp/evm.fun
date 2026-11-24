@@ -887,4 +887,44 @@ describe('Follower writes', () => {
     await expect(Follower.open(stub, cid, wasm, { store })).rejects.toBeInstanceOf(FollowerGone)
     expect(await store.listPending(cid)).toMatchObject([{ status: 'refused', reason: 'chain deleted in the cloud' }])
   })
+
+  test('a 404 that is not the worker\'s "no such chain" (unknown route, proxy) is transient: txs stay pending, still following', async () => {
+    const real = as(admin)
+    let notFound: string | undefined
+    const stub = {
+      account: admin,
+      state: (id: string) => (notFound ? Promise.reject(new NodeError(404, notFound)) : real.state(id)),
+      blocks: (id: string, a: number) => (notFound ? Promise.reject(new NodeError(404, notFound)) : real.blocks(id, a)),
+      submit: (id: string, txs: Hex[]) => (notFound ? Promise.reject(new NodeError(404, notFound)) : real.submit(id, txs)),
+    } as unknown as NodeClient
+    const k = fresh()
+    await mint(k.address, 10n)
+    const store = new MemoryFollowerStore()
+    const f = keep(await Follower.open(stub, cid, wasm, { store }))
+    await transfer(f, k, fresh().address, 1n)
+    for (const body of ['not found', 'Not Found']) {
+      notFound = body
+      expect(await f.sync().catch((x) => x)).toMatchObject({ status: 404, error: body })
+      expect(f.status).toBe('following')
+      expect(f.pending().map((t) => t.status)).toEqual(['pending'])
+    }
+    notFound = undefined
+    await f.sync()
+    expect(f.pending().map((t) => t.status)).toEqual(['confirmed'])
+  })
+
+  test('a "no such chain" 404 on /blocks (nothing pending) stops the follower as gone', async () => {
+    const real = as(admin)
+    let gone = false
+    const stub = {
+      account: admin,
+      state: (id: string) => real.state(id),
+      blocks: (id: string, a: number) => (gone ? Promise.reject(new NodeError(404, 'no such chain')) : real.blocks(id, a)),
+    } as unknown as NodeClient
+    const f = keep(await Follower.open(stub, cid, wasm))
+    gone = true
+    expect(await f.sync().catch((x) => x)).toBeInstanceOf(FollowerGone)
+    expect(f.status).toBe('gone')
+    await expect(f.read((n) => n.getStateRoot())).rejects.toThrow('This chain no longer exists')
+  })
 })

@@ -5,7 +5,7 @@ import type { ChainInfo } from '../chain/handle'
 import type { Approach, Hex, Receipt } from '@evmb/core'
 import { NodeClient, NodeError, type BlockSummary } from '@evmb/node/src/client'
 import type { FollowerStore, PendingTx } from '@evmb/node/src/followerStore'
-import { Follower, FollowerGone, FollowerMismatch, FollowerRemoved } from '@evmb/node/src/follower'
+import { Follower, FollowerGone, FollowerMismatch, FollowerRemoved, noSuchChain } from '@evmb/node/src/follower'
 import type { NodeConfig } from '@evmb/node/src/node'
 import { getSyncInterval, onSyncIntervalChange } from './node'
 
@@ -120,7 +120,7 @@ export function followerApproach(o: {
     if (e instanceof FollowerRemoved) return { kind: 'removed', detail: `Removed from ${o.name?.() ?? `chain ${chainId}`}: your copy is no longer updated` }
     if (e instanceof FollowerMismatch) return { kind: 'mismatch', detail: `Your copy differs from the cloud: ${detail}` }
     if (e instanceof NodeError && e.status === 401) return { kind: 'clock', detail: `Check this device's clock (${e.error})` }
-    if (e instanceof FollowerGone || (e instanceof NodeError && e.status === 404)) return { kind: 'gone', detail: 'This chain no longer exists' }
+    if (e instanceof FollowerGone || noSuchChain(e)) return { kind: 'gone', detail: 'This chain no longer exists' }
     // a network-class error: a fetch TypeError (browsers), a timeout or abort (a hung network), a runtime's coded socket
     // error (Bun), or a 5xx/429 ("retrying"); engine or store bugs stay "unreachable"
     const name = (e as { name?: unknown })?.name

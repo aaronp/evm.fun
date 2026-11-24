@@ -46,7 +46,10 @@ export class FollowerRemoved extends Error {
   constructor(chainId: string) { super(`removed from chain ${chainId}`) }
 }
 
-/** The cloud chain was deleted (the cloud answered 404). */
+/** The worker's answer for a chain it doesn't have (router.ts); any other 404 (unknown route, a proxy) is transient. */
+export const noSuchChain = (e: unknown) => e instanceof NodeError && e.status === 404 && e.error === 'no such chain'
+
+/** The cloud chain was deleted (the worker answered 404 "no such chain"). */
 export class FollowerGone extends Error {
   constructor() { super('This chain no longer exists') }
 }
@@ -135,7 +138,7 @@ export class Follower {
 
   static #state(client: NodeClient, chainId: string): Promise<Confirmed> {
     return client.state(chainId).catch((e) => {
-      throw e instanceof NodeError && e.status === 403 ? new FollowerRemoved(chainId) : e instanceof NodeError && e.status === 404 ? new FollowerGone() : e
+      throw e instanceof NodeError && e.status === 403 ? new FollowerRemoved(chainId) : noSuchChain(e) ? new FollowerGone() : e
     })
   }
 
@@ -260,7 +263,7 @@ export class Follower {
   #blocks(after: number) {
     return this.client.blocks(this.chainId, after).catch((e) => {
       if (e instanceof NodeError && e.status === 403) this.#stop('removed', new FollowerRemoved(this.chainId))
-      if (e instanceof NodeError && e.status === 404) this.#stop('gone', new FollowerGone())
+      if (noSuchChain(e)) this.#stop('gone', new FollowerGone())
       throw e // transient: still following
     })
   }
@@ -310,7 +313,7 @@ export class Follower {
   /**
    * POST the pending txs in seq order, in batches. A 400 or 413 on a batch splits it in halves (the request fails as a
    * whole, so it says nothing about each tx); only a single tx is refused for it. Stops at the first other failure;
-   * a 403 marks that batch and the rest `denied`; a 404 (chain deleted) stops the follower. Only the requests run outside the queue. Each batch is marked
+   * a 403 marks that batch and the rest `denied`; a 404 "no such chain" (chain deleted) stops the follower. Only the requests run outside the queue. Each batch is marked
    * `mayBeMined` (stored) before it is sent; an answer that it is off chain (nonce, 403) clears it.
    */
   async #submit(): Promise<{ nonce: Map<PendingTx, string>; denied: PendingTx[]; error?: unknown }> {
@@ -340,7 +343,7 @@ export class Follower {
           await this.#serial(() => this.#mark(batch, false))
           return { nonce, denied: [batch, ...batches].flat() }
         }
-        if (e instanceof NodeError && e.status === 404) {
+        if (noSuchChain(e)) {
           await this.#serial(() => this.#mark(unmarked, false))
           this.#stop('gone', new FollowerGone())
         }

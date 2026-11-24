@@ -1095,7 +1095,7 @@ A write made offline is stored only in the device's `FollowerStore` until a sync
 | The app bar counts unsent txs, including those of chains that are not open ("open <chain> to send"); chains with stored pending txs open at startup | Detective | Partial |
 | New, Open and Delete warn about unsent changes on followers ("N unsent changes on <chain> will be lost") | Preventive | Partial |
 | Follower store writes are strict: an IndexedDB failure throws (the send is undone, a re-signed tx keeps its old record) instead of dropping to memory, where a reload would bring back a record the cloud saw re-signed and run it twice | Preventive | Partial |
-| A chain deleted in the cloud (404) stops the follower: every pending tx is refused ("chain deleted in the cloud") and can be dismissed, and sends are refused | Detective | Partial |
+| A chain deleted in the cloud (the worker's 404 "no such chain"; other 404s are retried) stops the follower: every pending tx is refused ("chain deleted in the cloud") and can be dismissed, and sends are refused | Detective | Partial |
 | Browsers without the Web Locks API (e.g. Safari before 15.4) let every tab write: two tabs can take the same record key and one overwrites the other. Accepted: no control | — | None |
 
 ## R60 · A contract without version checks lets the later write win silently

@@ -716,4 +716,19 @@ describe('writing from a follower', () => {
     expect(await statuses(kv, h.info.id)).toEqual(['confirmed'])
     await registry.remove(h.info.id)
   })
+
+  test('a 404 other than the worker\'s "no such chain" (a proxy, an unknown route) keeps txs pending: unreachable, not gone', async () => {
+    const { registry } = env({ lock: () => true })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    await h.send(await sign(admin, await nonceOf(h, admin.address)))
+    globalThis.fetch = (async () => new Response('<html>Not Found</html>', { status: 404, statusText: 'Not Found' })) as unknown as typeof fetch
+    await syncNow(h); await syncNow(h)
+    expect(status(h)).toEqual({ kind: 'unreachable', detail: `${url}: Not Found` }) // retrying, not gone
+    expect(ap(h).pendingTxs().map((t: any) => t.status)).toEqual(['pending'])
+    expect(ap(h).canWrite()).toBeUndefined()
+    globalThis.fetch = realFetch
+    await syncNow(h); await syncNow(h)
+    expect(ap(h).pendingTxs().map((t: any) => t.status)).toEqual(['confirmed'])
+    await registry.remove(h.info.id)
+  })
 })
