@@ -2,6 +2,7 @@
   "id": "gbp-usd-xswap-unsafe",
   "title": "Why the taker’s timeout must be shorter",
   "summary": "Bob answers with a timeout that outlasts Alice's; she claims his USD late and refunds her GBP, ending with both sides.",
+  "tags": ["swap", "cross-chain", "hash lock", "timeouts", "failure"],
   "keys": {
     "alice": {
       "account": {

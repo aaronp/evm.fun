@@ -1,6 +1,6 @@
 import type { DeployedContract as ContractRecord } from '../contracts/registry'
 import type { Asset } from '@evmb/assets'
-import type { ChainType } from './handle'
+import type { ChainInfo, ChainType } from './handle'
 
 export type { ContractRecord }
 
@@ -12,6 +12,15 @@ export interface ChainFile {
   format: 'evm.fun/chain'; version: 1; exportedAt: string; chainId: number; engine: string
   chain: { name: string; type: ChainType }; dump: unknown; contracts: ContractRecord[]; assets?: Asset[]; source?: ChainSource
 }
+
+/** A follower's snapshots were taken while it was a plain chain (only plain chains deploy): they fork and export as plain. */
+export const snapshotType = (t: ChainType): 'plain' | 'sequencer' => (t === 'follower' ? 'plain' : t)
+
+/** Chain `info`'s state `s` (its current state, or one of its snapshots) as a chain file. */
+export const toChainFile = (info: Pick<ChainInfo, 'name' | 'type' | 'source'>, engine: string, s: { dump: unknown; contracts: ContractRecord[]; assets?: Asset[] }): ChainFile => ({
+  format: 'evm.fun/chain', version: 1, exportedAt: new Date().toISOString(), chainId: 31337, engine,
+  chain: { name: info.name, type: snapshotType(info.type) }, dump: s.dump, contracts: s.contracts, assets: s.assets ?? [], ...(info.source && { source: info.source }),
+})
 
 // ADR "Chain snapshots via webevm dumpState/loadState": dumps load across engines (both ways).
 export const CROSS_ENGINE_OK = true
@@ -80,6 +89,22 @@ function assetError(a: any, i: number): string | null {
   return null
 }
 
+/** The first problem in a chain's contract and asset records (`assets` may be missing), or null. */
+export function recordsError(contracts: unknown, assets: unknown): string | null {
+  if (!Array.isArray(contracts)) return 'Missing or invalid contracts'
+  for (let i = 0; i < contracts.length; i++) {
+    const e = contractError(contracts[i], i)
+    if (e) return e
+  }
+  if (assets === undefined) return null
+  if (!Array.isArray(assets)) return 'Missing or invalid assets'
+  for (let i = 0; i < assets.length; i++) {
+    const e = assetError(assets[i], i)
+    if (e) return e
+  }
+  return null
+}
+
 type Decoded = { ok: true; file: ChainFile } | { ok: false; error: string }
 export function decodeChainFile(text: string, opts: { engine: string; crossEngineOk: boolean }): Decoded {
   try { return decode(text, opts) } catch { return { ok: false, error: 'Invalid file' } }
@@ -99,18 +124,8 @@ function decode(text: string, opts: { engine: string; crossEngineOk: boolean }):
   if (!isStr(f.engine)) return bad('Missing or invalid engine')
   if (!isObj(f.chain) || !str(f.chain.name) || (f.chain.type !== 'plain' && f.chain.type !== 'sequencer'))
     return bad(`Missing or invalid chain (needs name up to ${MAX} characters and type plain|sequencer)`)
-  if (!Array.isArray(f.contracts)) return bad('Missing or invalid contracts')
-  for (let i = 0; i < f.contracts.length; i++) {
-    const e = contractError(f.contracts[i], i)
-    if (e) return bad(e)
-  }
-  if (f.assets !== undefined) {
-    if (!Array.isArray(f.assets)) return bad('Missing or invalid assets')
-    for (let i = 0; i < f.assets.length; i++) {
-      const e = assetError(f.assets[i], i)
-      if (e) return bad(e)
-    }
-  }
+  const records = recordsError(f.contracts, f.assets)
+  if (records) return bad(records)
   const d = f.dump
   if (!isObj(d)) return bad('Missing or invalid dump: expected an object')
   const missing = DUMP_KEYS.filter(k => !(k in d))

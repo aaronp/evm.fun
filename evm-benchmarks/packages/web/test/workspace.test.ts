@@ -5,6 +5,7 @@ import { createKv, kv as appKv, type Kv } from '../src/store/kv'
 import { ACCOUNTS_KEY, type Account } from '../src/store/accounts'
 import { createChainRegistry, LIVE_MAX } from '../src/chain/registry'
 import { createSnapshotStore } from '../src/chain/snapshots'
+import { decodeChainFile, encodeChainFile, snapshotType, toChainFile } from '../src/chain/chainFile'
 import { createContractsRegistry } from '../src/contracts/registry'
 import { createWebAssets } from '../src/assets/registry'
 import { ACTIVE_WALKTHROUGH, RUNS, SELECTED_CHAIN, buildWorkspace, encodeWorkspace, saveWorkspace } from '../src/workspace/build'
@@ -33,7 +34,10 @@ const sign = (nonce: number) => privateKeyToAccount(KEY).signTransaction({
 })
 const rec = { address: `0x${'12'.repeat(20)}` as const, name: 'Swap', abi: [], deployer: acct.address, txHash: `0x${'34'.repeat(32)}` as const }
 
-function env(base: Kv = createKv()) {
+type FollowerDeps = NonNullable<Parameters<typeof createChainRegistry>[0]['follower']>
+// no key for any follower by default: followers sit at needs-key and never reach the network
+const noKeys: FollowerDeps = { wasm: async () => { throw new Error('no wasm in these tests') }, account: () => undefined }
+function env(base: Kv = createKv(), follower: FollowerDeps = noKeys) {
   // kv as on a persistent browser (Bun has no IndexedDB, so a real kv is memory-only); `disk.kept = false` = it dropped to memory
   const disk = { kept: true }
   const kv: Kv = Object.create(base, { persistent: { get: () => disk.kept } })
@@ -42,6 +46,7 @@ function env(base: Kv = createKv()) {
     kv,
     host: (id: string) => ({ persistence: { load: async () => stores.get(id) ?? null, save: async (s: any) => void stores.set(id, structuredClone(s)) } }),
     purge: async (id: string) => void stores.delete(id),
+    follower,
   })
   const local = new Map<string, string>()
   const book = memoryStore(bookSchema)
@@ -640,6 +645,125 @@ describe('New / Open / Save', () => {
     const e = env()
     expect(await openWorkspace(encodeWorkspace(f), e.ws)).toEqual({ ok: true })
     expect((await e.registry.list())[0]!.source).toEqual({ kind: 'import', fileName: 'x.json', height: 0 })
+    await e.disposeAll()
+  })
+
+  test("a chain's deployed record survives Save → Open (known fields only); a malformed one refuses the file", async () => {
+    const src = env()
+    const h = await src.registry.create('x', 'plain', [])
+    const deployed = { nodeUrl: 'http://localhost:8799', chainId: crypto.randomUUID(), at: new Date().toISOString(), head: 2 }
+    await src.registry.setDeployed(h.info.id, deployed)
+    const f = await buildWorkspace(src.ws)
+    await src.disposeAll()
+    expect(f.chains[0]!.deployed).toEqual(deployed)
+    const e = env()
+    expect(await openWorkspace(encodeWorkspace({ ...f, chains: [{ ...f.chains[0]!, deployed: { ...deployed, extra: '<b>' } as any }] }), e.ws)).toEqual({ ok: true })
+    expect((await e.registry.list())[0]!.deployed).toEqual(deployed)
+    await e.disposeAll()
+    for (const bad of [{ ...deployed, head: -1 }, { ...deployed, nodeUrl: 'javascript:alert(1)' }, { ...deployed, nodeUrl: 'http://[' }, { ...deployed, chainId: '../x' }, 'yes'])
+      expect('errors' in validateWorkspace(encodeWorkspace({ ...f, chains: [{ ...f.chains[0]!, deployed: bad as any }] }), { engine: ENGINE, crossEngineOk: false })).toBe(true)
+  })
+
+  test('followers round-trip as pointers with their records (no state, never opened by Save or Open); the selection may be one', async () => {
+    const src = env()
+    await src.registry.create('plain one', 'plain', [])
+    const follows = { nodeUrl: 'https://node.example', chainId: crypto.randomUUID(), account: acct.address }
+    const fh = { info: { id: crypto.randomUUID() } }
+    await src.registry.putFollower({ id: fh.info.id, name: 'Joined abc', follows, createdAt: '2026-01-01T00:00:00.000Z', contracts: [] })
+    await createContractsRegistry(src.kv).add(fh.info.id, rec)
+    src.local.set(SELECTED_CHAIN, fh.info.id)
+    const f = await buildWorkspace(src.ws)
+    expect(src.registry.peek(fh.info.id)).toBeUndefined() // Save didn't open it
+    await src.disposeAll()
+    expect(f.chains.map(c => c.chain.name)).toEqual(['plain one'])
+    expect(f.followers).toEqual([{ id: fh.info.id, name: 'Joined abc', createdAt: '2026-01-01T00:00:00.000Z', follows, contracts: [{ ...rec, chainId: fh.info.id }] as any, assets: [] }])
+    expect(f.selection).toEqual({ chain: fh.info.id })
+    // this browser has the follow account's key, so opening the follower would reach the worker: Open must not
+    let requests = 0, wasmCalls = 0
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (async () => { requests++; throw new TypeError('offline') }) as any
+    const e = env(undefined, { wasm: async () => { wasmCalls++; throw new Error('no wasm') }, account: () => ({ account: privateKeyToAccount(KEY), label: 'alice' }) })
+    try {
+    // known fields only
+    const text = encodeWorkspace({ ...f, followers: [{ ...f.followers![0]!, extra: 1, follows: { ...follows, x: '<b>' } } as any] })
+    expect(await openWorkspace(text, e.ws)).toEqual({ ok: true })
+    const got = (await e.registry.list()).find(c => c.type === 'follower')
+    expect(got).toEqual({ id: fh.info.id, name: 'Joined abc', type: 'follower', createdAt: '2026-01-01T00:00:00.000Z', follows })
+    expect(e.local.get(SELECTED_CHAIN)).toBe(fh.info.id)
+    expect(await createContractsRegistry(e.kv).list(fh.info.id)).toEqual([{ ...rec, chainId: fh.info.id }] as any)
+    expect([requests, wasmCalls, e.registry.peek(fh.info.id)]).toEqual([0, 0, undefined])
+    // it syncs when opened (the selection, once the app reloads)
+    await e.registry.open(fh.info.id)
+    expect(wasmCalls).toBe(1) // the follower's first sync starts here (wasm is fetched right before the worker is)
+    await e.disposeAll()
+    } finally { globalThis.fetch = realFetch }
+  })
+
+  test("a converted follower's snapshots (its plain-chain history) fork and export as plain chains and survive Save → Open", async () => {
+    const src = env()
+    const plain = await src.registry.create('mine', 'plain', [acct.address])
+    await plain.send(await sign(0))
+    const snap = await createSnapshotStore(src.kv).take(plain, 'before deploy')
+    const info = { ...plain.info }
+    await src.registry.close(info.id)
+    // as convertToFollower leaves it (that needs a worker): the same id, now a follower; its snapshots stay
+    await src.kv.set('chains', info.id, { ...info, type: 'follower', follows: { nodeUrl: 'https://node.example', chainId: 'c1', account: acct.address } })
+    const follower = (await src.registry.list())[0]!
+    // Open as new chain (SnapshotsDialog): a plain chain at the snapshot's height
+    const fork = await src.registry.createFrom(snap.dump, { name: 'fork', type: snapshotType(follower.type), contracts: snap.contracts, assets: snap.assets })
+    expect([fork.info.type, Number(BigInt(await fork.request('eth_blockNumber', []) as string))]).toEqual(['plain', snap.height])
+    await src.registry.remove(fork.info.id)
+    // Export (SnapshotsDialog): the file imports
+    const file = decodeChainFile(encodeChainFile(toChainFile(follower, ENGINE, snap)), { engine: ENGINE, crossEngineOk: false })
+    expect(file.ok && file.file.chain.type).toBe('plain')
+    // Save keeps the snapshot; Open restores it
+    const f = await buildWorkspace(src.ws)
+    expect(f.snapshots.map(s => s.id)).toEqual([snap.id])
+    await src.disposeAll()
+    const e = env()
+    expect(await openWorkspace(encodeWorkspace(f), e.ws)).toEqual({ ok: true })
+    expect((await createSnapshotStore(e.kv).list(info.id)).map(s => s.name)).toEqual(['before deploy'])
+    await e.disposeAll()
+  })
+
+  test('Open keeps the list order with followers among the chains', async () => {
+    const src = env()
+    await src.registry.create('first', 'plain', [])
+    await Bun.sleep(2)
+    await src.registry.putFollower({ id: crypto.randomUUID(), name: 'follower', createdAt: new Date().toISOString(), follows: { nodeUrl: 'https://node.example', chainId: 'c1', account: acct.address }, contracts: [] })
+    await Bun.sleep(2)
+    await src.registry.create('last', 'plain', [])
+    const before = (await src.registry.list()).map(c => c.name)
+    expect(before).toEqual(['first', 'follower', 'last'])
+    const text = (await saveWorkspace(src.ws)).text
+    await src.disposeAll()
+    const e = env()
+    expect(await openWorkspace(text, e.ws)).toEqual({ ok: true })
+    expect((await e.registry.list()).map(c => c.name)).toEqual(before)
+    await e.disposeAll()
+  })
+
+  test('malformed follower entries refuse the file; files without followers load', async () => {
+    const src = env()
+    const h = await src.registry.create('x', 'plain', [])
+    const f = await buildWorkspace(src.ws)
+    await src.disposeAll()
+    expect(f.followers).toBeUndefined()
+    const ok = { id: 'f1', name: 'n', createdAt: new Date().toISOString(), follows: { nodeUrl: 'http://localhost:8799', chainId: 'abc-1', account: acct.address }, contracts: [rec], assets: [] }
+    const errs = (followers: unknown) => {
+      const r = validateWorkspace(encodeWorkspace({ ...f, followers } as any), { engine: ENGINE, crossEngineOk: false })
+      return 'errors' in r ? r.errors : []
+    }
+    expect(errs([ok])).toEqual([])
+    for (const bad of [
+      'yes', ['x'], [{ ...ok, id: '../x' }], [{ ...ok, id: h.info.id }], [ok, ok], [{ ...ok, name: 7 }], [{ ...ok, createdAt: undefined }],
+      [{ ...ok, follows: undefined }], [{ ...ok, follows: { ...ok.follows, nodeUrl: 'javascript:alert(1)' } }], [{ ...ok, follows: { ...ok.follows, nodeUrl: 'http://[' } }],
+      [{ ...ok, follows: { ...ok.follows, chainId: '../x' } }], [{ ...ok, follows: { ...ok.follows, account: '0x12' } }],
+      [{ ...ok, contracts: undefined }], [{ ...ok, contracts: [{ ...rec, txHash: '0x1' }] }], [{ ...ok, assets: [{ kind: 'erc721' }] }],
+    ]) expect(errs(bad).length).toBeGreaterThan(0)
+    const e = env()
+    expect(await openWorkspace(encodeWorkspace(f), e.ws)).toEqual({ ok: true })
+    expect((await e.registry.list()).map(c => c.name)).toEqual(['x'])
     await e.disposeAll()
   })
 

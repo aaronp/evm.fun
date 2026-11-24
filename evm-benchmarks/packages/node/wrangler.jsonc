@@ -1,0 +1,21 @@
+{
+  "name": "evm-chain-node",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-04-12",
+  "compatibility_flags": ["nodejs_compat"],
+  // the root admin's address, passed at start: wrangler dev/deploy --var ROOT_ADMIN:<address>
+  // deploy live only with `make deploy`: a plain `wrangler deploy --env live` sets ROOT_ADMIN to "" and then a root
+  // create and `codes` are refused (fail closed) until the next `make deploy`
+  "vars": { "ROOT_ADMIN": "" },
+  "durable_objects": { "bindings": [{ "name": "CHAIN", "class_name": "ChainDO" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ChainDO"] }],
+  // make deploy (--env live): the custom domain needs mychain.dev as a zone on your Cloudflare account.
+  // vars and durable_objects are not inherited by environments, so they repeat here
+  "env": {
+    "live": {
+      "vars": { "ROOT_ADMIN": "" },
+      "durable_objects": { "bindings": [{ "name": "CHAIN", "class_name": "ChainDO" }] },
+      "routes": [{ "pattern": "cloud.mychain.dev", "custom_domain": true }]
+    }
+  }
+}

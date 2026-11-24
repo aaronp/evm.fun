@@ -6,7 +6,11 @@ const SEP = '\0'
 
 export type Kv = {
   get<T>(store: string, key: string): Promise<T | undefined>
-  /** `strict`: on an IndexedDB failure throw and stay persistent, instead of dropping to memory (for large optional writes). */
+  /**
+   * `strict`: on an IndexedDB failure throw and stay persistent, instead of dropping to memory (large optional writes, and
+   * records that must not come back stale after a reload). Also throws once an earlier failure dropped IndexedDB this
+   * session (it still holds the old rows); with no IndexedDB from the start it writes to memory.
+   */
   set(store: string, key: string, value: unknown, opts?: { strict?: boolean }): Promise<void>
   del(store: string, key: string): Promise<void>
   list<T>(store: string): Promise<T[]>
@@ -58,6 +62,7 @@ export function createKv(): Kv {
 
   // Run against IndexedDB; on any failure drop to memory for good (strict: rethrow instead).
   async function run<T>(idbOp: (os: IDBObjectStore) => Promise<T>, memOp: () => T, write = false, strict = false): Promise<T> {
+    if (strict && opened && !usable) throw new Error("This browser stopped saving data: reload to try again")
     if (usable && db) {
       try {
         const d = await db
@@ -81,15 +86,15 @@ export function createKv(): Kv {
   const k = (s: string, key: string) => s + SEP + key
 
   kv.get = <T>(s: string, key: string) =>
-    run(os => req(os.get(k(s, key))) as Promise<T | undefined>, () => mem.get(k(s, key)) as T | undefined)
+    run(os => req(os.get(k(s, key))) as Promise<T | undefined>, () => structuredClone(mem.get(k(s, key))) as T | undefined)
   kv.set = (s, key, value, opts) =>
-    run(async os => void (await req(os.put(value, k(s, key)))), () => void mem.set(k(s, key), value), true, opts?.strict)
+    run(async os => void (await req(os.put(value, k(s, key)))), () => void mem.set(k(s, key), structuredClone(value)), true, opts?.strict)
   kv.del = (s, key) =>
     run(async os => void (await req(os.delete(k(s, key)))), () => void mem.delete(k(s, key)), true)
   kv.list = <T>(s: string) =>
     run(
       os => req(os.getAll(IDBKeyRange.bound(s + SEP, s + SEP + '￿'))) as Promise<T[]>,
-      () => [...mem].filter(([key]) => key.startsWith(s + SEP)).map(([, v]) => v as T),
+      () => [...mem].filter(([key]) => key.startsWith(s + SEP)).map(([, v]) => structuredClone(v) as T),
     )
   kv.clear = () => run(async os => { mem.clear(); await req(os.clear()) }, () => mem.clear(), true)
   return kv

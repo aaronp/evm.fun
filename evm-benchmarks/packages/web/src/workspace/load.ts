@@ -1,4 +1,5 @@
 import type { ChainSource } from '../chain/chainFile'
+import type { Deployed } from '../chain/handle'
 import { CROSS_ENGINE_OK, parseJson } from '../chain/chainFile'
 import { createSnapshotStore } from '../chain/snapshots'
 import { personaParam, withParams } from '../links'
@@ -27,18 +28,25 @@ const cleanSource = (s?: ChainSource): ChainSource | undefined =>
     : s.kind === 'import' ? { kind: 'import', fileName: s.fileName, height: s.height }
     : { kind: 'snapshot', snapshotName: s.snapshotName, fromChainName: s.fromChainName, height: s.height }
 
+/** Only the fields a deployed record has (validated in validate.ts). */
+const cleanDeployed = (d?: Deployed): Deployed | undefined => d && { nodeUrl: d.nodeUrl, chainId: d.chainId, at: d.at, head: d.head }
+
 /** Writes a validated file into an empty workspace: accounts, then each chain one at a time keeping its id (closed
  *  again unless it is the selection, so any number of chains loads), snapshots, walkthroughs, order-book rows, selection. */
 export async function loadWorkspace(f: WorkspaceFile, env: WriteEnv) {
   const { registry, kv, book, storage } = env
   storage.setItem(ACCOUNTS_KEY, JSON.stringify(f.accounts.map(({ label, address, privateKey }) => ({ label, address, privateKey }))))
   const selected = f.selection?.chain
-  const t0 = Date.now() // createdAt staggered in file order (= the saved list order), so the Chains page keeps it
+  const t0 = Date.now() // each chain keeps its createdAt (as followers do), so the list keeps its order; an older file without them: staggered in file order
   for (const [i, c] of f.chains.entries()) {
     try {
-      await registry.createFrom(c.dump, { createdAt: new Date(t0 + i).toISOString(), id: c.id, name: c.chain.name, type: c.chain.type, contracts: c.contracts, assets: c.assets, source: cleanSource(c.source) })
+      await registry.createFrom(c.dump, { createdAt: c.createdAt ?? new Date(t0 + i).toISOString(), id: c.id, name: c.chain.name, type: c.chain.type, contracts: c.contracts, assets: c.assets, source: cleanSource(c.source), deployed: cleanDeployed(c.deployed) })
     } catch (e) { throw new Error(`Chain "${c.chain.name}": ${message(e)}`) }
     if (c.id !== selected) await registry.close(c.id)
+  }
+  // pointers only: no worker request here; each follower syncs when it is opened (or selected)
+  for (const { id, name, createdAt, follows: { nodeUrl, chainId, account }, contracts, assets } of f.followers ?? []) {
+    try { await registry.putFollower({ id, name, createdAt, follows: { nodeUrl, chainId, account }, contracts, assets }) } catch (e) { throw new Error(`Chain "${name}": ${message(e)}`) }
   }
   const snaps = createSnapshotStore(kv)
   for (const s of f.snapshots) await snaps.put(s)

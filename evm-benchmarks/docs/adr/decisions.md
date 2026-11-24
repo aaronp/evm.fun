@@ -1152,3 +1152,281 @@ Claude's calls (spec "Settled after the builder check" 3-4): `wantLock` added to
 - `unsafe` in a report is a proxy: A's head when B answered is not recorded anywhere (two chains share no clock), so it is judged from each lock's own block unless the page passes `headAAtAnswer` (kept in the workspace file as `answers`).
 - The core `Approach` gains an optional `mine(n)` so the page can advance blocks; the sequencer's mine refuses while transactions are pending, so Advance is disabled then.
 - Older HashLocks on chain A are not searched after a redeploy (risk R50, card t-94); the secret in the browser and in files is risk R47.
+
+---
+id: ADR-0022
+title: "Incremental chain storage: state rows + block rows; boot from a state-only dump"
+status: accepted
+date: 2026-11-23
+tags: architecture, chains, cloudflare
+decision: diff-rows
+---
+
+## Goal
+A chain node must persist its chain so that per-block work and memory stay flat as the chain grows.
+
+## Hypothesis
+- We believe: storing only what each block changed (state rows plus one block row), and booting a fresh node from a state-only dump, keeps cost flat
+- Will result in: a commit of a few rows per block and memory far under the Durable Object's 128 MB at any height
+- Measured by: a 10,000-block soak (`make soak-node`): same root and next block after a fresh boot at 2,500, 5,000 and 10,000; flat commit time and writes; memory (JS heap + external) under 128 MB
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| flat | Flat cost | 5 | Higher = per-block time, writes and memory do not grow with height. |
+| simple | Simple | 4 | Higher = less code and fewer dependencies on upstream changes. |
+| safe | Safe | 5 | Higher = a booted node cannot differ from the node that wrote the store. |
+
+## Solution: diff-rows — our own per-block diff into account/slot rows
+| criterion | score |
+| --- | --- |
+| flat | 5 |
+| simple | 4 |
+| safe | 4 |
+
+Pros:
+- Measured in the spike: 2.5-4.5 ms and about 3 KB per 1-tx block; boot 56 ms at any height
+
+Cons:
+- We compute the diffs ourselves (a whole-state compare, O(state) per block)
+
+## Solution: trimmed — keep writing a dump, minus old history
+| criterion | score |
+| --- | --- |
+| flat | 2 |
+| simple | 5 |
+| safe | 4 |
+
+Pros:
+- Smallest change
+
+Cons:
+- Still rewrites all state every block
+
+## Solution: upstream — patch webevm to expose per-block change sets
+| criterion | score |
+| --- | --- |
+| flat | 5 |
+| simple | 3 |
+| safe | 4 |
+
+Pros:
+- Cleanest diffs
+
+Cons:
+- Blocked on webevm changes (t-130)
+
+## Decision
+diff-rows. Decided with Aaron (design: chain store, t-129): tables `meta`, `accounts`, `code`, `storage`, `blocks` behind a tiny `Sql` interface that Durable Object SQLite and `bun:sqlite` can each be adapted to (on a DO, `sql.exec(...).toArray()` and `transactionSync`); the node rebuilds from the store on boot, every 1,000 blocks and after a rejected block.
+
+Claude's calls: a slot at zero is treated as absent (webevm keeps it as `0x`, the trie drops it) so its row is deleted; the block row and the diff are written in one transaction; a commit that throws or a rejected block rebuilds the node from the store.
+
+## Consequences
+- Soak (10,000 blocks, file-backed SQLite): commit 0.53-0.72 ms (SQL write only), 8 rows and about 9.9 KB per block, memory (JS heap + external) 70-85 MB of the DO's 128 MB, sampled just before the every-1,000 rebuild (the node's most history), all flat; boots matched the live root and next block at 2,500, 5,000 and 10,000.
+- `external` only partly reflects wasm linear memory (one revm node: external +2.4 MB, rss +15.6 MB), so `memMB` is a lower bound; the real Durable Object figure is measured under workerd in t-134.
+- The diff compares whole-state dumps, so it is O(state) per block; logged as risk R51 (switch to a touched-keys diff past a few MB of state).
+- The in-memory node keeps only the last 256 headers plus up to 1,000 blocks; full history stays in the `blocks` table and is never pruned.
+- webevm 0.9.1 internals (the per-block timestamp via `blockEnv`) are still relied on (t-130).
+
+---
+id: ADR-0023
+title: "Deploy codes live on the root chain; the cloud node mines the new chain's set-up block"
+status: accepted
+date: 2026-11-23
+tags: architecture, chains, cloudflare, access
+decision: root-codes
+---
+
+## Goal
+Only people the root admin has chosen may create chains on the cloud worker, with nothing secret stored and nothing deployed from CI.
+
+## Hypothesis
+- We believe: deploy codes stored as `keccak256(code)` + expiry + uses on the root chain's `ChainAccess` (the invite mechanism, grant bit `GRANT_CREATE_CHAIN`) are enough to gate chain creation
+- Will result in: a friend creating a chain with one code and being refused for a wrong, expired or used-up code
+- Measured by: `make e2e-node` (issue, deploy, every refusal) against the local worker
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| simple | Simple | 5 | Higher = fewer new moving parts. |
+| honest | Auditable | 4 | Higher = who issued and redeemed what is on a chain. |
+| safe | Safe | 5 | Higher = a leaked store or a mistake costs less. |
+
+## Solution: root-codes — codes on the root chain
+| criterion | score |
+| --- | --- |
+| simple | 4 |
+| honest | 5 |
+| safe | 4 |
+
+Pros:
+- Reuses invites (t-133); issuing is a signed tx from evm.fun; redeems are recorded on chain; only hashes are stored
+
+Cons:
+- A short typed code is guessable (rate limit and generated 4-word codes); a code is spent even if creation then fails
+
+## Solution: kv — a worker-side KV of codes
+| criterion | score |
+| --- | --- |
+| simple | 5 |
+| honest | 2 |
+| safe | 3 |
+
+Pros:
+- No contract call to issue a code
+
+Cons:
+- A second store with its own admin API; no on-chain record of who deployed what
+
+## Decision
+root-codes. Decided with Aaron (t-134): the first chain is the root chain, created by the key named in the worker's config (`ROOT_ADMIN`, an address, not a secret); a code alone is enough (no per-use approval); the TTL bounds the risk.
+
+Claude's calls (spec "Deviations"): the browser signs the two set-up txs and uploads them with its dump, and the new chain's Durable Object mines them as block head+1 with real state roots (evm.fun's chains compute no roots); evm.fun then replaces its local chain with the returned dump and checks the head hash, so both copies are identical. View routes (`access-controls/latest`, aliases) are not ported (t-138, t-139).
+
+## Consequences
+- Interface changes: `deployChain` takes a required `registry` option (`replaceState`, `setDeployed`) so it stays testable without the wasm loader; its errors carry `step` and `chainId`; `NodeClient.baseUrl` is `readonly`; Deploy is refused once a chain is deployed.
+- Failed redeems are limited to 10 per IP per 10 minutes (`429`); request signatures are single-use within 300 s.
+- A code is spent when the redeem succeeds; if the new chain's creation then fails, the admin issues another (risk R53).
+- The root admin key is on Aaron's machine (`.env.live`, git-ignored) and in evm.fun's Accounts (risk R54); the worker holds only its address.
+- Live target: `make deploy` to `cloud.mychain.dev`; nothing deploys from CI. The Pages build gets the URL from repo variable `NODE_URL`.
+- Guessable codes and the per-IP limit: risk R52.
+
+
+---
+id: ADR-0024
+title: "Every device is a follower until B; followers are saved as pointers in workspace files"
+status: accepted
+date: 2026-11-23
+tags: architecture, chains, web, access
+decision: all-follow
+---
+
+## Goal
+Show a deployed chain on every device of its owner, with real positions and no drifting copies, before any device can write to it through the cloud node.
+
+## Hypothesis
+- We believe: making the owner's browser copy a read-only follower of the cloud chain, like any other device, is enough for "follow and show" (plan 17 part 2)
+- Will result in: Deploy, join, invite, remove and the Devices panel working against one chain with no reconciliation
+- Measured by: `make e2e-node` and the browser checklist in the evm.fun README section
+
+## People
+- Aaron — decider
+- Claude — author
+
+## Criteria
+| id | criterion | weight | description |
+| --- | --- | --- | --- |
+| nodrift | No drift | 5 | Higher = every copy is the cloud chain's own blocks. |
+| simple | Simple | 4 | Higher = less to change now. |
+| later | Ready for B | 3 | Higher = B (follow and use) needs less rework. |
+
+## Solution: all-follow — every device is a follower, including the owner's
+| criterion | score |
+| --- | --- |
+| nodrift | 5 |
+| simple | 3 |
+| later | 4 |
+
+Pros:
+- One kind of copy; positions are real everywhere
+- Device management is just txs sent to the cloud chain
+
+Cons:
+- The owner's copy goes read-only after Deploy ("Read-only until B: this chain lives on the cloud")
+
+## Solution: owner-writable — the owner's copy stays writable
+| criterion | score |
+| --- | --- |
+| nodrift | 1 |
+| simple | 4 |
+| later | 2 |
+
+Pros:
+- Less change now
+
+Cons:
+- The owner's copy and the cloud chain drift apart, and B must reconcile them
+
+## Decision
+all-follow. Decided with Aaron (design option (ii) rejected): Deploy converts the owner's copy to a follower (a chain deployed earlier converts when opened: quietly if its head matches the cloud block hash, else the user picks Export or Convert anyway).
+
+Claude's call: a follower is saved in workspace files as a pointer (node URL, chain id, the account that follows) together with its contract and asset records, not as a copy of the chain; opening it makes no request, and the follower boots from the cloud's `state` on demand.
+
+## Consequences
+- No playground page writes to a deployed chain until B; they show a read-only message. (B is now done: ADR-0025, plan 21.)
+- A workspace file stays small, and a follower's state is never trusted from the file: it is re-fetched and root-checked.
+- A removed or mismatched follower stops and says so; the user deletes it or joins again.
+- Polling cost and the multi-use writer code: risks R55 and R57.
+
+
+---
+id: ADR-0025
+title: "The cloud orders writes; the chain checks who submits, contracts check who acts"
+status: accepted
+date: 2026-11-24
+tags: architecture, chains, access, devices
+decision: cloud-orders
+---
+
+## Goal
+Let a device on a deployed chain write: a tx runs on its own copy at once, and the chain still ends with one order that every copy agrees on.
+
+## Hypothesis
+Devices that write offline will sometimes send txs that clash (one balance spent twice). Someone has to pick which one wins, and the rest must say so rather than vanish.
+
+## People
+- The owner and members who use a chain from a phone or laptop, sometimes offline
+- The chain admin, who decides who may submit
+- Contract authors, who decide who may do what inside a contract
+
+## Criteria
+- one order: every copy reaches the same blocks and state roots
+- offline: a write works with no connection and is kept until it can be sent
+- honest: a clashing write shows as conflicted, never silently lost or silently won
+- simple: the fewest new rules on the chain
+
+## Solution: the cloud orders; the chain ACL checks the submitting key only
+The cloud node mines what it receives, in the order it receives it. A device keeps its own txs as pending, runs them locally, submits them in batches (`POST /submit`, answered per tx), and rebases on the cloud's blocks: a pending tx the cloud mined with the same status and logs is confirmed, with other ones conflicted, and one the cloud refused is refused. The chain's `ChainAccess` is checked against the key that signs the request. The sender of a tx inside it needs no chain role, so a broker device can submit a tx signed by someone else's key. What a sender may do is decided by the contracts (`Governance`-style allow-lists, owner checks).
+Pros:
+- Nothing to merge: the cloud's order is the order
+- A device can send for keys it does not hold the chain role of; apps decide who may act
+- Same copy everywhere, checked by hash and state root
+
+Cons:
+- A contract without version checks lets the later write win silently (risk R60)
+- Pending txs live only on the device until synced (risk R59)
+
+## Solution: every tx sender must be a chain writer
+| criterion | score |
+| --- | --- |
+| oneorder | 4 |
+| offline | 4 |
+| honest | 4 |
+| simple | 2 |
+
+Pros:
+- One place to look for who may write
+
+Cons:
+- Every key a user signs with needs a chain role, and a broker cannot submit for a key with none
+- A second ACL beside each contract's own
+
+## Decision
+cloud-orders, with the chain ACL on the submitting key only. Decided with Aaron: contract ACLs (a governance contract the apps consult) own who may act; the chain ACL owns who may talk to the node.
+
+Claude's call: outcomes are compared by status and logs (not state), so a tx that behaves the same way after a rebase is confirmed; one that does not is conflicted and the user decides.
+
+## Consequences
+- `POST /submit` answers per tx: mined, or refused with a code (`nonce`, `invalid`); a resend of a mined tx answers mined; the body is capped at 512 KiB (`413`) and 256 txs, so a block row stays under DO SQLite's 2 MB; a block row over 1.5 MB is a 400 before it is stored; `GET /blocks` pages at 100 blocks or 8 MiB.
+- Behaviour changes in the worker: an undecodable tx is refused per tx (`invalid`), not a 400 for the request; an empty submit mines nothing; non-hex input is a 400; webevm checks nonce and funds only at mine time, so `ChainNode` prechecks them; a tx short of funds is retried in a second block of the same request, since an earlier tx may fund it. A server fault (any failure after mining, or a failed rebuild) answers 503, so a `Follower` keeps its txs pending through an outage; a tx-caused rejection stays 400.
+- Known limits: a re-signed contract deploy, or a tx whose logs include the block number or time, always ends conflicted; `send` can wait behind a running `sync`; webevm 0.9.1 `loadState` does not reset accounts missing from the dump, so the Follower rebases on a fresh node (upstream, t-130).
+- A self-governed allow-list contract is a later card (t-147).
+- Risks R59 and R60.

@@ -5,10 +5,10 @@ A walkthrough is one JSON file that two runners use: `bun test` runs it headless
 ## File
 
 ```json
-{ "id": "...", "title": "...", "summary": "...", "keys": { ... }, "steps": [ ... ] }
+{ "id": "...", "title": "...", "summary": "...", "tags": ["..."], "keys": { ... }, "steps": [ ... ] }
 ```
 
-`id`, `title` and `summary` are required text. Every key must be filled by exactly one step.
+`id`, `title` and `summary` are required text. `tags` is optional: 1 to 8 distinct (case-insensitive) non-empty strings of at most 24 characters. The Get started page lists them on each walkthrough and filters by them (several selected tags: a walkthrough must have all). Every key must be filled by exactly one step.
 
 ### Keys
 

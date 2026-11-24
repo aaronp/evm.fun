@@ -16,6 +16,7 @@ import { useWizard, type Wizard } from '../walkthrough/wizard'
 import type { Walkthrough } from '../walkthrough/types'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
+import { Input } from '../ui/input'
 
 const EDITS = 'walkthroughEdits'
 type Entry = { w: Walkthrough; edited: boolean; /** steps recorded in the saved run */ done: number }
@@ -35,6 +36,16 @@ export const begin = (wz: Pick<Wizard, 'start' | 'restart'> | null, w: Walkthrou
   start: () => wz?.start(w),
   restart: async () => { await clearRun(w.id); wz?.restart(w) },
 })
+/** Every tag in the entries, sorted and without repeats. */
+export const allTags = (es: Entry[]) => [...new Set(es.flatMap(e => e.w.tags ?? []))].sort((a, b) => a.localeCompare(b))
+/** Entries whose title, summary or tag contains the text (any case) and that carry every selected tag. */
+export function filterWalkthroughs(es: Entry[], text: string, tags: string[]): Entry[] {
+  const q = text.trim().toLowerCase()
+  return es.filter(({ w }) => {
+    const own = w.tags ?? []
+    return tags.every(t => own.includes(t)) && (!q || [w.title, w.summary, ...own].some(x => x.toLowerCase().includes(q)))
+  })
+}
 export const saveEdit = (w: Walkthrough) => kv.set(EDITS, w.id, w)
 export const resetEdit = (id: string) => kv.del(EDITS, id)
 
@@ -94,10 +105,28 @@ export function Walkthroughs({ entries, onChange }: { entries: Entry[]; onChange
     setErr(undefined)
     try { await f(); onChange?.() } catch (e) { setErr(`That didn't work: ${e instanceof Error ? e.message : String(e)}`) }
   }
+  const [text, setText] = useState('')
+  const [picked, setPicked] = useState<string[]>([])
+  const flip = (t: string) => setPicked(p => p.includes(t) ? p.filter(x => x !== t) : [...p, t])
+  const shownEntries = filterWalkthroughs(entries, text, picked)
+  const filtering = text.trim() !== '' || picked.length > 0
+  const chip = (t: string, small = false) => (
+    <button key={t} type="button" aria-pressed={picked.includes(t)} onClick={() => flip(t)}
+      className={`rounded-full border ${small ? 'px-1.5 text-[11px]' : 'px-2.5 py-0.5 text-xs'} focus-visible:outline-2 focus-visible:outline-accent ${picked.includes(t) ? 'border-accent bg-selected text-text' : 'border-line text-muted hover:text-text'}`}>{t}</button>
+  )
   return (
     <div className="space-y-4">
+      <div className="space-y-2">
+        <Input aria-label="Filter walkthroughs" placeholder="Filter by title, summary or tag" value={text} onChange={e => setText(e.target.value)} className="w-full" />
+        <div className="flex flex-wrap gap-1.5">{allTags(entries).map(t => chip(t))}</div>
+        {filtering && (
+          <p className="flex items-center gap-2 text-xs text-muted">Showing {shownEntries.length} of {entries.length}
+            <Button size="sm" variant="ghost" onClick={() => { setText(''); setPicked([]) }}>Clear</Button></p>
+        )}
+      </div>
+      {filtering && shownEntries.length === 0 && <p className="text-sm text-text-2">No walkthroughs match.</p>}
       {err && <p role="alert" className="text-sm text-danger">{err}</p>}
-      {entries.map(({ w, edited, done }) => {
+      {shownEntries.map(({ w, edited, done }) => {
         const shown = open?.id === w.id ? open.mode : undefined
         const json = JSON.stringify(w, null, 2)
         const toggle = (mode: 'view' | 'edit') => setOpen(shown === mode ? undefined : { id: w.id, mode })
@@ -107,6 +136,7 @@ export function Walkthroughs({ entries, onChange }: { entries: Entry[]; onChange
               <h2 className="font-display text-base font-semibold">{w.title}{edited && <span className="ml-2 rounded-md border border-line-strong px-1.5 py-0.5 align-middle text-[11px] font-medium text-muted">edited</span>}</h2>
               <p className="text-sm text-text-2">{w.summary}</p>
               <p className="mt-1 text-xs text-muted">{w.steps.length} steps{done > 0 && ` · ${done} of ${w.steps.length} done`}</p>
+              {!!w.tags?.length && <div className="mt-1 flex flex-wrap gap-1">{w.tags.map(t => chip(t, true))}</div>}
             </div>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={begin(wz, w).start}>{done > 0 ? 'Resume' : 'Start'}</Button>

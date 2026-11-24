@@ -47,6 +47,8 @@
   --c-tone-4-fg: #FFD7A3;
   --c-ask: #FB8A9C;
   --c-bid: #34D399;
+  --c-qr-fg: #000000;
+  --c-qr-bg: #FFFFFF;
 }
 
 :root[data-theme="light"] {
@@ -96,6 +98,8 @@
   --c-tone-4-fg: #7A3B08;
   --c-ask: #BE123C;
   --c-bid: #03694C;
+  --c-qr-fg: #000000;
+  --c-qr-bg: #FFFFFF;
 }
 
 :root[data-theme="paper"] {
@@ -145,4 +149,6 @@
   --c-tone-4-fg: #7A3B08;
   --c-ask: #A3283A;
   --c-bid: #1B6141;
+  --c-qr-fg: #000000;
+  --c-qr-bg: #FFFFFF;
 }

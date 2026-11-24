@@ -10,6 +10,49 @@ effects.complete: random
 
 ## Backlog
 
+### Followers: streaming instead of polling
+- id: t-144
+- parent: t-112
+- tags: chains, cloudflare, size-M
+- history:
+  - Backlog @ 2026-11-23T20:46:23Z
+
+```md
+Followers pull new blocks on demand: the cloud node pushes each new head over a hibernating WebSocket (proved in the t-128 spike), so devices stop polling. Until then polling is configurable per browser (5 s / 15 s / 60 s / Manual, plus Sync now) — plan 18. Cuts the per-poll nonce write and read check (risk R57). Aaron, 2026-11-23.
+```
+
+### Device bookkeeping contract
+- id: t-143
+- parent: t-112
+- tags: chains, access, size-M
+- history:
+  - Backlog @ 2026-11-23T19:08:02Z
+
+```md
+Users record what and where each device key is ("my work computer", "the family tablet") in a contract on the chain itself, so every device and view sees the same names. Until then a device's name is the `x-node-name` its follower sends, kept with its cursor on the cloud node (devices design). Idea from Aaron, 2026-11-23.
+```
+
+### Move evm.fun to mychain.dev
+- id: t-142
+- parent: t-108
+- tags: infra, web, size-S
+- history:
+  - Backlog @ 2026-11-23T18:00:00Z
+
+```md
+evm.fun is served at `aaronp.github.io/evm.fun/`. Serve it at `mychain.dev` (the worker's CORS already allows `https://mychain.dev`).
+
+Aaron's DNS steps: in Cloudflare (once `mychain.dev` is a zone, t-134), add a `CNAME` record `mychain.dev` (or `www`) → `aaronp.github.io` (DNS only), then repo Settings → Pages → Custom domain `mychain.dev`, and tick Enforce HTTPS once the certificate is issued. The Pages build adds a `CNAME` file containing `mychain.dev` to the published folder (e.g. `packages/web/public/CNAME`) so each deploy keeps the setting.
+
+Check: the app's HashRouter and relative assets still work at the root path; `cloud.mychain.dev` and `mychain.dev` share the zone, so nothing changes for the worker.
+```
+
+```dod
+- [ ] Aaron: DNS `CNAME` and the Pages custom domain set
+- [ ] A `CNAME` file in the Pages build output
+- [ ] https://mychain.dev loads the playground and reaches the worker (CORS)
+```
+
 ### Invites: single-use or multi-use within a TTL
 - id: t-133
 - parent: t-112
@@ -20,18 +63,9 @@ effects.complete: random
 ```md
 One invite mechanism `{hash, expiry, usesLeft, grants}`: the creator commits hash(code); a claimer reveals the code. Single-use (usesLeft = 1, a captured code is worthless after the claim) or multi-use until expiry (a group joins with one code). Grants a role: a device/key on a chain's access contract, or a slot to create a new chain in the root registry.
 
-Spiked (views spike, [docs/spikes/cf-views.md](../spikes/cf-views.md)): single-use refused on the second claim; one multi-use code let 3 keys join then was refused after expiry; a 2-use code refused the third claim. The chain-creation grant (t-134) is sketched only.
-```
+Spiked (views spike, [docs/spikes/cf-views.md](../spikes/cf-views.md)): single-use refused on the second claim; one multi-use code let 3 keys join then was refused after expiry; a 2-use code refused the third claim. The chain-creation grant is sketched only; deploy codes (t-134) reuse this mechanism.
 
-### Chain registry: who may create chains
-- id: t-134
-- parent: t-112
-- tags: chains, access, size-M
-- history:
-  - Backlog @ 2026-11-22T22:32:43Z
-
-```md
-A root chain holds a chain-access registry: invites grant chain-creation slots; the Worker checks the registry before creating a DO; the registry records whose chain is whose. Each chain then has its own access/governance contract.
+Part 1 done (worker + Follower): `POST /chains/:id/join` redeems a reader/writer code; a create-chain code is refused (403). Part 2 done: Cloud → Join a chain (a join link without the code), and the admin invites a reader (default, single use) or writer from the Devices panel, with the R55 warning on a multi-use writer code. Not yet checked by hand in two browsers (checklist in packages/node/README.md).
 ```
 
 ### Views: readable current state per contract (aliases + recipes)
@@ -47,17 +81,6 @@ A root chain holds a chain-access registry: invites grant chain-creation slots; 
 Spiked ([docs/spikes/cf-views.md](../spikes/cf-views.md)): `Aliases.sol` in genesis; recipes `self-describing` (view functions listed in the alias) and `erc20`; per-alias access contract (a view-only key gets its alias, 403 elsewhere; open reads make it a plain GET). Cost: 4 calls ~1 ms (access-controls), GBP 10 holders 15 calls + 1 log scan ~1.3 ms, 200 holders ~4.4 ms; the holder scan grows with history.
 ```
 
-### Remote chain: incremental state storage
-- id: t-129
-- parent: t-112
-- tags: chains, cloudflare, size-M
-- history:
-  - Backlog @ 2026-11-22T21:41:18Z
-
-```md
-From the t-128 spike: the DO rewrites a full `dumpState` (with history) every block. Persist only changed accounts/code/slots per block (webevm PersistenceAdapter diff, or a revm StateStore over DO SQLite), keep history in the blocks table, add checkpoints.
-```
-
 ### webevm: per-block timestamp and history-free dump
 - id: t-130
 - parent: t-112
@@ -68,7 +91,56 @@ From the t-128 spike: the DO rewrites a full `dumpState` (with history) every bl
 ```md
 From t-128: the block timestamp is the only nondeterminism between the DO and replicas, pinned today through a webevm internal. Upstream `mine({timestamp})` and a dump without state history.
 
-Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps accounts absent from the snapshot, so rolling back a refused block left the new sender's nonce behind (DO/replica drift). The spike rebuilds the node on rollback (~10 ms); fix upstream.
+Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps accounts absent from the snapshot, so rolling back a refused block left the new sender's nonce behind (DO/replica drift). The spike rebuilds the node on rollback (~10 ms); fix upstream. The `Follower` (t-132) rebases on a fresh node for the same reason.
+```
+
+### Governance.sol: a self-governed allow-list as ChainAccess admin
+- id: t-147
+- parent: t-112
+- tags: chains, contracts, size-M
+- history:
+  - Backlog @ 2026-11-24T12:00:00Z
+
+```md
+The chain ACL checks only the submitting key; what a tx's sender may do is up to the contracts (ADR-0025). A `Governance.sol` that holds an allow-list and votes members in and out, and is itself the `ChainAccess` admin, so the owner key is no longer the single authority.
+```
+
+```dod
+- [ ] A governance contract is the chain's admin; adding or removing a member goes through it
+- [ ] A `Follower` write to it settles confirmed or conflicted like any other
+```
+
+### Re-point contract records after a re-signed deploy
+- id: t-148
+- parent: t-136
+- tags: chains, web, size-S
+- history:
+  - Backlog @ 2026-11-24T14:00:00Z
+
+```md
+When a deploy is re-signed after a nonce refusal it lands at another address. The Pending panel shows conflicted ("Deployed at <cloud>, not <local>"), but the page saved the local address, so the contract and asset records still point there. Rewrite them to the cloud address when the tx settles conflicted. Found in plan 21 (t-132).
+```
+
+### Followers remember their last known role
+- id: t-149
+- parent: t-136
+- tags: chains, web, size-S
+- history:
+  - Backlog @ 2026-11-24T14:00:00Z
+
+```md
+The role (writer or reader) is known only after the first good sync and is not saved. A reader that opens offline can queue sends, and the cloud later refuses them as "not a writer". Save the last known role with the follower's store so a reader is refused at once, offline too. Found in plan 21 (t-132).
+```
+
+### Show the revert reason for a locally reverted send
+- id: t-150
+- parent: t-136
+- tags: chains, web, size-S
+- history:
+  - Backlog @ 2026-11-24T14:00:00Z
+
+```md
+A send that reverts in the device's local copy shows "reverted" with no reason, because the RPC receipt carries none. Re-run the call (`eth_call` at the block before) to decode and show the reason. Found in plan 21 (t-132).
 ```
 
 ### Remote chain: device enrolment and auth hardening
@@ -81,18 +153,7 @@ Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps account
 ```md
 From t-128: real device enrolment (pairing / owner-signed invites — see the access-control brainstorm), owner key rotation, multiple owners or thresholds, tx-sender ↔ device binding, rate limits.
 
-Access spike (branch spike-cf-chain, 129e7fd, `bun spike/cf-chain/access.ts` → ALL PASS, 49 checks; report .superpowers/spike-cf-access-report.md): `ChainAccess.sol` in genesis at 0xacce55… (admin, readOpen, reader/writer sets); the DO checks canRead/canWrite from its own state on every request (~15–20 µs); tx senders must be writers; changes apply next block and close revoked sockets; plain GET when reads are open, self-signed short-TTL bearer tokens otherwise (~1 ms verify); gas-free chains; `invite(hash, ttl)` + `claim(code)`.
-```
-
-### Playground ChainHandle over a remote (Durable Object) chain
-- id: t-132
-- parent: t-112
-- tags: chains, web, size-M
-- history:
-  - Backlog @ 2026-11-22T21:41:18Z
-
-```md
-From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
+Access spike (branch spike-cf-chain, 129e7fd, `bun spike/cf-chain/access.ts` → ALL PASS, 49 checks; report [docs/spikes/cf-access.md](../spikes/cf-access.md)): `ChainAccess.sol` in genesis at 0xacce55… (admin, readOpen, reader/writer sets); the DO checks canRead/canWrite from its own state on every request (~15–20 µs); tx senders must be writers; changes apply next block and close revoked sockets; plain GET when reads are open, self-signed short-TTL bearer tokens otherwise (~1 ms verify); gas-free chains; `invite(hash, ttl)` + `claim(code)`.
 ```
 
 ### Later: multi-node cluster (phone, laptop, worker)
@@ -718,20 +779,203 @@ Currently the playground is served via GH pages.
 Having a real means to deploy their chains would be awesome
 ```
 
-### web: static deploy (GitHub Pages)
-- id: t-16
-- parent: t-108
-- tags: web, infra
+## Next
+
+### Documentation
+- id: t-137
 - history:
-  - To Do @ 2026-11-19T09:38:00Z
+  - Next @ 2026-11-23T08:20:40.001Z
 
 ```md
-Publish the playground (Vite build, `base: './'`) to GitHub Pages from CI on every push to master. Done when the deployed site loads, runs a walkthrough, and compiles in Studio (solc worker and revm wasm served from the static path).
-
-The workflow is in place (`.github/workflows/pages.yml`, retries Bun's exit crash, R11). Not yet checked: the deployed site runs a walkthrough and compiles in Studio.
+We want clear TypeDoc documentation we can build/serve for each area we build
 ```
 
-## Next
+```dod
+- 'make doc' builds the documentation
+- we can include 'docs' as part of our built Github Pages
+```
+
+### Roadmap
+- id: t-136
+- history:
+  - Next @ 2026-11-23T08:16:30.318Z
+
+```md
+I think we want:
+
+1. To have a 'deploy button to deploy a chain to CF from our playground. This respects our chain permissions: the user needs to supply an auth code which permits them to do this, which will require an answer for how we 'bootstrap' the first chain (admin chain), which could be "the chain deployed is allowed"
+
+2. We can control 'node' permissions -- that is, which devices/instances are allowed to read and write from the chain. This is how we allow our laptops/phones/tablets/browsers to create keys and "sync" via the CF node.
+
+3. We can view and edit our 'indexer' when deploying new contracts on the chain: the means to control read/write permissions for a smart contract on our chain, as well as view the materialised data for the contract
+
+4. We can use the same code/hash permission exchange to expose a 'write' URL for a contract: i.e. swap the token for a key, and use it to save our 'tools' (including a new interactive draw tool as a PoC), and our 'relay' ACL for a relay topic.
+
+**End-to-end demo (Aaron, 2026-11-23): an N-node revm cluster per chain.** The CF node runs on demand; browsers and other permitted devices join as nodes.
+
+a. A user creates a chain in their browser (evm.fun).
+b. They deploy a contract on it (a wizard, an ERC-20, …).
+c. They ask to deploy it to CF; Aaron gives them a deploy code.
+d. They click Deploy: their CF node comes up with the same state (a 2-node cluster). — t-134, then t-132 (the browser node follows)
+e. On another device/browser they create a key, choose their deployed chain, and enter a code they issued for their own chain, sending it with their public key. — t-131, t-133
+f. That browser starts a revm node that joins the cluster and syncs.
+g. They deploy/update contracts on their chain from either device.
+
+**Demo cut (Aaron, 2026-11-23):** local `make dev-services` → root chain → issue a code and deploy chains (t-134) → browser follows (t-132) → add/remove a device in the UI (t-138) → key/value contract + its views (t-139) → each node's cursor (t-140) → the whole run as a walkthrough (t-141).
+```
+
+### Chain store: incremental state storage
+- id: t-129
+- parent: t-136
+- tags: chains, cloudflare, size-M
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+  - Next @ 2026-11-23T12:50:38Z
+
+```md
+Before t-134. A `ChainStore` (`packages/node`) that persists only what each block changed, and a node lifecycle that boots from current state and rebuilds every N blocks, so per-block work and memory stay flat. Design: [chain store](../superpowers/specs/2026-11-23-chain-store-design.md).
+
+Why (cost spike, [docs/spikes/cf-cost.md](../spikes/cf-cost.md)): the spike rewrites a full dump with all history every block (170 ms, 39.5 MB per 1-tx block at 10,000 blocks) and webevm keeps all history in memory (228 MB at 10,000 vs the DO's 128 MB). With diffs: 2.5–4.5 ms, ~3 KB per 1-tx block; boot 56 ms at any height. Cost is $0 beyond the $5/month minimum in every scenario either way. webevm has no pruning/change-set API; `loadState` accepts a trimmed dump.
+
+Soak results, 2026-11-23, `make soak-node` exit 0 (commit = SQL write only; rows = diff keys + 1 block row; bytes = JSON of diff + block): commit 0.53-0.72 ms, 8 rows, about 9.9 KB per block, memory (JS heap + external) 70-85 MB (JS heap 46-55 MB), sampled just before the every-1,000 rebuild (the node's most history; the earlier post-rebuild sampling read 44-58 MB), flat from 1,000 to 10,000 blocks. `external` only partly reflects wasm linear memory (one revm node: external +2.4 MB, rss +15.6 MB), so `memMB` is a lower bound; the real Durable Object figure is measured under workerd in t-134.
+
+    {"height":1000,"commitMsAvg":0.596,"rowsWrittenAvg":8,"bytesWrittenAvg":9833,"heapMB":35.4,"memMB":47.9}
+    {"height":2000,"commitMsAvg":0.557,"rowsWrittenAvg":8,"bytesWrittenAvg":9871,"heapMB":33.2,"memMB":43.9}
+    {"height":3000,"commitMsAvg":0.582,"rowsWrittenAvg":8,"bytesWrittenAvg":9866,"heapMB":40.5,"memMB":56.7}
+    {"height":4000,"commitMsAvg":0.572,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.4,"memMB":56.5}
+    {"height":5000,"commitMsAvg":0.584,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.9,"memMB":57.5}
+    {"height":6000,"commitMsAvg":0.569,"rowsWrittenAvg":8,"bytesWrittenAvg":9867,"heapMB":40.5,"memMB":56.6}
+    {"height":7000,"commitMsAvg":0.653,"rowsWrittenAvg":8,"bytesWrittenAvg":9872,"heapMB":40.8,"memMB":57.4}
+    {"height":8000,"commitMsAvg":0.538,"rowsWrittenAvg":8,"bytesWrittenAvg":9838,"heapMB":40.5,"memMB":56.7}
+    {"height":9000,"commitMsAvg":0.578,"rowsWrittenAvg":8,"bytesWrittenAvg":9871,"heapMB":40.9,"memMB":57.4}
+    {"height":10000,"commitMsAvg":0.576,"rowsWrittenAvg":8,"bytesWrittenAvg":9875,"heapMB":40.6,"memMB":56.9}
+    OK: roots and next blocks match at 2500, 5000, 10000; memory and commit time flat
+
+
+```
+
+```dod
+- [x] `ChainStore` on DO SQLite and `bun:sqlite`; `node.ts` boot / apply / rebuild every N blocks (`Sql` interface; tested on `bun:sqlite`, the DO side is untested until t-134)
+- [x] 10,000-block soak (`make soak-node`, a script rather than a Bun test): same root and next block after a fresh boot at 2,500, 5,000 and 10,000; flat per-block time and writes; memory (JS heap + external) under 128 MB
+- [x] Docs (t-137): [how a node stores its chain](../../packages/node/README.md), ADR-0022, risk R51
+```
+
+### Deploy to Cloudflare: `make deploy` and deploy codes
+- id: t-134
+- parent: t-136
+- tags: chains, cloudflare, access, size-L
+- history:
+  - Backlog @ 2026-11-22T22:32:43Z
+  - Next @ 2026-11-23T11:32:10Z
+
+```md
+Roadmap item 1: turn the CF spike (`spike/cf-chain`, [docs/spikes](../spikes/)) into a real worker, and gate who may create chains on it. Was "Chain registry: who may create chains".
+
+**Decided (Aaron, 2026-11-23):**
+- **First chain = the root chain.** `make deploy` (your own Cloudflare login) deploys the worker and creates the **root chain**, with your key as its admin; locally, the same happens on the worker `make dev-services` starts. No code is needed for the root chain: the worker's config names the admin address (public, not a secret), and only that key may create it.
+- **Root chain holds an `Accounts` contract** (admin = you). It stores deploy codes as `{hash(code), expiry}`, never the code itself.
+- **Issuing a code:** in evm.fun you type a code you choose or generate (e.g. `my-first-friend`) and a TTL (e.g. 5 min); you sign the tx that writes `hash(code)` and `now + TTL` to `Accounts`.
+- **Sharing:** you send the code to a friend out of band (text, email, in person).
+- **Redeeming:** the friend opens evm.fun, picks one of their chains, chooses **Deploy chain** and enters the code. The create request carries the code; the worker hashes it and checks `Accounts` on the root chain: (1) the hash matches, (2) it is before expiry. Then it creates their chain (one Durable Object), with the friend's key as that chain's admin. Otherwise it refuses, saying which check failed.
+- **The code alone is enough (option A):** no per-use approval. The TTL bounds the risk.
+- **Local first, then live.** Everything above, including the deploy UI in evm.fun, works against a local worker before anything goes live. Makefile targets:
+  - `make dev-services`: start the CF worker locally (`wrangler dev`) in the background
+  - `make dev-services-status`: show what local services are running (pid, port, URL)
+  - `make dev-services-stop`: stop them
+  - `make deploy`: put the worker live on your Cloudflare account and create the root chain (last step, run by you)
+
+**Claude's calls (correct any):**
+- Codes use the invites mechanism from t-133 (`usesLeft`): single-use by default, multi-use optional, always within the TTL. The redeem is recorded on the root chain (who used it, which chain), so you see who deployed what.
+- "Deploy chain" uploads the chosen playground chain's current state as the new chain's genesis. Afterwards the browser copy follows the remote chain (t-132).
+- A typed code like `my-first-friend` is guessable. The UI offers a generated code, and the worker limits failed attempts per IP and per code.
+
+**From t-129's reviews (do in t-134):** the worker passes an imported `WebAssembly.Module` and drives the chain only through `ChainNode.apply`/`read` (they serialise; never call the node from inside a `read` callback — it deadlocks); a failed lazy rebuild leaves a disposed node until the next `apply` (build the new node before disposing the old); add `dispose()` to the README; a `tx_hash → block` index for receipt lookups after a rebuild; measure real memory under workerd (`memMB` 70–85 MB in Bun is a lower bound); a small DO SQLite adapter (`toArray()`, `transactionSync`).
+
+**Builds on:** t-129 chain store (first), t-133 invites, t-130 webevm fixes (timestamps, loadState), t-131 device auth. Design: [deploy to CF](../superpowers/specs/2026-11-23-deploy-to-cf-design.md). Cost spike: [docs/spikes/cf-cost.md](../spikes/cf-cost.md).
+```
+
+```dod
+- [x] `make dev-services` / `dev-services-status` / `dev-services-stop` start, report and stop the local worker
+- [x] Locally: the root chain with `Accounts` is created by the configured admin key; evm.fun (dev) points at the local worker
+- [x] As the root admin, issue a code with a TTL from evm.fun (only `hash` + `expiry` on chain)
+- [x] A second key deploys one of its chains from evm.fun with that code; that key is the new chain's admin
+- [x] Refused: wrong code, expired code, used-up code, and a root-chain create by anyone but the configured admin
+- [x] End-to-end test against the local worker; nothing deploys from CI
+- [ ] Then live: `make deploy` puts the worker on your Cloudflare account and creates the root chain; prints the worker URL and root chain id; evm.fun can target it. Ready; run by Aaron (one-time steps in [packages/node/README.md](../../packages/node/README.md))
+- [x] Docs updated (t-137): [how to deploy, issue and redeem a code](../../packages/node/README.md), ADR-0023, risks R52-R54
+```
+
+### Chain access list in evm.fun
+- id: t-138
+- parent: t-136
+- tags: chains, web, access, size-M
+- history:
+  - Next @ 2026-11-23T15:00:21Z
+
+```md
+Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-follow-design.md) (A: follow and show). Demo step d. For a deployed chain, see and edit its access list (`ChainAccess`): readers, writers, open reads; add or remove a device key. Builds on the access spike (`docs/spikes/cf-access.md`) and t-134; device invites by code are t-133.
+```
+
+```dod
+- [x] The chain admin sees readers/writers and open-reads for a deployed chain (Devices panel)
+- [x] Add and remove a device key from evm.fun; the change applies from the next block (a removed key's reads/writes are refused)
+- [x] Docs updated (t-137)
+- [ ] Aaron's browser run of the checklist in packages/node/README.md
+```
+
+### Key/value contract and its views in evm.fun
+- id: t-139
+- parent: t-136
+- tags: chains, web, views, size-M
+- history:
+  - Next @ 2026-11-23T15:00:21Z
+
+```md
+Demo steps e–f, the indexer demo. **From t-134:** `POST /chains/:id/submit` is capped at 64 KiB (`MAX_BODY_BYTES`, packages/node router) — raise it (~1 MiB) here, since a large contract deploy is ~100 KB of hex. A simple key/value contract that describes its own views (self-describing recipe), deployed and updated from evm.fun on a deployed chain, registered as an alias, and its JSON view (`/chains/:id/<alias>/latest`) shown in evm.fun under the alias's own access rules. Builds on t-135 views (`docs/spikes/cf-views.md`).
+```
+
+```dod
+- [ ] Deploy and update the key/value contract from evm.fun; register its alias
+- [ ] Its view shows the current keys/values; a key without access is refused, open reads make it a plain GET
+- [ ] Docs updated (t-137)
+```
+
+### Node cursors: where each node is
+- id: t-140
+- parent: t-136
+- tags: chains, cloudflare, web, size-S
+- history:
+  - Next @ 2026-11-23T15:00:21Z
+
+```md
+Finished by the devices work: `GET /chains/:id/nodes` replaces `/nodes/latest`. Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-follow-design.md) (A: follow and show). Demo step g. The cloud node records the block it last delivered to each device key and serves `GET /chains/:id/nodes/latest`; evm.fun shows a Nodes panel ("phone: block 412, 6 behind, 2 min ago"). Show only, for now. Design: [node cursors](../superpowers/specs/2026-11-23-node-cursors-design.md). Needs t-132.
+
+Part 1 done (worker + Follower): `GET /chains/:id/nodes` serves each member's block, behind and last seen. Part 2 built: the Devices panel shows each member's name, role, block, behind and last seen. Left: Aaron's run with two real browsers (first DoD item).
+```
+
+```dod
+- [ ] Two device keys following a deployed chain show their blocks and last-seen times in the view and the panel
+- [x] A device that stops fetching falls behind as the chain advances; a key without read access gets 403 (worker side, `make e2e-node`)
+- [x] Docs updated (t-137)
+```
+
+### Demo walkthrough: deploy, permission, publish, observe
+- id: t-141
+- parent: t-136
+- tags: chains, walkthroughs, size-S
+- history:
+  - Next @ 2026-11-23T15:00:21Z
+
+```md
+The end-to-end demo as a guided run: (a) `make dev-services`, (b) the root chain, (c) issue a code (single or multi-use, TTL) and deploy chains with it, (d) add/remove a device, (e) deploy/update the key/value contract, (f) see its published values per the access list, (g) see each node's cursor. Steps a–b are commands; c–g run in evm.fun.
+
+Its walkthrough is tagged `deployment`, `access`, `cloud` (Get started filter, t-146).
+```
+
+```dod
+- [ ] A walkthrough (or scripted checklist) runs a–g against the local worker
+- [ ] Docs (t-137): the demo, start to finish
+```
 
 ### Permissioned chains (ad-hoc, gas-free)
 - id: t-112
@@ -740,7 +984,7 @@ The workflow is in place (`.github/workflows/pages.yml`, retries Bun's exit cras
   - Next @ 2026-11-22T17:12:28Z
 
 ```md
-Anyone can create an ad-hoc chain they own (in the browser for now). Options: **gas-free** (no ETH needed to transact) and **owner-controlled deploys** (only allowed addresses may deploy contracts). Later a chain is a cluster whose nodes run on several devices (phone, laptop, Cloudflare Worker).
+Anyone can create an ad-hoc chain they own: in the browser, or on our Cloudflare worker with a deploy code (t-134). Options: **gas-free** (no ETH needed to transact) and **owner-controlled deploys** (only allowed addresses may deploy contracts). Later a chain is a cluster whose nodes run on several devices (phone, laptop, Cloudflare Worker).
 
 **Seam:** a chain is `ChainHandle` + a **chain policy** (owner, gas mode, allowed deployers) held in chain state, so every node enforces the same rules. Workstreams above never care where the nodes run.
 ```
@@ -786,40 +1030,97 @@ Contract creation is refused unless the sender is on the chain's deployer list (
 The owner sees and edits the chain's policy: gas mode, deployers. Done when the owner can add/remove a deployer from the Chains page and the change applies immediately.
 ```
 
-### Roadmap
-- id: t-136
+## Doing
+
+### Get started: filter walkthroughs by text and tag
+- id: t-146
+- parent: t-106
+- tags: walkthroughs, web, size-S
 - history:
-  - Next @ 2026-11-23T08:16:30.318Z
+  - Doing @ 2026-11-24T09:55:50Z
 
 ```md
-I think we want:
-
-1. To have a 'deploy button to deploy a chain to CF from our playground. This respects our chain permissions: the user needs to supply an auth code which permits them to do this, which will require an answer for how we 'bootstrap' the first chain (admin chain), which could be "the chain deployed is allowed"
-
-2. We can control 'node' permissions -- that is, which devices/instances are allowed to read and write from the chain. This is how we allow our laptops/phones/tablets/browsers to create keys and "sync" via the CF node.
-
-3. We can view and edit our 'indexer' when deploying new contracts on the chain: the means to control read/write permissions for a smart contract on our chain, as well as view the materialised data for the contract
-
-4. We can use the same code/hash permission exchange to expose a 'write' URL for a contract: i.e. swap the token for a key, and use it to save our 'tools' (including a new interactive draw tool as a PoC), and our 'relay' ACL for a relay topic.
-```
-
-### Documentation
-- id: t-137
-- history:
-  - Next @ 2026-11-23T08:20:40.001Z
-
-```md
-We want clear TypeDoc documentation we can build/serve for each area we build
+The Get started page gets a text filter (title, summary, tag) and tag chips (several selected = all must match), with "Showing N of M" and Clear. Walkthroughs carry optional `tags` (validated: 1-8, at most 24 chars, no repeats); the bundled ones are tagged. Aaron, 2026-11-24.
 ```
 
 ```dod
-- 'make doc' builds the documentation
-- we can include 'docs' as part of our built Github Pages
+- [x] Tests pass
+- [ ] Checked in a browser (phone width, all three themes)
 ```
 
-## Doing
+### Invite a device: wizard, optional single join link, QR
+- id: t-145
+- parent: t-112
+- tags: chains, access, size-S
+- history:
+  - Backlog @ 2026-11-24T09:36:55Z
+  - Doing @ 2026-11-24T09:36:55Z
+
+```md
+The Devices panel's invite form becomes a 2-step wizard: create an access code, then open the link on the other device, as a QR code, a link and (by default) a separate code. The owner can instead tick "Create a single join link (includes the code)", off by default and with a warning; the code is then in the link's fragment, which the Join form reads and removes from the address bar. Design: `docs/superpowers/specs/2026-11-24-invite-wizard-design.md`; risk R58. Done when (checklist run by Aaron, not yet) the wizard issues both kinds of invite, the QR scans on a phone, an unticked invite never puts the code in the link or QR, and the Join form prefills and strips the code. Aaron, 2026-11-24.
+
+Built and tested (915 tests); not yet run in a browser. Left to check: both modes in all three themes, phone width, scanning the QR on a phone, back button after a coded link.
+```
+
+### Playground ChainHandle over a remote (Durable Object) chain
+- id: t-132
+- parent: t-136
+- tags: chains, web, size-M
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+  - Next @ 2026-11-23T15:00:21Z
+  - Doing @ 2026-11-24T17:17:13Z
+
+```md
+Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-follow-design.md) (A: follow and show). From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
+
+Demo (t-136): after Deploy (t-134), the browser chain follows the cloud node, so they form a 2-node cluster; needed for node cursors (t-140). Uses t-129's `ChainNode` for replay.
+
+Part 1 done (worker + Follower): `Follower` in `packages/node` boots from `GET /state` and replays `GET /blocks` with root and hash checks. A (follow and show) done: Deploy converts the owner's copy to a read-only follower, earlier deploys convert on open, and followers are saved as pointers in workspace files (ADR-0024). B (follow and use) came next: submitting from the browser through the cloud node, so pages can write to a deployed chain (below).
+
+B part 1 done (worker + Follower writes): per-tx submit answers, idempotent resends, a 512 KiB cap, a chain ACL on the submitting key, `FollowerStore` and `Follower.send`/`sync` with pending, conflicted and refused txs; proven by a two-device race in `make e2e-node` (ADR-0025, risks R59-R60). B part 2 done in code (plan 21, tested; not yet run in a browser): every page writes to a deployed chain through `Follower.send` and sees its result at once, online or offline. Pending txs are kept in IndexedDB and settle as confirmed, conflicted or refused. One writing tab per chain (Web Lock). A chain with a stored copy opens from it at once, without waiting on the network; offline (including a network that hangs until a timeout) it shows "Offline — last synced …". A chain deleted in the cloud refuses its pending txs and further sends. The Pending panel and an app-bar count show what is waiting. Followers with stored pending txs open at startup. A re-signed deploy shows conflicted ("Deployed at <cloud>, not <local>"). Spec: [follow and use](../superpowers/specs/2026-11-24-follow-and-use-design.md).
+
+Browser checklist (Aaron; also in `.superpowers/sdd/2026-11-24-plan21-follow-and-use-web/task-3-report.md`):
+1. `make dev-services`; two browsers or profiles ("phone", "tablet"), both joined as writers to one deployed chain.
+2. Offline on both, send a transfer from a page on each. The page shows its result at once; the app bar shows "1 pending"; the Pending panel lists it; the status line says "Offline — last synced … 1 pending.".
+3. Online again: within a sync interval both records are confirmed, the count goes, and each device sees the other's change.
+4. Import the same key on both, spend one balance on each while offline, go online. One record ends conflicted: app bar "1 conflicted", panel "Here: success, 1 log · Cloud: reverted, 0 logs"; Dismiss clears both.
+5. Send offline, reload the tab still offline: the chain opens from storage with the record pending; online, it settles.
+6. A second tab on the same chain shows "Open in another tab: changes are made there." and refuses a send with that text.
+7. Tab A writes offline, then close A: on B's next sync it takes the lock, A's pending records show in B's panel and settle online.
+8. A device joined as a reader: a send is refused with "This device can only read <chain>." and the status line says the same.
+9. A writer removed by the admin: its next send is refused ("… is not a writer on this chain"), then the device shows the reader message.
+10. Pending panel, app-bar badges (incl. "open <chain> to send") and status line in the three themes and at 375 px: the table scrolls inside the panel, no page-level horizontal scroll.
+11. New and Open warn about unsent changes on followers (R59).
+12. Send offline on a follower, then Delete that chain (Chains list, and the status line's Delete): the confirm says "1 unsent changes on <chain> will be lost".
+13. A hanging network: devtools Network throttling set to a custom profile with no response (or offline after the page loads), reload. The chain opens from storage at once, pages read and send, the status line shows "Offline — last synced … Changes are kept and sent when you're back." after the timeout (about 30 s), and the tx settles once the network is back.
+14. Delete the cloud chain (admin) while a device has a pending tx: on its next sync the status says "This chain no longer exists", the record is refused ("chain deleted in the cloud …") and can be dismissed, and a send is refused.
+```
+
+```dod
+- [x] A deployed chain in evm.fun submits to the cloud node and follows its blocks; existing pages work against it
+  - A done: follows its blocks. B done in code: pages write through the cloud node (plan 21)
+- [ ] Same state root as the cloud node after each block, in a real browser (checked in a browser)
+  - Checked on every block in code and tests; the real-browser run is Aaron's checklist (packages/node/README.md)
+- [x] Docs updated (t-137)
+  - A: README, ADR-0024, R55, R57; B: ADR-0025, R59, R60, packages/node README
+```
 
 ## Done
+
+### web: static deploy (GitHub Pages)
+- id: t-16
+- parent: t-108
+- tags: web, infra
+- history:
+  - To Do @ 2026-11-19T09:38:00Z
+  - Done @ 2026-11-23T11:35:25Z
+
+```md
+Publish the playground (Vite build, `base: './'`) to GitHub Pages from CI on every push to master. Done when the deployed site loads, runs a walkthrough, and compiles in Studio (solc worker and revm wasm served from the static path).
+
+The workflow is in place (`.github/workflows/pages.yml`, retries Bun's exit crash, R11). Live at evm.fun after the PR #5–#7 merges (confirmed by Aaron, 2026-11-23).
+```
 
 ### Cloudflare evm worker
 - id: t-128
@@ -860,7 +1161,7 @@ Related: We could have the chain access / allowance governed by an initial 'iden
 ```
 
 ```dod
-Spike result (branch spike-cf-chain, commit 1c24e48, `bun spike/cf-chain/demo.ts` → ALL PASS, 26 checks; report .superpowers/spike-cf-chain-report.md):
+Spike result (branch spike-cf-chain, commit 1c24e48, `bun spike/cf-chain/demo.ts` → ALL PASS, 26 checks; report [docs/spikes/cf-chain.md](../spikes/cf-chain.md)):
 - [x] webevm + revm runs unchanged in a Durable Object under wrangler dev (bundle 2.5 MB / 711 KiB gz; cold request ~30 ms)
 - [x] create / submit(expectedHead → 409 when stale) / fetch / hibernating WebSocket subscribe; submissions serialised
 - [x] snapshot + block + receipts persisted in one SQLite transaction; a new DO instance continues at the same head

@@ -2,6 +2,7 @@
   "id": "gbp-usd-book-offchain",
   "title": "Trade pounds on an off-chain order book",
   "summary": "Alice signs two offers to sell pounds, kept off the chain; Bob buys 1,500 in one order, settled on the chain in one transaction.",
+  "tags": ["order book", "off-chain", "signatures"],
   "keys": {
     "alice": {
       "account": {

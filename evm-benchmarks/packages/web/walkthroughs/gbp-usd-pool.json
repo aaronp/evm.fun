@@ -2,6 +2,7 @@
   "id": "gbp-usd-pool",
   "title": "Trade pounds with a liquidity pool",
   "summary": "Alice deposits 100,000 GBP and 127,000 USD in a pool; Bob swaps 1,000 GBP for dollars at the pool's price, and the fee makes the pool grow.",
+  "tags": ["liquidity pool", "AMM"],
   "keys": {
     "alice": {
       "account": {

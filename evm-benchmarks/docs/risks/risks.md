@@ -215,6 +215,8 @@ Root cause of most of that rise, found 2026-11-19 at the end of plan 6: one snap
 
 Update during plan 8 (swap): the residual rate is now about 1 in 3 full runs (a Task 6 check at e5916ac: 3 runs, 1 segfault, 2 clean). A `Worker`-counting preload at e5916ac found no leaks, so the new tests dispose their chains and the rise is Bun's, not ours. Likelihood stays 4.
 
+Update 2026-11-23 (plan 15): 1 of 3 full runs crashed (exit 133) on branch chain-store, the others 787/787; same rate as before; CI retries up to 3 times (6b3f3e0).
+
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
@@ -927,3 +929,189 @@ The page reads only the newest HashLock on chain A, so an opening lock on an ear
 | Control | Type | Effectiveness |
 |---|---|---|
 | Documented limit; the contract itself still allows refund; card t-94 | Corrective | Partial |
+
+## R51 · The chain-store diff compares the whole state every block
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+`diffState` compares the full state dump before and after each block, so per-block CPU and memory are O(state), not O(touched keys). The 10,000-block soak's state is small (a few hundred rows), so it stays flat; a chain with a few MB of state would slow every block. (ADR-0022)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| `ponytail:` marker in `diffState`; switch to a touched-keys diff when state grows past a few MB | Corrective | Partial |
+| `make soak-node` fails if commit time grows more than 2x or memory reaches 128 MB; commit-time flatness covers the SQL write only, the diff compute is the O(state) part this risk tracks | Detective | Partial |
+
+## R52 · Deploy codes can be guessed
+- impact: 3
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+A code the admin types (e.g. `my-first-friend`) can be guessed within its TTL, and a guessed code lets a stranger create a chain on the worker (cost and storage on Aaron's account). The per-IP limit slows guessing but IPs can be rotated. (ADR-0023)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Generated 4-word codes by default; short TTL and single use by default | Preventive | Partial |
+| 10 failed redeems per IP per 10 minutes then `429`; redeems are recorded on the root chain | Detective | Partial |
+
+## R53 · A deploy code is spent when chain creation fails after the redeem
+- impact: 2
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Quality
+- driver: Claude
+- approver: Aaron
+
+The worker redeems the code on the root chain before the new chain's Durable Object is created. If the creation then fails, the code is already used and the friend must ask for another. (ADR-0023)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Stateless set-up checks run before the redeem, so a malformed upload never spends a code; the admin can issue another | Preventive | Partial |
+| Upload capped at 8 MiB (`413` before auth; evm.fun refuses a larger chain before using a code), so a big chain can't exhaust the DO or the RPC hop after the redeem | Preventive | Partial |
+| A failed create after the redeem is recorded (`codes` shows `failed: <error>`), so the admin sees why the use is gone; evm.fun says the code may have been used | Detective | Partial |
+| A server fault while mining the set-up block answers 503, which reads as "retry", but the code is already spent and a retry gets 403; plan 21's create UI must say so | Detective | None yet |
+
+## R54 · The root admin key sits on Aaron's machine
+- impact: 4
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+`.env.live` holds `ROOT_ADMIN_KEY` in plain text and evm.fun keeps the imported key in the browser's storage. Anyone with either can issue deploy codes and act as the root admin. The imported key lives in `localStorage` on the evm.fun origin, which until the move to mychain.dev is `aaronp.github.io`, shared with every other GitHub Pages site under that account. Recovery: redeploying with a new `ROOT_ADMIN` does not help (the root chain's on-chain admin is unchanged and a second root create is refused with `409`); a leaked key is replaced by `setAdmin(<new address>)` sent from the old key, then `make deploy` with the new key in `.env.live` (the worker's `ROOT_ADMIN` gates `codes`), and a lost key only by wiping the root Durable Object (losing every issued code and its record) and redeploying. (ADR-0023)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| `.env.*` git-ignored (mode 600 when generated); only the address goes to the worker; `deploy.ts` keeps the key out of wrangler's environment | Preventive | Partial |
+
+## R55 · A reader can take a multi-use writer code from the chain
+- impact: 3
+- likelihood: 2
+- target: 1x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+A join's claim tx carries the plaintext code into a block, and every member can read blocks (`GET /blocks`). While a writer code has uses left, any reader who sees an earlier claim can redeem it and become a writer. (plan 17)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Invites are single use by default | Preventive | Partial |
+| The admin can cancel an unused code (`revokeInvite`) and remove a writer | Corrective | Partial |
+| evm.fun defaults an invite to reader with one use, and warns on a writer code with more than one use (plan 18) | Preventive | Partial |
+
+## R56 · A signed tx can be replayed on another chain
+- impact: 3
+- likelihood: 2
+- target: 1x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+Every chain uses chainId 31337, so a tx an admin signs on one chain is valid on any other chain where the same key has the same nonce and the target contract sits at the same address (e.g. two chains the same key deployed with the same set-up nonces). Someone who can read one chain could submit the admin's tx to the other. (plan 17)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Submitting needs the signer to be a writer on the target chain, and both chains' state must line up (nonce and contract address) | Preventive | Partial |
+| A per-chain chainId (later) makes the signatures chain-specific | Preventive | Full |
+
+## R57 · Device polling and state downloads cost more than expected
+- impact: 2
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Performance
+- driver: Claude
+- approver: Aaron
+
+Each signed `GET /blocks` poll writes a request nonce and runs EVM `canRead` (plus a membership check) in the chain's Durable Object, so many devices polling often add up. `GET /state` returns the whole state with no size cap. (plan 17)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| evm.fun followers poll every 5 (default), 15 or 60 s, or only on Sync now (Manual); polling pauses while the tab is hidden and backs off after failures (plan 18) | Preventive | Partial |
+| Cursor writes at most once a minute when idle; pages capped at 100 blocks | Preventive | Partial |
+| Cap or stream `state` (later) | Preventive | Partial |
+
+## R58 · A single join link leaks
+- impact: 3
+- likelihood: 2
+- target: 1x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+A join link made with "Create a single join link" carries the invite code, so anyone who gets the link (chat history, a shared screen, a photographed QR code) can join as the invited role until the code is used up or expires. (plan 19)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Off by default, with a warning naming the role beside the checkbox | Preventive | Partial |
+| The code is in the link's fragment (after `#`), so it never reaches a server or its logs | Preventive | Partial |
+| Invites default to reader with one use, and have an expiry (5 min, 1 h or 1 day) | Preventive | Partial |
+| The Join form removes the code from the address bar and the back/forward entry once read (the browser's global history, address-bar autocomplete, synced history and the app that delivered the link may still hold the coded URL); opening a link never joins | Preventive | Partial |
+| The admin can revoke an unused code and remove a member | Corrective | Partial |
+
+## R59 · Pending txs live only on the device until synced
+- impact: 3
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+A write made offline is stored only in the device's `FollowerStore` until a sync sends it. Clearing the browser's data, losing the phone or reinstalling the app before then loses it, and the cloud never saw it. (plan 20, plan 21)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Each tx is stored before `send` returns, and the list is shown (`onPending`) so a user sees what is unsent | Detective | Partial |
+| A failed submit or an unreachable cloud keeps the tx pending; a server fault answers 503, not a refusal | Preventive | Partial |
+| A block too large to store is a 400 (the Follower's split refuses just the tx), not a 503 retried for ever; `GET /blocks` pages by size (8 MiB) so a device far behind still catches up | Preventive | Partial |
+| Settled records stay until the user dismisses them | Detective | Partial |
+| The web app keeps pending txs in IndexedDB (per chain), so a reload or a closed tab keeps them; clearing the browser's data still loses them | Preventive | Partial |
+| One writing tab per chain (a Web Lock); a second tab follows read-only with no store and refuses sends, and takes over (with the stored records) when the first closes | Preventive | Partial |
+| The app bar counts unsent txs, including those of chains that are not open ("open <chain> to send"); chains with stored pending txs open at startup | Detective | Partial |
+| New, Open and Delete warn about unsent changes on followers ("N unsent changes on <chain> will be lost") | Preventive | Partial |
+| Follower store writes are strict: an IndexedDB failure throws (the send is undone, a re-signed tx keeps its old record) instead of dropping to memory, where a reload would bring back a record the cloud saw re-signed and run it twice | Preventive | Partial |
+| A chain deleted in the cloud (the worker's 404 "no such chain"; other 404s are retried) stops the follower: every pending tx is refused ("chain deleted in the cloud") and can be dismissed, and sends are refused | Detective | Partial |
+| Browsers without the Web Locks API (e.g. Safari before 15.4) let every tab write: two tabs can take the same record key and one overwrites the other. Accepted: no control | — | None |
+
+## R60 · A contract without version checks lets the later write win silently
+- impact: 3
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+The cloud mines txs in arrival order. A tx that is still valid after another device's write (an overwrite of a key/value, a `set` with no expected version) is confirmed, because its status and logs match what the device saw first, even if the user decided on stale data. From plan 21 every page in evm.fun can send while offline, so a stale decision is easier to make; the Pending panel shows each tx's local and cloud outcome and a changed one as conflicted. (plan 20, plan 21)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Outcomes are compared by status and logs, so a tx whose result changed shows as conflicted | Detective | Partial |
+| A tx that depends on an earlier conflicted one is marked `dependsOn` | Detective | Partial |
+| Contracts that need it check a version or expected value and revert on a mismatch | Preventive | Partial |

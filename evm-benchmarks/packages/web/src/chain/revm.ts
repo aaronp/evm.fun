@@ -6,6 +6,8 @@ import { createChainRegistry } from './registry'
 import { createChainPersistence, deleteChainDb, type ClosablePersistence } from './idb'
 import { kv } from '../store/kv'
 import { createSnapshotStore } from './snapshots'
+import { privateKeyToAccount } from 'viem/accounts'
+import { accounts } from '../store/accounts'
 
 // One IndexedDB database per chain, so removing a chain is deleteDatabase.
 const dbName = (id: string) => `evmb-chain-${id}`
@@ -28,6 +30,21 @@ export async function purge(chainId: string) {
   await deleteChainDb(idb(), dbName(chainId), a)
 }
 
-export const registry = createChainRegistry({ kv, host, purge })
+let compiled: Promise<WebAssembly.Module> | undefined
+/** revm compiled once per page: reopening a follower never fetches the wasm again. A failed compile is retried next time. */
+export const compiledRevm = () =>
+  (compiled ??= WebAssembly.compileStreaming(fetch(wasmUrl)).catch((e) => { compiled = undefined; throw e }))
+
+export const registry = createChainRegistry({
+  kv, host, purge,
+  follower: {
+    wasm: compiledRevm,
+    onAccountsChange: accounts.onChange,
+    account(address) {
+      const a = accounts.list().find(a => a.address.toLowerCase() === address.toLowerCase())
+      return a && { account: privateKeyToAccount(a.privateKey), label: a.label }
+    },
+  },
+})
 
 export const snapshots = createSnapshotStore(kv)

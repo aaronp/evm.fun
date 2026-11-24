@@ -8,6 +8,7 @@ import { TopBar } from './components/TopBar'
 import { useWorkspaceDialogs } from './components/WorkspaceDialogs'
 import { Accounts } from './pages/Accounts'
 import { Chains } from './pages/ChainsPage'
+import { Cloud } from './pages/Cloud'
 import { legacyRoute } from './routes'
 import { Studio } from './pages/Studio'
 import { Transact } from './pages/Transact'
@@ -23,20 +24,20 @@ import { Trade } from './pages/Trade'
 import { TradeReport } from './pages/TradeReport'
 import { ThemeSwitcher } from './components/ThemeSwitcher'
 import { ENGINE } from './chain/revm'
-import { AccountsIcon, BenchmarkIcon, ChainsIcon, StudioIcon, TransactIcon, AssetsIcon, SwapIcon, XSwapIcon, PoolIcon, TradeIcon, FlagIcon } from './ui/icons'
+import { AccountsIcon, BenchmarkIcon, ChainsIcon, StudioIcon, TransactIcon, AssetsIcon, SwapIcon, XSwapIcon, PoolIcon, TradeIcon, FlagIcon, CloudIcon } from './ui/icons'
 import { AddressList } from './components/AddressList'
 import { Ribbon } from './components/Ribbon'
 import { WizardProvider, useWizard } from './walkthrough/wizard'
 
 export const groups = [
-  { label: 'Setup', items: [['Get started', FlagIcon], ['Accounts', AccountsIcon], ['Chains', ChainsIcon]] },
+  { label: 'Setup', items: [['Get started', FlagIcon], ['Accounts', AccountsIcon], ['Chains', ChainsIcon], ['Cloud', CloudIcon]] },
   { label: 'Build & run', items: [['Studio', StudioIcon], ['Transact', TransactIcon], ['Benchmark', BenchmarkIcon]] },
   { label: 'Markets', items: [['Assets', AssetsIcon], ['Swap', SwapIcon], ['Cross-chain swap', XSwapIcon], ['Pool', PoolIcon], ['Trade', TradeIcon]] },
 ] as const
 const pages = groups.flatMap(g => g.items.map(([n]) => n))
 
 const slug = (p: string) => (p === 'Cross-chain swap' ? 'xswap' : p.toLowerCase().replaceAll(' ', '-'))
-export const real: Record<string, ReactElement> = { 'Get started': <GetStarted />, Accounts: <Accounts />, Chains: <Chains />, Studio: <Studio />, Transact: <Transact />, Benchmark: <Benchmark />, Assets: <Assets />, Swap: <Swap />, 'Cross-chain swap': <XSwap />, Pool: <Pool />, Trade: <Trade /> }
+export const real: Record<string, ReactElement> = { 'Get started': <GetStarted />, Accounts: <Accounts />, Chains: <Chains />, Cloud: <Cloud />, Studio: <Studio />, Transact: <Transact />, Benchmark: <Benchmark />, Assets: <Assets />, Swap: <Swap />, 'Cross-chain swap': <XSwap />, Pool: <Pool />, Trade: <Trade /> }
 const LegacyRedirect = () => <Navigate to={legacyRoute(useLocation().pathname) ?? '/chains'} replace />
 const Stub = ({ name }: { name: string }) => <h1 className="text-xl font-semibold">{name}</h1>
 
@@ -92,7 +93,7 @@ export function Shell() {
           <AddressList />
           <Routes>
             {pages.map(p => (
-              <Route key={p} path={p === 'Chains' ? '/chains/*' : `/${slug(p)}`} element={real[p] ?? <Stub name={p} />} />
+              <Route key={p} path={p === 'Chains' ? '/chains/*' : p === 'Cloud' ? '/cloud/*' : `/${slug(p)}`} element={real[p] ?? <Stub name={p} />} />
             ))}
             <Route path="/swap/report" element={<SwapReport />} />
             <Route path="/xswap/report" element={<XSwapReport />} />

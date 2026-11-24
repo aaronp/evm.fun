@@ -15,6 +15,7 @@ export function UrlSync() {
   const people = accounts.list()
   const peopleKey = people.map(p => `${p.label}\0${p.address}`).join('\n') // a new or renamed label may change how `as` is written
   useEffect(() => {
+    if (pathname === '/cloud/join') return // its ?chain= is a cloud chain id (a join link), not a chain in this browser
     const sp = new URLSearchParams(search)
     const d = syncDecision({ chain: sp.get('chain'), as: sp.get('as') }, // busy: never switch under an in-flight tx
       { chain: chain?.info.id, account, loading: loading || busy }, last.current, { chains: chains.map(c => c.id), accounts: people })

@@ -6,7 +6,7 @@ import { bundled } from '../walkthroughs'
 import { groups } from '../src/App'
 import { AppState } from '../src/state'
 import { AppBarProvider } from '../src/state/appBar'
-import { Editor, begin, GetStarted, Walkthroughs, check, loadAll, resetEdit, saveEdit } from '../src/pages/GetStarted'
+import { Editor, begin, GetStarted, Walkthroughs, check, loadAll, filterWalkthroughs, allTags, resetEdit, saveEdit } from '../src/pages/GetStarted'
 
 const html = (el: any) => renderToString(el).replaceAll('<!-- -->', '')
 const w = bundled[0]!
@@ -47,7 +47,7 @@ test('a saved edit is listed as edited; Reset removes it', async () => {
 })
 
 test('Setup group starts with Get started; page renders', () => {
-  expect(groups[0].items.map(([n]) => n)).toEqual(['Get started', 'Accounts', 'Chains'])
+  expect(groups[0].items.map(([n]) => n)).toEqual(['Get started', 'Accounts', 'Chains', 'Cloud'])
   expect(html(h(MemoryRouter, null, h(AppState, null, h(AppBarProvider, null, h(GetStarted)))))).toContain('Guided walkthroughs')
 })
 
@@ -59,4 +59,35 @@ test('Start and Restart hand the wizard the edited copy', async () => {
   begin(wz, e.w).start(); await begin(wz, e.w).restart()
   expect(got).toEqual(['start My version', 'restart My version'])
   await resetEdit(w.id)
+})
+
+const E = (id: string, title: string, summary: string, tags?: string[]) => ({ w: { ...w, id, title, summary, tags }, edited: false, done: 0 })
+const es = [E('a', 'Alpha swap', 'Two traders', ['swap', 'AMM']), E('b', 'Beta book', 'Orders rest', ['order book', 'swap']), E('c', 'Delta', 'No tags')]
+const ids = (r: typeof es) => r.map(x => x.w.id)
+
+test('filterWalkthroughs: no filters keeps all; text matches title, summary and tag case-insensitively', () => {
+  expect(ids(filterWalkthroughs(es, '', []))).toEqual(['a', 'b', 'c'])
+  expect(ids(filterWalkthroughs(es, 'ALPHA', []))).toEqual(['a'])
+  expect(ids(filterWalkthroughs(es, 'rest', []))).toEqual(['b'])
+  expect(ids(filterWalkthroughs(es, 'amm', []))).toEqual(['a'])
+  expect(ids(filterWalkthroughs(es, '  ', []))).toEqual(['a', 'b', 'c'])
+})
+
+test('filterWalkthroughs: several tags must all match', () => {
+  expect(ids(filterWalkthroughs(es, '', ['swap']))).toEqual(['a', 'b'])
+  expect(ids(filterWalkthroughs(es, '', ['swap', 'AMM']))).toEqual(['a'])
+  expect(ids(filterWalkthroughs(es, 'beta', ['AMM']))).toEqual([])
+})
+
+test('allTags is sorted and de-duplicated', () => {
+  expect(allTags(es)).toEqual(['AMM', 'order book', 'swap'])
+})
+
+test('the page renders a filter box and a chip per tag; bundled walkthroughs are tagged', () => {
+  const out = html(h(Walkthroughs, { entries: bundled.map(w => ({ w, edited: false, done: 0 })) }))
+  expect(out).toContain('aria-label="Filter walkthroughs"')
+  expect(out).toContain('placeholder="Filter by title, summary or tag"')
+  expect(out).toMatch(/<button[^>]*aria-pressed="false"[^>]*>hash lock</)
+  expect(out).not.toContain('Showing')
+  for (const b of bundled) expect(b.tags?.length).toBeGreaterThan(0)
 })

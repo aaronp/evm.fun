@@ -43,6 +43,8 @@ jobs:
           done
           exit 1
       - run: bun run web:build
+        env:
+          VITE_NODE_URL: ${{ vars.NODE_URL }}  # repo variable; the cloud worker URL (make deploy prints it)
       - uses: actions/upload-pages-artifact@v3
         with:
           path: evm-benchmarks/packages/web/dist
