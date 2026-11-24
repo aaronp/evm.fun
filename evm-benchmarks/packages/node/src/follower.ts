@@ -35,6 +35,8 @@ const outcome = (r: { status: string | number; logs: readonly Log[] }): Outcome 
 const same = (a: Outcome, b: Outcome) => JSON.stringify(a) === JSON.stringify(b)
 const removedReason = (t: PendingTx) => (t.mayBeMined ? 'removed from chain — it may have been mined before removal' : 'removed from chain')
 
+type Pass = { done: Promise<BlockSummary>; late: boolean; next?: Promise<BlockSummary> }
+
 /** This device is no longer a member of the chain (the cloud answered 403). */
 export class FollowerRemoved extends Error {
   constructor(chainId: string) { super(`removed from chain ${chainId}`) }
@@ -68,8 +70,8 @@ export class Follower {
   #minedAt = new Map<Hex, number>() // submit said mined in this block
   #dirty = false // the list changed since onPending last ran
   #stale = false // a record settled since the local view was last rebuilt
-  #syncing?: Promise<BlockSummary>
-  #again = false // a tx was sent while a sync ran: it runs once more so the joined callers' txs are submitted too
+  /** The running sync pass. `late`: a tx was sent after it last planned a submit; `next`: the one follow-up its callers share. */
+  #pass?: Pass
   #disposed = false
   private reopenEvery: number
   private store?: FollowerStore
@@ -184,18 +186,19 @@ export class Follower {
    * Submit the pending txs, replay the cloud's new blocks onto the confirmed state (and store it), settle each pending tx
    * mined in them, re-sign and resubmit nonce refusals, then re-run what is still pending on top.
    * A failed submit still pulls and re-runs, then rejects with that error; the txs stay pending.
-   * Requests run outside the queue; a tx sent meanwhile is not in this sync's submit and is re-run on top at the end.
+   * Requests run outside the queue. A call joins the running pass; if a tx was sent after that pass planned its submit,
+   * it also waits for one follow-up pass (shared by all its callers), so it never waits for more than two passes.
+   * Txs sent later are left to the next sync.
    */
   sync(): Promise<BlockSummary> {
-    return (this.#syncing ??= (async () => {
-      try {
-        for (;;) {
-          this.#again = false
-          const head = await this.#sync()
-          if (!this.#again) return head
-        }
-      } finally { this.#syncing = undefined }
-    })())
+    const p = this.#pass ??= this.#start()
+    return p.done.then((head) => (p.late ? (p.next ??= (this.#pass ??= this.#start()).done) : head))
+  }
+
+  #start() {
+    const p: Pass = { late: false, done: undefined! }
+    p.done = this.#sync().finally(() => { if (this.#pass === p) this.#pass = undefined })
+    return p
   }
 
   async #sync(): Promise<BlockSummary> {
@@ -301,6 +304,7 @@ export class Follower {
     const size = (t: PendingTx) => t.raw.length + 3 // quotes and comma in {"txs":[...]}
     const batches: PendingTx[][] = []
     await this.#serial(async () => {
+      if (this.#pass) this.#pass.late = false // every pending tx sent before now is in this plan
       let bytes = Infinity
       for (const t of this.#txs.filter((t) => t.status === 'pending')) {
         if (size(t) + 9 > MAX_SUBMIT_BYTES) { await this.#settle(t, { status: 'refused', reason: tooBig }); continue }
@@ -444,7 +448,7 @@ export class Follower {
       const r = await this.#local(raw)
       const t: PendingTx = { hash: r.transactionHash, raw, from: getAddress(r.from), nonce: parseTransaction(raw).nonce ?? 0, seq: this.#seq++, first: outcome(r), status: 'pending' }
       this.#txs.push(t)
-      if (this.#syncing) this.#again = true
+      if (this.#pass) this.#pass.late = true
       try {
         await this.#put(t)
       } catch (e) { // not stored: undo it locally too

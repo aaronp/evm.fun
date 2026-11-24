@@ -739,6 +739,34 @@ describe('Follower writes', () => {
     expect(seen).toEqual([1]) // no onPending after dispose
   })
 
+  test('a sync resolves within two passes while sends land during every pass; later syncs submit each tx once', async () => {
+    const real = as(admin)
+    let hook = true, pages = 0
+    const sent: Hex[] = []
+    let f!: Follower
+    const stub = {
+      account: admin, state: real.state.bind(real),
+      blocks: (id: string, after: number) => (pages++, real.blocks(id, after)),
+      submit: async (id: string, txs: Hex[]) => {
+        sent.push(...txs)
+        const r = await real.submit(id, txs)
+        if (hook) await transfer(f, fresh(), fresh().address, 0n) // a send after this pass planned its submit
+        return r
+      },
+    } as unknown as NodeClient
+    f = keep(await Follower.open(stub, cid, wasm))
+    await transfer(f, fresh(), fresh().address, 0n)
+    await f.sync()
+    expect(pages).toBe(2) // the pass and one follow-up, though every pass got a late send
+    hook = false
+    expect(f.pending().filter((t) => t.status === 'pending')).toHaveLength(1)
+    await f.sync()
+    expect(f.pending().map((t) => t.status)).toEqual(['confirmed', 'confirmed', 'confirmed'])
+    expect(sent).toEqual(f.pending().map((t) => t.raw)) // each once, in order
+    const onCloud = await cloudTxs()
+    for (const t of f.pending()) expect(onCloud.filter((h) => h === t.hash)).toHaveLength(1)
+  })
+
   test('two concurrent syncs run once', async () => {
     const real = as(admin)
     let submits = 0, pages = 0
