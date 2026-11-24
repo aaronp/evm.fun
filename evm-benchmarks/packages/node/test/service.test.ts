@@ -81,8 +81,12 @@ describe('root chain: codes', () => {
     const access = (await s.info()).access
     const e = await refused(s.submit(joiner.address, [await inviteTx(joiner, 0, access, 'x', 60, 1)], T0 + 101))
     expect(e.status).toBe(403)
-    // signer is a writer but a tx sender is not
-    expect((await refused(s.submit(me, [await inviteTx(joiner, 0, access, 'x', 60, 1)], T0 + 101))).status).toBe(403)
+  })
+
+  test('submit by a writer of a tx signed by a key with no chain role is mined', async () => {
+    const fresh = await create() // own chain: mining here must not shift the shared one's block numbers
+    const { access, head } = await fresh.info()
+    expect((await fresh.submit(me, [await inviteTx(joiner, 0, access, 'x', 60, 1)], T0 + 101)).number).toBe(head.number + 1)
   })
 
   test('invite via submit, redeem once; again → 403; after expiry → 403; refused redeems keep no block', async () => {

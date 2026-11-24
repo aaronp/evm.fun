@@ -3,6 +3,7 @@ import { decodeFunctionData, decodeFunctionResult, encodeFunctionData, getAddres
 import type { SerializedState } from 'webevm'
 import { ChainAccess } from '@evmb/contracts'
 import type { Sql } from './sql'
+import { chainAcl, type ACL } from './acl'
 import { ChainStore, type SerializedBlock } from './store'
 import { ChainNode, type NodeConfig } from './node'
 import { codeHash, GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, type BlockRecord, type BlockSummary, type CodeRecord, type Member, type NodesView, type RemoteChainInfo } from './client'
@@ -105,6 +106,8 @@ export class ChainService {
     }
   }
 
+  readonly acl: ACL = chainAcl((fn, args) => this.call(ChainAccess.abi, fn, args))
+
   private call(abi: Abi, fn: string, args: unknown[] = []): Promise<any> {
     return this.node.read((n) => ethCall(n, this.access, abi, fn, args))
   }
@@ -113,8 +116,8 @@ export class ChainService {
     return { chainId: this.chainId, head: summary(this.node.head()), admin: await this.call(ChainAccess.abi, 'admin'), access: this.access, aliases: this.aliases }
   }
 
-  canRead(addr: string): Promise<boolean> { return this.call(ChainAccess.abi, 'canRead', [addr]) }
-  canWrite(addr: string): Promise<boolean> { return this.call(ChainAccess.abi, 'canWrite', [addr]) }
+  canRead(addr: string): Promise<boolean> { return this.acl.canRead(addr as Address) }
+  canWrite(addr: string): Promise<boolean> { return this.acl.canWrite(addr as Address) }
   /** Admin, writer or reader: excludes keys that can read only because readOpen is on. */
   async isMember(addr: string): Promise<boolean> {
     return (await this.call(ChainAccess.abi, 'isReader', [addr])) || (await this.canWrite(addr))
@@ -124,7 +127,7 @@ export class ChainService {
     return Number(await this.node.read((n) => n.request({ method: 'eth_getTransactionCount', params: [addr, 'latest'] })))
   }
 
-  /** Mine `txs` as one block; the signer and every sender must be writers. */
+  /** Mine `txs` as one block; the signer must be a writer; tx senders are not checked. */
   submit(signer: string, txs: Hex[], timestamp: number): Promise<BlockSummary> {
     return this.#write(() => this.#submit(signer, txs, timestamp))
   }
@@ -137,9 +140,10 @@ export class ChainService {
   }
 
   async #submit(signer: string, txs: Hex[], timestamp: number): Promise<BlockSummary> {
-    const senders = await Promise.all(txs.map(sender)).catch((e) => { throw new ServiceError(400, `bad tx: ${msg(e)}`) })
-    for (const a of new Set([signer.toLowerCase(), ...senders]))
-      if (!(await this.canWrite(a))) throw new ServiceError(403, `${a} is not a writer on this chain`)
+    // only the submitting key is checked; what a tx's own sender may do is up to the contracts
+    await Promise.all(txs.map(sender)).catch((e) => { throw new ServiceError(400, `bad tx: ${msg(e)}`) })
+    const a = signer.toLowerCase()
+    if (!(await this.canWrite(a))) throw new ServiceError(403, `${a} is not a writer on this chain`)
     const blk = await this.node.apply(timestamp, txs).catch((e) => { throw new ServiceError(400, `block rejected: ${msg(e)}`) })
     return summary(blk.header)
   }
@@ -257,10 +261,8 @@ export class ChainService {
   /** The access list (admin, writers, readers; each once, with its highest role) joined with the devices' cursors. */
   async nodes(): Promise<NodesView> {
     const head = summary(this.store.head()) // before the awaits, so a block landing meanwhile never overstates `behind`
-    const [admin, readOpen, writers, readers] = await Promise.all([
-      this.call(ChainAccess.abi, 'admin'), this.call(ChainAccess.abi, 'readOpen'),
-      this.call(ChainAccess.abi, 'writers'), this.call(ChainAccess.abi, 'readers'),
-    ]) as [Address, boolean, Address[], Address[]]
+    const [admin, { write, read, readOpen }] = await Promise.all([this.call(ChainAccess.abi, 'admin') as Promise<Address>, this.acl.list()])
+    const writers = write.filter((a) => a !== admin), readers = read.filter((a) => !write.includes(a))
     const cursors = new Map(this.sql.exec('SELECT * FROM cursors').map((r) => [r.address as string, r]))
     const members: Member[] = []
     const seen = new Set<string>()
