@@ -1,4 +1,4 @@
-.PHONY: dev build test bench report soak-node dev-services dev-services-status dev-services-stop e2e-node deploy
+.PHONY: dev build test bench report soak-node throughput-node dev-services dev-services-status dev-services-stop e2e-node deploy
 
 dev:     ## playground dev server (http://localhost:5173)
 	bun run web:dev
@@ -17,6 +17,9 @@ report:
 
 soak-node: ## 10,000-block chain-store soak (t-129)
 	bun packages/node/soak.ts
+
+throughput-node: ## submit throughput, batches of 1/10/100 (t-132); in-process, or ARGS='--url http://127.0.0.1:8799'
+	bun packages/node/scripts/throughput.ts $(ARGS)
 
 DEV_SERVICES = bun packages/node/scripts/dev-services.ts
 
