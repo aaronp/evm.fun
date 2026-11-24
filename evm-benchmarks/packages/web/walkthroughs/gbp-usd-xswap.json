@@ -2,6 +2,7 @@
   "id": "gbp-usd-xswap",
   "title": "Swap pounds for dollars across two chains",
   "summary": "Alice locks 1,000 GBP on chain dave for Bob; Bob locks 1,270 USD on chain sue under the same hash; Alice's claim on sue reveals the secret, and Bob uses it to claim on dave.",
+  "tags": ["swap", "cross-chain", "hash lock"],
   "keys": {
     "alice": {
       "account": {

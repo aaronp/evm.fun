@@ -944,6 +944,8 @@ Part 1 done (worker + Follower): `GET /chains/:id/nodes` serves each member's bl
 
 ```md
 The end-to-end demo as a guided run: (a) `make dev-services`, (b) the root chain, (c) issue a code (single or multi-use, TTL) and deploy chains with it, (d) add/remove a device, (e) deploy/update the key/value contract, (f) see its published values per the access list, (g) see each node's cursor. Steps a–b are commands; c–g run in evm.fun.
+
+Its walkthrough is tagged `deployment`, `access`, `cloud` (Get started filter, t-146).
 ```
 
 ```dod
@@ -1005,6 +1007,22 @@ The owner sees and edits the chain's policy: gas mode, deployers. Done when the 
 ```
 
 ## Doing
+
+### Get started: filter walkthroughs by text and tag
+- id: t-146
+- parent: t-106
+- tags: walkthroughs, web, size-S
+- history:
+  - Doing @ 2026-11-24T09:55:50Z
+
+```md
+The Get started page gets a text filter (title, summary, tag) and tag chips (several selected = all must match), with "Showing N of M" and Clear. Walkthroughs carry optional `tags` (validated: 1-8, at most 24 chars, no repeats); the bundled ones are tagged. Aaron, 2026-11-24.
+```
+
+```dod
+- [x] Tests pass
+- [ ] Checked in a browser (phone width, all three themes)
+```
 
 ### Invite a device: wizard, optional single join link, QR
 - id: t-145

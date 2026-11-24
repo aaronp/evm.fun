@@ -2,6 +2,7 @@
   "id": "gbp-usd",
   "title": "Two traders swap pounds for dollars",
   "summary": "Alice sells 1,000 GBP to Bob for 1,270 USD, settled in one transaction.",
+  "tags": ["swap", "one chain", "basics"],
   "keys": {
     "alice": {
       "account": {

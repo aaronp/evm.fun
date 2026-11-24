@@ -2,6 +2,7 @@
   "id": "take-without-approval",
   "title": "What happens without permission",
   "summary": "Bob tries to accept Alice's offer without giving the swap permission, and the chain refuses.",
+  "tags": ["swap", "one chain", "permissions", "failure"],
   "keys": {
     "alice": {
       "account": {

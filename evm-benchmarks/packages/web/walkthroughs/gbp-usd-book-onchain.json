@@ -2,6 +2,7 @@
   "id": "gbp-usd-book-onchain",
   "title": "Trade pounds on an on-chain order book",
   "summary": "Alice posts two offers to sell pounds on a book kept by a contract; Bob buys 1,500 in one order, filling the first and half the second.",
+  "tags": ["order book", "on-chain"],
   "keys": {
     "alice": {
       "account": {

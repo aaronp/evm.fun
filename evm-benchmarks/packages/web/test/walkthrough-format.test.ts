@@ -201,3 +201,12 @@ test('transfer and kGrew checks', () => {
   const e = poolW(); step(e, 'view').args.pool = '$GBP'
   expect(has(e, 'pool', /not a pool/)).toBe(true)
 })
+
+test('tags: absent is fine; must be 1-8 distinct non-empty strings of at most 24 chars', () => {
+  const t = (tags: unknown) => ({ ...clone(), tags })
+  expect(errs(clone())).toEqual([])
+  expect(errs(t(['a', 'b']))).toEqual([])
+  for (const bad of ['swap', [], [''], ['x'.repeat(25)], ['Swap', 'swap'], [1], Array.from({ length: 9 }, (_, i) => `t${i}`)])
+    expect(has(t(bad), 'tags', /./)).toBe(true)
+  expect(errs(t(['x'.repeat(24)]))).toEqual([])
+})

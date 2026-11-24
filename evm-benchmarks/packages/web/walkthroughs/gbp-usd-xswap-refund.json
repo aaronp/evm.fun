@@ -2,6 +2,7 @@
   "id": "gbp-usd-xswap-refund",
   "title": "Get your tokens back when nobody answers",
   "summary": "Alice locks 1,000 GBP on dave for Bob, but Bob never answers; once dave passes her timeout, Alice refunds.",
+  "tags": ["swap", "cross-chain", "hash lock", "refund"],
   "keys": {
     "alice": {
       "account": {

@@ -22,6 +22,12 @@ export function validate(json: unknown): { ok: Walkthrough } | { errors: Err[] }
   for (const f of ['id', 'title', 'summary']) if (typeof json[f] !== 'string' || !json[f]) bad(f, `Missing ${f}`)
   if (!isObj(json.keys)) bad('keys', 'Missing keys')
   if (!Array.isArray(json.steps)) bad('steps', 'Missing steps')
+  const tg = json.tags
+  if (tg !== undefined) {
+    const ok = Array.isArray(tg) && tg.length >= 1 && tg.length <= 8 && tg.every(t => typeof t === 'string' && t.trim() && t.length <= 24)
+    if (!ok) bad('tags', 'tags must be 1 to 8 non-empty strings of at most 24 characters')
+    else if (new Set(tg.map((t: string) => t.toLowerCase())).size < tg.length) bad('tags', 'tags must not repeat')
+  }
   if (errors.length) return { errors }
   const keys: Record<string, any> = json.keys
   const steps: any[] = json.steps

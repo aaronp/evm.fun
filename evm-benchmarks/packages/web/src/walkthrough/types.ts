@@ -42,7 +42,7 @@ export type Step = {
   expectRevert?: true
 }
 
-export type Walkthrough = { id: string; title: string; summary: string; keys: Record<string, KeyDef>; steps: Step[] }
+export type Walkthrough = { id: string; title: string; summary: string; /** short labels for the Get started filter */ tags?: string[]; keys: Record<string, KeyDef>; steps: Step[] }
 
 export type Outputs = {
   account: { label: string; address: Address }
