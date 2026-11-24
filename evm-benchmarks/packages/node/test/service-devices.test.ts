@@ -5,7 +5,7 @@ import { createNode, type SerializedState } from 'webevm'
 import { createRevmEngine } from 'webevm/revm'
 import { ChainAccess } from '@evmb/contracts'
 import { ChainService, ServiceError } from '../src/service'
-import { claimTx, codeHash, GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, setupTxs } from '../src/client'
+import { claimTx, codeHash, GRANT_CREATE_CHAIN, GRANT_DEPLOY, GRANT_READER, GRANT_WRITER, setupTxs } from '../src/client'
 import { bunSql } from './bunSql'
 import { wasm } from './workload'
 
@@ -119,6 +119,16 @@ describe('join', () => {
     await adminTx('removeReader', [stranger.address])
   })
 
+  test('join accepts a deploy invite: writer and deployer', async () => {
+    await invite('deploy-code', 3600, 1, GRANT_DEPLOY)
+    expect((await join(stranger, 'deploy-code')).role).toBe('writer')
+    expect(await s.acl.canDeploy(stranger.address)).toBe(true)
+    expect((await s.nodes()).members.find((x) => x.address === stranger.address)).toMatchObject({ role: 'writer', deploy: true })
+    await adminTx('removeDeployer', [stranger.address])
+    expect((await s.nodes()).members.find((x) => x.address === stranger.address)).toMatchObject({ role: 'writer', deploy: false })
+    await adminTx('removeWriter', [stranger.address])
+  })
+
   test('joining twice with valid codes leaves one role entry', async () => {
     expect((await join(phone, 'reader-code')).role).toBe('reader')
     const m = (await s.nodes()).members.filter((x) => x.address === phone.address)
@@ -151,9 +161,9 @@ describe('nodes and cursors', () => {
     expect(v.admin).toBe(admin.address)
     expect(v.readOpen).toBe(false)
     expect(v.members).toEqual([
-      { address: admin.address, role: 'admin' },
-      { address: laptop.address, role: 'writer', name: 'laptop', block: 6, behind: h.number - 6, seenAt: 1119 },
-      { address: phone.address, role: 'reader', name: 'phone', block: h.number - 3, behind: 3, seenAt: 2000 },
+      { address: admin.address, role: 'admin', deploy: true },
+      { address: laptop.address, role: 'writer', deploy: false, name: 'laptop', block: 6, behind: h.number - 6, seenAt: 1119 },
+      { address: phone.address, role: 'reader', deploy: false, name: 'phone', block: h.number - 3, behind: 3, seenAt: 2000 },
     ])
     await adminTx('removeReader', [phone.address])
     expect((await s.nodes()).members.map((x) => x.address)).toEqual([admin.address, laptop.address])

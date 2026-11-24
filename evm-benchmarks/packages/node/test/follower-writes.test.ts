@@ -5,7 +5,7 @@ import { createNode } from 'webevm'
 import { createRevmEngine } from 'webevm/revm'
 import { ChainAccess, MintableToken } from '@evmb/contracts'
 import { ChainHost, handle, type ChainHandleLike } from '../src/router'
-import { NodeClient, NodeError, claimTx, inviteTx, mined, setupTxs, GRANT_READER, GRANT_WRITER } from '../src/client'
+import { NodeClient, NodeError, claimTx, inviteTx, mined, setupTxs, GRANT_READER, GRANT_WRITER, GRANT_DEPLOY } from '../src/client'
 import { Follower, FollowerGone, FollowerRemoved } from '../src/follower'
 import { MemoryFollowerStore } from '../src/followerStore'
 import { bunSql } from './bunSql'
@@ -85,7 +85,7 @@ beforeAll(async () => {
   logger = getContractAddress({ from: admin.address, nonce: BigInt(nonce + 3) })
   mined(await c.submit(cid, [
     await sign(admin, nonce, undefined, encodeDeployData({ abi: MintableToken.abi, bytecode: MintableToken.bytecode, args: ['T', 'T'] }), 3_000_000n),
-    await inviteTx(admin, nonce + 1, access, 'tablet-code', 600, 1, GRANT_WRITER),
+    await inviteTx(admin, nonce + 1, access, 'tablet-code', 600, 1, GRANT_WRITER | GRANT_DEPLOY),
     await inviteTx(admin, nonce + 2, access, 'phone-code', 600, 1, GRANT_READER),
     // LOG0 of calldata[0:32] zero bytes: runtime 6000356000a000 (calldataload(0), log0(0, it))
     await sign(admin, nonce + 3, undefined, '0x666000356000a00060005260076019f3'),

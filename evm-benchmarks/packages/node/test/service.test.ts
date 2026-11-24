@@ -3,7 +3,8 @@ import { encodeDeployData, encodeFunctionData, keccak256, toBytes, toRlp, type H
 import { privateKeyToAccount } from 'viem/accounts'
 import { createNode, type SerializedState } from 'webevm'
 import { createRevmEngine } from 'webevm/revm'
-import { ChainAccess } from '@evmb/contracts'
+import { Aliases, ChainAccess } from '@evmb/contracts'
+import v1 from './ChainAccess.v1.json'
 import { ChainService, ServiceError } from '../src/service'
 import { claimTx, codeHash, inviteTx, setupTxs } from '../src/client'
 import { bunSql } from './bunSql'
@@ -286,4 +287,48 @@ test('a dumpState fault after mine answers 503 on submit; a commit fault answers
   const store = (s as unknown as { store: { commit: (...a: unknown[]) => void } }).store
   store.commit = () => { throw new Error('disk full') }
   expect((await refused(s.redeem(joiner.address, await claimTx(joiner, 0, 'dump-dump-dump-dump', access), T0 + 602))).status).toBe(503)
+})
+
+describe('deploy role', () => {
+  const creation = (from: typeof joiner, nonce = 0) => from.signTransaction({ ...tx, nonce, data: '0x600160005260206000f3', gas: 100_000n })
+  const ping = (from: typeof joiner) => from.signTransaction({ ...tx, nonce: 0, to: other.address, gas: 21_000n })
+  const adminCall = async (s: ChainService, fn: string, args: unknown[]) =>
+    s.submit(me, [await admin.signTransaction({ ...tx, nonce: await s.nonceOf(me), to: s.access, data: encodeFunctionData({ abi: ChainAccess.abi, functionName: fn, args } as never), gas: 300_000n })], T0 + 150)
+  const reason = `${joiner.address.toLowerCase()} can't deploy contracts on this chain`
+
+  test('writer without deploy: creation refused with the reason, call in the same batch mined', async () => {
+    const s = await create()
+    await adminCall(s, 'addWriter', [joiner.address])
+    const [c, p] = [await creation(joiner), await ping(other)]
+    const r = await s.submit(joiner.address, [c, p], T0 + 200)
+    expect(r.results[0]).toEqual({ hash: keccak256(c), result: 'refused', code: 'invalid', reason })
+    expect(r.results[1]!.result).toBe('mined')
+    // a resend of the refused creation is refused again, not mined
+    expect((await s.submit(joiner.address, [c], T0 + 201)).results[0]).toMatchObject({ result: 'refused', reason })
+  })
+
+  test('deployer creation mined; the admin deploys unlisted; removing deploy refuses again', async () => {
+    const s = await create()
+    await adminCall(s, 'addWriter', [joiner.address])
+    await adminCall(s, 'addDeployer', [joiner.address])
+    expect((await s.submit(joiner.address, [await creation(joiner)], T0 + 200)).results[0]!.result).toBe('mined')
+    expect((await s.submit(me, [await creation(admin, await s.nonceOf(me))], T0 + 201)).results[0]!.result).toBe('mined')
+    await adminCall(s, 'removeDeployer', [joiner.address])
+    expect((await s.submit(joiner.address, [await creation(joiner, 1)], T0 + 202)).results[0]).toMatchObject({ result: 'refused', code: 'invalid', reason })
+  })
+
+  test('old ChainAccess (previous bytecode) falls back to canWrite', async () => {
+    const data = (abi: any, bytecode: Hex, args?: unknown[]) => encodeDeployData({ abi, bytecode, args } as never)
+    const access = (await import('viem')).getContractAddress({ from: admin.address, nonce: 0n })
+    const setup = [
+      await admin.signTransaction({ ...tx, nonce: 0, data: data(v1.abi, v1.bytecode as Hex), gas: 3_000_000n }),
+      await admin.signTransaction({ ...tx, nonce: 1, data: data(Aliases.abi, Aliases.bytecode, [access]), gas: 1_500_000n }),
+    ] as [Hex, Hex]
+    const s = await create(bunSql(), setup)
+    await expect((s as any).call(ChainAccess.abi, 'canDeploy', [me])).rejects.toBeDefined()
+    await adminCall(s, 'addWriter', [joiner.address])
+    expect(await s.acl.canDeploy(joiner.address)).toBe(true)
+    expect((await s.submit(joiner.address, [await creation(joiner)], T0 + 200)).results[0]!.result).toBe('mined')
+    expect((await s.nodes()).members.find((m) => m.address === joiner.address)).toMatchObject({ role: 'writer', deploy: true })
+  })
 })

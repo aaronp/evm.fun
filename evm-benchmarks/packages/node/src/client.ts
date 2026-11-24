@@ -9,6 +9,7 @@ import { WORDS } from './words'
 export const GRANT_READER = 1
 export const GRANT_WRITER = 2
 export const GRANT_CREATE_CHAIN = 4
+export const GRANT_DEPLOY = 8
 /**
  * Largest POST /chains body the worker takes (413 above it; checked before auth). The root DO forwards the dump to the
  * new chain's DO over RPC and the 201 carries the new dump back (Workers RPC messages are capped at 32 MiB), so 8 MiB
@@ -39,7 +40,7 @@ export interface RemoteChainInfo { chainId: string; head: BlockSummary; admin: A
 export interface CodeRecord { hash: Hex; expiry: number; usesLeft: number; redeemed: { by: Address; chainId: string; at: number }[] }
 /** A block as GET /chains/:id/blocks serves it: header, raw txs, receipts. */
 export type BlockRecord = StoredBlock
-export interface Member { address: Address; role: 'admin' | 'writer' | 'reader'; name?: string; block?: number; behind?: number; seenAt?: number }
+export interface Member { address: Address; role: 'admin' | 'writer' | 'reader'; deploy: boolean; name?: string; block?: number; behind?: number; seenAt?: number }
 export interface NodesView { head: BlockSummary; admin: Address; readOpen: boolean; members: Member[] }
 type RootInfo = { chainId: 'root'; admin: Address; access: Address; head: number }
 
@@ -70,7 +71,7 @@ export const claimTx = (account: LocalAccount, nonce: number, code: string, acce
 export const inviteTx = (account: LocalAccount, nonce: number, access: Address, code: string, ttlS: number, uses: number, grants = GRANT_CREATE_CHAIN) =>
   call(account, nonce, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: 'invite', args: [codeHash(code), BigInt(ttlS), uses, grants] }))
 
-export const accessTx = (account: LocalAccount, nonce: number, access: Address, fn: 'removeReader' | 'removeWriter' | 'setReadOpen' | 'revokeInvite', arg: Address | boolean | Hex) =>
+export const accessTx = (account: LocalAccount, nonce: number, access: Address, fn: 'removeReader' | 'removeWriter' | 'addDeployer' | 'removeDeployer' | 'setReadOpen' | 'revokeInvite', arg: Address | boolean | Hex) =>
   call(account, nonce, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: fn, args: [arg] } as never))
 
 export class NodeError extends Error {

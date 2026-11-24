@@ -6,7 +6,7 @@ import type { Sql } from './sql'
 import { chainAcl, type ACL } from './acl'
 import { ChainStore, type SerializedBlock } from './store'
 import { ChainNode, NodeFault, type NodeConfig } from './node'
-import { codeHash, GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, type BlockRecord, type BlockSummary, type CodeRecord, type Member, type NodesView, type RemoteChainInfo, type SubmitResult, type TxResult } from './client'
+import { codeHash, GRANT_CREATE_CHAIN, GRANT_DEPLOY, GRANT_READER, GRANT_WRITER, type BlockRecord, type BlockSummary, type CodeRecord, type Member, type NodesView, type RemoteChainInfo, type SubmitResult, type TxResult } from './client'
 
 export class ServiceError extends Error {
   constructor(readonly status: number, message: string) { super(message) }
@@ -50,6 +50,9 @@ export async function checkSetup(signer: string, setup: unknown): Promise<void> 
     throw e instanceof ServiceError ? e : new ServiceError(400, `bad setup tx: ${msg(e)}`)
   }
 }
+
+/** A contract creation (no `to`); anything unparseable is left to the node to refuse. */
+const isCreation = (raw: Hex) => { try { return !parseTransaction(raw).to } catch { return false } }
 
 export class ChainService {
   #writes: Promise<unknown> = Promise.resolve()
@@ -152,9 +155,15 @@ export class ChainService {
     const a = signer.toLowerCase()
     if (!(await this.canWrite(a))) throw new ServiceError(403, `${a} is not a writer on this chain`)
     const hashes = txs.map((t) => keccak256(t))
-    const fresh = txs.filter((_, i) => this.store.blockOf(hashes[i]!) === undefined)
+    let fresh = txs.filter((_, i) => this.store.blockOf(hashes[i]!) === undefined)
+    // a creation needs deploy: refused alone, the rest of the batch goes on. The role is read once per request.
+    const refusals = new Map<Hex, string>()
+    if (fresh.some(isCreation) && !(await this.acl.canDeploy(a as Address))) {
+      for (const t of fresh) if (isCreation(t)) refusals.set(keccak256(t), `${a} can't deploy contracts on this chain`)
+      fresh = fresh.filter((t) => !isCreation(t))
+    }
     const { results } = fresh.length ? await this.node.apply(timestamp, fresh).catch((e) => { throw new ServiceError(e instanceof NodeFault ? 503 : 400, `block rejected: ${msg(e)}`) }) : { results: [] }
-    const errors = new Map(results.flatMap((r) => (r.ok ? [] : [[r.hash, r.error] as const])))
+    const errors = new Map([...refusals, ...results.flatMap((r) => (r.ok ? [] : [[r.hash, r.error] as const]))])
     return {
       head: summary(this.node.head()),
       // looked up after the block, so a tx sent twice in one request answers mined for both copies
@@ -186,14 +195,14 @@ export class ChainService {
 
   /**
    * A device joins: mine `claim` (a `claim(code)` to this chain's ChainAccess sent by `signer`) as its own block,
-   * only if the invite grants reader or writer (a deploy code adds no role). Same precheck as `redeem`.
+   * only if the invite grants reader, writer or deploy (a create-chain code adds no role). Same precheck as `redeem`.
    */
   join(signer: string, claim: Hex, timestamp: number): Promise<{ head: BlockSummary; role: 'reader' | 'writer' }> {
     return this.#write(async () => {
       const { grants } = await this.#invite(signer, claim, timestamp)
-      if ((grants & (GRANT_READER | GRANT_WRITER)) === 0) throw new ServiceError(403, BAD_CODE)
+      if ((grants & (GRANT_READER | GRANT_WRITER | GRANT_DEPLOY)) === 0) throw new ServiceError(403, BAD_CODE)
       const head = await this.#claim(claim, timestamp)
-      return { head, role: grants & GRANT_WRITER ? 'writer' : 'reader' }
+      return { head, role: grants & (GRANT_WRITER | GRANT_DEPLOY) ? 'writer' : 'reader' }
     })
   }
 
@@ -282,8 +291,9 @@ export class ChainService {
   /** The access list (admin, writers, readers; each once, with its highest role) joined with the devices' cursors. */
   async nodes(): Promise<NodesView> {
     const head = summary(this.store.head()) // before the awaits, so a block landing meanwhile never overstates `behind`
-    const [admin, { write, read, readOpen }] = await Promise.all([this.call(ChainAccess.abi, 'admin') as Promise<Address>, this.acl.list()])
+    const [admin, { write, read, deploy, readOpen }] = await Promise.all([this.call(ChainAccess.abi, 'admin') as Promise<Address>, this.acl.list()])
     const writers = write.filter((a) => a !== admin), readers = read.filter((a) => !write.includes(a))
+    const dep = new Set(deploy.map((d) => d.toLowerCase()))
     const cursors = new Map(this.sql.exec('SELECT * FROM cursors').map((r) => [r.address as string, r]))
     const members: Member[] = []
     const seen = new Set<string>()
@@ -294,8 +304,8 @@ export class ChainService {
         seen.add(key)
         const c = cursors.get(key)
         members.push(c
-          ? { address, role, ...(c.name == null ? {} : { name: c.name as string }), block: Number(c.block), behind: Math.max(0, head.number - Number(c.block)), seenAt: Number(c.seenAt) }
-          : { address, role })
+          ? { address, role, deploy: dep.has(key), ...(c.name == null ? {} : { name: c.name as string }), block: Number(c.block), behind: Math.max(0, head.number - Number(c.block)), seenAt: Number(c.seenAt) }
+          : { address, role, deploy: dep.has(key) })
       }
     return { head, admin, readOpen, members }
   }
