@@ -12,10 +12,10 @@ device through the cloud node) comes next.
 
 ## Decided with Aaron
 
-- **Scope A now, B next.** In A, devices follow and show; no playground page writes to a deployed chain.
+- **Scope A now, B next.** In A, devices follow and show; no playground page writes to a deployed chain. B (follow and use) is now done in evm.fun.
 - **Option (i): every device is a follower, including the owner's.** After Deploy, the owner's browser copy becomes a
   read-only follower of the cloud chain, like any other device. Device management (invite, remove) is sent to the cloud
-  chain as transactions. Other pages say "Read-only until B: this chain lives on the cloud". Nothing drifts.
+  chain as transactions. Pages send through the cloud node (B, done: see [follow and use](2026-11-24-follow-and-use-design.md)). Nothing drifts.
 - **A new device joins with a code the owner issues for their own chain** (as roadmap step e), the same mechanism as
   deploy codes.
 - **Show, don't act:** positions are displayed only (node cursors design, t-140).
@@ -52,7 +52,7 @@ device through the cloud node) comes next.
 ### evm.fun
 
 - **Follower chains:** a chain type `follower` with `follows: { nodeUrl, chainId }`. Its handle serves reads from the
-  follower; sending throws "Read-only until B: this chain lives on <url>". It syncs on open and then polls for new
+  follower; sending goes through the cloud node (B, done). It syncs on open and then polls for new
   blocks every few seconds while the tab is visible. The chain picker and Chains page show "follows <cloud chain>",
   its block, and "in sync / N behind".
 - **The owner's copy after Deploy** becomes a follower of the new cloud chain (same chain id in the browser, its
@@ -84,9 +84,9 @@ device through the cloud node) comes next.
 
 | | Approach | Trade-off |
 |---|---|---|
-| **A (chosen)** | Follow and show | Proves add / sync / remove / view; owner's writes wait for B |
+| **A (chosen)** | Follow and show | Proves add / sync / remove / view; owner's writes waited for B (now done) |
 | B | Follow and use | Full playground on every device; needs the browser node to match the cloud's config and a submit path |
-| **(i) (chosen)** | Every device a follower, incl. the owner's | Consistent, real positions everywhere, no drift; the owner's copy goes read-only until B |
+| **(i) (chosen)** | Every device a follower, incl. the owner's | Consistent, real positions everywhere, no drift; the owner's copy followed read-only until B, which is now done |
 | (ii) | Owner's copy stays writable | Less change now; copies drift and B must reconcile |
 | **Codes (chosen)** | Device joins with an owner-issued code | No key copying between devices; reuses invites |
 | By address | Owner pastes the device's address | Needs the address moved between devices by hand |

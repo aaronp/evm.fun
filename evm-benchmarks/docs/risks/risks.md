@@ -1081,7 +1081,7 @@ A join link made with "Create a single join link" carries the invite code, so an
 - driver: Claude
 - approver: Aaron
 
-A write made offline is stored only in the device's `FollowerStore` until a sync sends it. Clearing the browser's data, losing the phone or reinstalling the app before then loses it, and the cloud never saw it. (plan 20)
+A write made offline is stored only in the device's `FollowerStore` until a sync sends it. Clearing the browser's data, losing the phone or reinstalling the app before then loses it, and the cloud never saw it. (plan 20, plan 21)
 
 ### Controls
 | Control | Type | Effectiveness |
@@ -1090,7 +1090,10 @@ A write made offline is stored only in the device's `FollowerStore` until a sync
 | A failed submit or an unreachable cloud keeps the tx pending; a server fault answers 503, not a refusal | Preventive | Partial |
 | A block too large to store is a 400 (the Follower's split refuses just the tx), not a 503 retried for ever; `GET /blocks` pages by size (8 MiB) so a device far behind still catches up | Preventive | Partial |
 | Settled records stay until the user dismisses them | Detective | Partial |
-| A durable store for the web app (IndexedDB) instead of memory | Preventive | None yet |
+| The web app keeps pending txs in IndexedDB (per chain), so a reload or a closed tab keeps them; clearing the browser's data still loses them | Preventive | Partial |
+| One writing tab per chain (a Web Lock); a second tab follows read-only with no store and refuses sends, and takes over (with the stored records) when the first closes | Preventive | Partial |
+| The app bar counts unsent txs, including those of chains that are not open ("open <chain> to send"); chains with stored pending txs open at startup | Detective | Partial |
+| New and Open warn about unsent changes on followers before they replace the workspace | Preventive | Partial |
 
 ## R60 · A contract without version checks lets the later write win silently
 - impact: 3
@@ -1101,7 +1104,7 @@ A write made offline is stored only in the device's `FollowerStore` until a sync
 - driver: Claude
 - approver: Aaron
 
-The cloud mines txs in arrival order. A tx that is still valid after another device's write (an overwrite of a key/value, a `set` with no expected version) is confirmed, because its status and logs match what the device saw first, even if the user decided on stale data. (plan 20)
+The cloud mines txs in arrival order. A tx that is still valid after another device's write (an overwrite of a key/value, a `set` with no expected version) is confirmed, because its status and logs match what the device saw first, even if the user decided on stale data. From plan 21 every page in evm.fun can send while offline, so a stale decision is easier to make; the Pending panel shows each tx's local and cloud outcome and a changed one as conflicted. (plan 20, plan 21)
 
 ### Controls
 | Control | Type | Effectiveness |

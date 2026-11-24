@@ -1361,7 +1361,7 @@ all-follow. Decided with Aaron (design option (ii) rejected): Deploy converts th
 Claude's call: a follower is saved in workspace files as a pointer (node URL, chain id, the account that follows) together with its contract and asset records, not as a copy of the chain; opening it makes no request, and the follower boots from the cloud's `state` on demand.
 
 ## Consequences
-- No playground page writes to a deployed chain until B; they show a read-only message.
+- No playground page writes to a deployed chain until B; they show a read-only message. (B is now done: ADR-0025, plan 21.)
 - A workspace file stays small, and a follower's state is never trusted from the file: it is re-fetched and root-checked.
 - A removed or mismatched follower stops and says so; the user deletes it or joins again.
 - Polling cost and the multi-use writer code: risks R55 and R57.

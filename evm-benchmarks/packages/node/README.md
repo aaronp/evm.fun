@@ -102,7 +102,7 @@ A device is a key that is a member of a chain's `ChainAccess` (reader or writer)
 
 Design: [devices follow](../../docs/superpowers/specs/2026-11-23-devices-follow-design.md); decision: ADR-0024.
 
-- **Deploy makes a follower.** After Deploy, the owner's browser copy is a read-only follower of the cloud chain (pages say "Read-only until B: this chain lives on the cloud"). A chain deployed earlier converts when opened: quietly if the cloud block at the deployed head has the same hash, otherwise you choose Export or Convert anyway.
+- **Deploy makes a follower.** After Deploy, the owner's browser copy is a follower of the cloud chain: pages send through the cloud node and see their result at once, online or offline (a Pending panel and an app-bar count show unsent and conflicted txs). A chain deployed earlier converts when opened: quietly if the cloud block at the deployed head has the same hash, otherwise you choose Export or Convert anyway.
 - **Join a chain** (Cloud page): the admin invites a device from the chain's Devices panel (reader with 1 use by default; a writer code with more than one use shows a warning, risk R55). The code is shown once; the join link has no code in it. On the other device pick an account, open the link and paste the code; the chain appears under "Chains you follow".
 - **Followers are pointers.** Workspace files hold a follower as a pointer (node URL, chain id, following account) plus its contract and asset records, not the chain. Opening one makes no request; its state is fetched from the cloud's `state` when needed and root-checked.
 - **Sync.** Polling is 5 (default), 15, 60 s or Manual (Sync now); it pauses while the tab is hidden and backs off after failures (risk R57). Statuses: following, removed (the admin removed this key), mismatch, needs the account's key, unreachable (retrying), check clock (the worker refused the request's timestamp), gone (the cloud chain no longer exists).
@@ -112,7 +112,7 @@ Design: [devices follow](../../docs/superpowers/specs/2026-11-23-devices-follow-
 
 1. **Deploy.** Deploy a chain from Chains with a root-admin code. The card shows "Block #N · in sync", Sync now, and a Devices panel listing you as admin "(this device)".
 2. **Invite.** Devices → Invite a device: writer with Uses 2 shows the multi-use warning. Set it back to reader, 1 use, Invite. The code is shown once with Copy code and a join link without the code.
-3. **Join.** In a second browser profile select a different account, open the join link and paste the code. The chain is under Cloud → "Chains you follow" and opens read-only; in the first browser the phone row appears within one sync.
+3. **Join.** In a second browser profile select a different account, open the join link and paste the code. The chain is under Cloud → "Chains you follow" and opens as a follower (it can write if invited as a writer); in the first browser the phone row appears within one sync.
 4. **Sync interval.** Set Manual on Cloud: positions update only on Sync now.
 5. **Remove.** Remove the phone row and confirm. In the second browser, within one sync, the card shows "Removed from <name>: your copy is no longer updated" with Delete, and the picker badge says "removed".
 6. **Acting account.** Change the acting account in the first browser: the Devices panel and admin controls stay the same.

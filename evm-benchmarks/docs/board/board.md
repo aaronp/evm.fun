@@ -110,6 +110,39 @@ The chain ACL checks only the submitting key; what a tx's sender may do is up to
 - [ ] A `Follower` write to it settles confirmed or conflicted like any other
 ```
 
+### Re-point contract records after a re-signed deploy
+- id: t-148
+- parent: t-136
+- tags: chains, web, size-S
+- history:
+  - Backlog @ 2026-11-24T14:00:00Z
+
+```md
+When a deploy is re-signed after a nonce refusal it lands at another address. The Pending panel shows conflicted ("Deployed at <cloud>, not <local>"), but the page saved the local address, so the contract and asset records still point there. Rewrite them to the cloud address when the tx settles conflicted. Found in plan 21 (t-132).
+```
+
+### Followers remember their last known role
+- id: t-149
+- parent: t-136
+- tags: chains, web, size-S
+- history:
+  - Backlog @ 2026-11-24T14:00:00Z
+
+```md
+The role (writer or reader) is known only after the first good sync and is not saved. A reader that opens offline can queue sends, and the cloud later refuses them as "not a writer". Save the last known role with the follower's store so a reader is refused at once, offline too. Found in plan 21 (t-132).
+```
+
+### Show the revert reason for a locally reverted send
+- id: t-150
+- parent: t-136
+- tags: chains, web, size-S
+- history:
+  - Backlog @ 2026-11-24T14:00:00Z
+
+```md
+A send that reverts in the device's local copy shows "reverted" with no reason, because the RPC receipt carries none. Re-run the call (`eth_call` at the block before) to decode and show the reason. Found in plan 21 (t-132).
+```
+
 ### Remote chain: device enrolment and auth hardening
 - id: t-131
 - parent: t-112
@@ -872,33 +905,6 @@ Roadmap item 1: turn the CF spike (`spike/cf-chain`, [docs/spikes](../spikes/)) 
 - [x] Docs updated (t-137): [how to deploy, issue and redeem a code](../../packages/node/README.md), ADR-0023, risks R52-R54
 ```
 
-### Playground ChainHandle over a remote (Durable Object) chain
-- id: t-132
-- parent: t-136
-- tags: chains, web, size-M
-- history:
-  - Backlog @ 2026-11-22T21:41:18Z
-  - Next @ 2026-11-23T15:00:21Z
-
-```md
-Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-follow-design.md) (A: follow and show). From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
-
-Demo (t-136): after Deploy (t-134), the browser chain follows the cloud node, so they form a 2-node cluster; needed for node cursors (t-140). Uses t-129's `ChainNode` for replay.
-
-Part 1 done (worker + Follower): `Follower` in `packages/node` boots from `GET /state` and replays `GET /blocks` with root and hash checks. A (follow and show) done: Deploy converts the owner's copy to a read-only follower, earlier deploys convert on open, and followers are saved as pointers in workspace files (ADR-0024). B (follow and use) remaining: submitting from the browser through the cloud node, so pages can write to a deployed chain.
-
-B part 1 done (worker + Follower writes): per-tx submit answers, idempotent resends, a 512 KiB cap, a chain ACL on the submitting key, `FollowerStore` and `Follower.send`/`sync` with pending, conflicted and refused txs; proven by a two-device race in `make e2e-node` (ADR-0025, risks R59-R60). The browser UI for it remains.
-```
-
-```dod
-- [ ] A deployed chain in evm.fun submits to the cloud node and follows its blocks; existing pages work against it
-  - A done: follows its blocks, read-only. B remaining: submit, and pages writing to it
-- [ ] Same state root as the cloud node after each block, in a real browser
-  - Checked on every block in code and tests; the real-browser run is Aaron's checklist (packages/node/README.md)
-- [ ] Docs updated (t-137)
-  - A documented (README, ADR-0024, R55, R57); B remains
-```
-
 ### Chain access list in evm.fun
 - id: t-138
 - parent: t-136
@@ -1054,6 +1060,47 @@ The Get started page gets a text filter (title, summary, tag) and tag chips (sev
 The Devices panel's invite form becomes a 2-step wizard: create an access code, then open the link on the other device, as a QR code, a link and (by default) a separate code. The owner can instead tick "Create a single join link (includes the code)", off by default and with a warning; the code is then in the link's fragment, which the Join form reads and removes from the address bar. Design: `docs/superpowers/specs/2026-11-24-invite-wizard-design.md`; risk R58. Done when (checklist run by Aaron, not yet) the wizard issues both kinds of invite, the QR scans on a phone, an unticked invite never puts the code in the link or QR, and the Join form prefills and strips the code. Aaron, 2026-11-24.
 
 Built and tested (915 tests); not yet run in a browser. Left to check: both modes in all three themes, phone width, scanning the QR on a phone, back button after a coded link.
+```
+
+### Playground ChainHandle over a remote (Durable Object) chain
+- id: t-132
+- parent: t-136
+- tags: chains, web, size-M
+- history:
+  - Backlog @ 2026-11-22T21:41:18Z
+  - Next @ 2026-11-23T15:00:21Z
+  - Doing @ 2026-11-24T14:00:00Z
+
+```md
+Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-follow-design.md) (A: follow and show). From t-128: a chain type whose handle submits to the DO and reads from a local replica, so existing pages work against it; run the replica in a real browser.
+
+Demo (t-136): after Deploy (t-134), the browser chain follows the cloud node, so they form a 2-node cluster; needed for node cursors (t-140). Uses t-129's `ChainNode` for replay.
+
+Part 1 done (worker + Follower): `Follower` in `packages/node` boots from `GET /state` and replays `GET /blocks` with root and hash checks. A (follow and show) done: Deploy converts the owner's copy to a read-only follower, earlier deploys convert on open, and followers are saved as pointers in workspace files (ADR-0024). B (follow and use) remaining: submitting from the browser through the cloud node, so pages can write to a deployed chain.
+
+B part 1 done (worker + Follower writes): per-tx submit answers, idempotent resends, a 512 KiB cap, a chain ACL on the submitting key, `FollowerStore` and `Follower.send`/`sync` with pending, conflicted and refused txs; proven by a two-device race in `make e2e-node` (ADR-0025, risks R59-R60). B part 2 done in code (plan 21, tested; not yet run in a browser): every page writes to a deployed chain through `Follower.send` and sees its result at once, online or offline. Pending txs are kept in IndexedDB and settle as confirmed, conflicted or refused. One writing tab per chain (Web Lock). A chain opens offline with "Offline — last synced …". The Pending panel and an app-bar count show what is waiting. Followers with stored pending txs open at startup. A re-signed deploy shows conflicted ("Deployed at <cloud>, not <local>"). Spec: [follow and use](../superpowers/specs/2026-11-24-follow-and-use-design.md).
+
+Browser checklist (Aaron; also in `.superpowers/sdd/2026-11-24-plan21-follow-and-use-web/task-3-report.md`):
+1. `make dev-services`; two browsers or profiles ("phone", "tablet"), both joined as writers to one deployed chain.
+2. Offline on both, send a transfer from a page on each. The page shows its result at once; the app bar shows "1 pending"; the Pending panel lists it; the status line says "Offline — last synced … 1 pending.".
+3. Online again: within a sync interval both records are confirmed, the count goes, and each device sees the other's change.
+4. Import the same key on both, spend one balance on each while offline, go online. One record ends conflicted: app bar "1 conflicted", panel "Here: success, 1 log · Cloud: reverted, 0 logs"; Dismiss clears both.
+5. Send offline, reload the tab still offline: the chain opens from storage with the record pending; online, it settles.
+6. A second tab on the same chain shows "Open in another tab: changes are made there." and refuses a send with that text.
+7. Tab A writes offline, then close A: on B's next sync it takes the lock, A's pending records show in B's panel and settle online.
+8. A device joined as a reader: a send is refused with "This device can only read <chain>." and the status line says the same.
+9. A writer removed by the admin: its next send is refused ("… is not a writer on this chain"), then the device shows the reader message.
+10. Pending panel, app-bar badges (incl. "open <chain> to send") and status line in the three themes and at 375 px: the table scrolls inside the panel, no page-level horizontal scroll.
+11. New and Open warn about unsent changes on followers (R59).
+```
+
+```dod
+- [x] A deployed chain in evm.fun submits to the cloud node and follows its blocks; existing pages work against it
+  - A done: follows its blocks. B done in code: pages write through the cloud node (plan 21)
+- [ ] Same state root as the cloud node after each block, in a real browser (checked in a browser)
+  - Checked on every block in code and tests; the real-browser run is Aaron's checklist (packages/node/README.md)
+- [x] Docs updated (t-137)
+  - A: README, ADR-0024, R55, R57; B: ADR-0025, R59, R60, packages/node README
 ```
 
 ## Done
