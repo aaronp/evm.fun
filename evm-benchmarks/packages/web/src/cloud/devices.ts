@@ -9,6 +9,9 @@ export type DeviceRole = 'reader' | 'writer'
 export const multiUseWriterWarning = (role: DeviceRole, uses: number): string | undefined =>
   role === 'writer' && uses > 1 ? 'Anyone who can read this chain could see a multi-use writer code once it is used. Prefer single-use.' : undefined
 
+/** Step-1 defaults of the invite wizard, restored for every new invite (the single link is opt-in each time). */
+export const inviteDefaults = { ttl: '3600', uses: '1', role: 'reader' as DeviceRole, singleLink: false }
+
 /** The warning beside the "single join link" checkbox. */
 export const singleLinkWarning = (role: DeviceRole) =>
   `Anyone with this link can join as ${role} until it's used up or expires. Share it only somewhere private.`

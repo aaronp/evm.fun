@@ -7,7 +7,7 @@ import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry } from '../src/chain/registry'
 import { joinChain, joinPrefill } from '../src/cloud/join'
-import { inviteDevice, inviteShare, multiUseWriterWarning, removeDevice, singleLinkWarning } from '../src/cloud/devices'
+import { inviteDefaults, inviteDevice, inviteShare, multiUseWriterWarning, removeDevice, singleLinkWarning } from '../src/cloud/devices'
 
 // The worker stand-in, as in cloud-join.test.ts: packages/node's router over in-process ChainHosts on bun:sqlite.
 const admin = privateKeyToAccount(generatePrivateKey())
@@ -120,4 +120,8 @@ test('inviteShare default returns a code-free link and the code', () => {
 test('singleLinkWarning names the role', () => {
   expect(singleLinkWarning('writer')).toBe("Anyone with this link can join as writer until it's used up or expires. Share it only somewhere private.")
   expect(singleLinkWarning('reader')).toContain('join as reader')
+})
+
+test('inviteDefaults is single-use reader, 1 h, no single link', () => {
+  expect(inviteDefaults).toEqual({ ttl: '3600', uses: '1', role: 'reader', singleLink: false })
 })

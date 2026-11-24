@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { generateCode, type NodeClient } from '@evmb/node/src/client'
-import { inviteDevice, inviteShare, multiUseWriterWarning, singleLinkWarning, type DeviceRole } from '../../cloud/devices'
+import { inviteDefaults, inviteDevice, inviteShare, multiUseWriterWarning, singleLinkWarning, type DeviceRole } from '../../cloud/devices'
 import { Button } from '../../ui/button'
 import { CopyIcon } from '../../ui/icons'
 import { Input, fieldLabel } from '../../ui/input'
@@ -16,10 +16,10 @@ const copy = (s: string) => navigator.clipboard?.writeText(s)
 /** "Invite a device": step 1 creates the access code on chain, step 2 shows the link (and QR) to open on the other device. */
 export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: NodeClient; signer: Parameters<typeof inviteDevice>[0]['admin']; nodeUrl: string; chainId: string }) {
   const [code, setCode] = useState(generateCode)
-  const [ttl, setTtl] = useState('3600')
-  const [uses, setUses] = useState('1')
-  const [role, setRole] = useState<DeviceRole>('reader')
-  const [singleLink, setSingleLink] = useState(false)
+  const [ttl, setTtl] = useState(inviteDefaults.ttl)
+  const [uses, setUses] = useState(inviteDefaults.uses)
+  const [role, setRole] = useState<DeviceRole>(inviteDefaults.role)
+  const [singleLink, setSingleLink] = useState(inviteDefaults.singleLink)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
   const [shared, setShared] = useState<{ link: string; code?: string }>() // step 2; shown once, until Invite another / Done
@@ -27,6 +27,8 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
   const n = Number(uses)
   const valid = code.trim().length > 0 && Number.isInteger(n) && n >= 1 && n <= 1000
   const warning = multiUseWriterWarning(role, n)
+
+  function reset() { setTtl(inviteDefaults.ttl); setUses(inviteDefaults.uses); setRole(inviteDefaults.role); setSingleLink(inviteDefaults.singleLink); setShared(undefined) }
 
   async function next() {
     setBusy(true); setErr(undefined)
@@ -65,8 +67,8 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
         </div>
       </div>
       <div className="flex gap-2">
-        <Button type="button" onClick={() => setShared(undefined)}>Invite another</Button>
-        <Button type="button" variant="ghost" onClick={() => { setShared(undefined); setClosed(true) }}>Done</Button>
+        <Button type="button" onClick={reset}>Invite another</Button>
+        <Button type="button" variant="ghost" onClick={() => { reset(); setClosed(true) }}>Done</Button>
       </div>
     </div>
   )
