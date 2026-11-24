@@ -10,6 +10,88 @@ effects.complete: random
 
 ## Backlog
 
+### Chain workspace: an app for people, not developers
+- id: t-151
+- tags: outcome, chains, web, size-L
+- history:
+  - Backlog @ 2026-11-24T20:43:30Z
+
+```md
+A separate app (not evm.fun; evm.fun stays the developer playground) where people create chains, deploy them, give people, groups and devices read/write/deploy access, add contracts from a marketplace, and read their data over REST: a programmable database with easy reads. Design: [Chain workspace](https://claude.ai/code/artifact/76120764-ecd9-4317-a5ee-f6fde6920bdf) (chains list, chain dashboard, contract studio, chain settings, deploy with a one-time code, access picker, contacts & groups). Aaron, 2026-11-24.
+
+Order: deploy role (t-152) → governance allow-lists and contacts (t-147, t-143) → indexer (t-153) → the app (t-154). SpacetimeDB as a second destination is a separate spike (t-155). Where it lives (e.g. mychain.dev) to settle with t-142.
+```
+
+```dod
+- [ ] t-152, t-147, t-143, t-153 and t-154 done
+- [ ] Someone who isn't a developer creates, deploys and shares a chain and reads a contract's data over REST, unaided
+```
+
+### Deploy role: read, write and deploy
+- id: t-152
+- parent: t-151
+- tags: chains, access, size-S
+- history:
+  - Backlog @ 2026-11-24T20:43:30Z
+
+```md
+The chain ACL gains a third role: **deploy** = may create contracts (a tx with no `to`). Read = read chain data; write = submit txs; deploy = submit contract creations. `ChainAccess` gets `deployers()`/`canDeploy`, invites grant it (`GRANT_DEPLOY`), the worker refuses a creation tx from a submitter without it, the Follower refuses it locally, and the `ACL` interface reports it.
+```
+
+```dod
+- [ ] A writer without deploy is refused a contract creation (cloud and locally); with deploy it is mined
+- [ ] Invites and the Devices panel can grant deploy
+- [ ] ADR-0025 updated
+```
+
+### Indexer: REST reads with their own access
+- id: t-153
+- parent: t-151
+- tags: chains, views, size-M
+- history:
+  - Backlog @ 2026-11-24T20:43:30Z
+
+```md
+Serve chain data as plain REST JSON at named routes (`/chains/:id/<alias>/…`), each with its own read rules, separate from chain reads. Port the views spike (`docs/spikes/cf-views.md`: aliases, recipes, `access-controls/latest`) into `packages/node`; recipes for the self-describing contract, ERC20 and the key/value store. t-139 (the key/value contract and its view) is its first use.
+```
+
+```dod
+- [ ] Aliases and their routes served by the worker; a key without access is refused, open reads make it a plain GET
+- [ ] Recipes: self-describing, ERC20, key/value
+- [ ] Docs (t-137)
+```
+
+### Chain workspace screens
+- id: t-154
+- parent: t-151
+- tags: web, size-L
+- history:
+  - Backlog @ 2026-11-24T20:43:30Z
+
+```md
+Build the [Chain workspace design](https://claude.ai/code/artifact/76120764-ecd9-4317-a5ee-f6fde6920bdf) as its own app on `packages/node` and `packages/contracts` (shared parts of `packages/web` where they fit): chains list, chain dashboard, contract studio (marketplace + create your own), chain settings (chain access, contract permissions, devices, deployment), deploy with a one-time code, access picker, contacts & groups. Follow the mockups faithfully.
+```
+
+```dod
+- [ ] Every board in the design works against a local worker
+- [ ] Tokens only, three themes (or the design's), phone width, contrast tests
+```
+
+### Spike: SpacetimeDB as a deploy destination
+- id: t-155
+- parent: t-151
+- tags: chains, spike, size-S
+- history:
+  - Backlog @ 2026-11-24T20:43:30Z
+
+```md
+Can a chain deploy to SpacetimeDB as well as Cloudflare? Find out whether revm can run inside a SpacetimeDB module (wasm) or whether SpacetimeDB only stores chain data with execution elsewhere; cost, limits, auth model, and how followers would sync. Throwaway, local only.
+```
+
+```dod
+- [ ] Spike report in `docs/spikes/` with a recommendation
+```
+
 ### Followers: streaming instead of polling
 - id: t-144
 - parent: t-112
@@ -23,13 +105,15 @@ Followers pull new blocks on demand: the cloud node pushes each new head over a 
 
 ### Device bookkeeping contract
 - id: t-143
-- parent: t-112
+- parent: t-151
 - tags: chains, access, size-M
 - history:
   - Backlog @ 2026-11-23T19:08:02Z
 
 ```md
 Users record what and where each device key is ("my work computer", "the family tablet") in a contract on the chain itself, so every device and view sees the same names. Until then a device's name is the `x-node-name` its follower sends, kept with its cursor on the cloud node (devices design). Idea from Aaron, 2026-11-23.
+
+**Chain workspace (t-151):** this becomes the design's **Contacts** contract: people and devices with their public keys (added by hand or fetched from a URL), which the access picker resolves.
 ```
 
 ### Move evm.fun to mychain.dev
@@ -40,7 +124,7 @@ Users record what and where each device key is ("my work computer", "the family 
   - Backlog @ 2026-11-23T18:00:00Z
 
 ```md
-evm.fun is served at `aaronp.github.io/evm.fun/`. Serve it at `mychain.dev` (the worker's CORS already allows `https://mychain.dev`).
+evm.fun is served at `aaronp.github.io/evm.fun/`. Serve it at `mychain.dev` (the worker's CORS already allows `https://mychain.dev`). **Open (2026-11-24):** the Chain workspace app (t-151) is separate from evm.fun and may be the better fit for mychain.dev; decide which goes where before doing this.
 
 Aaron's DNS steps: in Cloudflare (once `mychain.dev` is a zone, t-134), add a `CNAME` record `mychain.dev` (or `www`) → `aaronp.github.io` (DNS only), then repo Settings → Pages → Custom domain `mychain.dev`, and tick Enforce HTTPS once the certificate is issued. The Pages build adds a `CNAME` file containing `mychain.dev` to the published folder (e.g. `packages/web/public/CNAME`) so each deploy keeps the setting.
 
@@ -96,13 +180,15 @@ Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps account
 
 ### Governance.sol: a self-governed allow-list as ChainAccess admin
 - id: t-147
-- parent: t-112
+- parent: t-151
 - tags: chains, contracts, size-M
 - history:
   - Backlog @ 2026-11-24T12:00:00Z
 
 ```md
 The chain ACL checks only the submitting key; what a tx's sender may do is up to the contracts (ADR-0025). A `Governance.sol` that holds an allow-list and votes members in and out, and is itself the `ChainAccess` admin, so the owner key is no longer the single authority.
+
+**Chain workspace (t-151):** allow-lists are reusable: other contracts (key/value store, ERC20, escrow) point at a governance allow-list for who may act, instead of keeping their own; the design's "groups" are these allow-lists.
 ```
 
 ```dod
