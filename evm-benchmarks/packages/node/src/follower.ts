@@ -26,6 +26,7 @@ export class Follower {
   /** The cloud's head as last seen (by `open` or `sync`). */
   cloudHead: BlockSummary
 
+  #saved?: string // hash of the head last written to the store
   #replayed = 0 // blocks replayed on the current node
 
   private constructor(private client: NodeClient, readonly chainId: string, private wasm: NodeConfig['wasm'], private reopenEvery: number,
@@ -36,9 +37,25 @@ export class Follower {
   static async open(client: NodeClient, chainId: string, wasm: NodeConfig['wasm'], o: { reopenEvery?: number; store?: FollowerStore; key?: string } = {}): Promise<Follower> {
     const key = o.key ?? chainId
     const stored = await o.store?.loadConfirmed(key)
-    const { node, env, head, dump } = await Follower.#boot(client, chainId, wasm, stored)
+    let booted
+    let fromStore = false
+    if (stored) {
+      try {
+        booted = await Follower.#boot(client, chainId, wasm, stored)
+        fromStore = true
+      } catch (e) { // unusable stored copy: boot from the cloud and overwrite it; if that fails too, report both
+        try { booted = await Follower.#boot(client, chainId, wasm) } catch (c) {
+          if (e instanceof Error) e.message += `; booting from the cloud failed too: ${c instanceof Error ? c.message : c}`
+          throw e
+        }
+      }
+    } else booted = await Follower.#boot(client, chainId, wasm)
+    const { node, env, head, dump } = booted
     const f = new Follower(client, chainId, wasm, o.reopenEvery ?? 1000, o.store, key, node, env, head)
-    if (!stored) await o.store?.saveConfirmed(key, { head, dump })
+    if (fromStore) f.#saved = head.hash
+    else {
+      try { await f.#save(dump) } catch (e) { await node.dispose(); throw e }
+    }
     return f
   }
 
@@ -49,6 +66,8 @@ export class Follower {
     const env = {}
     const node = await createNode({ chainId: dump.chainId, ...nodeOptions(env), engine: await createRevmEngine({ wasm }) })
     try {
+      const last = dump.blocks.at(-1)
+      if (stored && last && (last.number !== head.number || last.hash !== head.hash)) throw new FollowerMismatch(`stored head ${head.number} (${head.hash}) is not the last block of its dump (${last.number})`)
       await node.loadState(dump)
       const root = await node.getStateRoot()
       if (root !== head.stateRoot) throw new FollowerMismatch(`state of chain ${chainId} at block ${head.number}: local root ${root}, cloud root ${head.stateRoot}`)
@@ -105,17 +124,18 @@ export class Follower {
           this.#stop('mismatch', new FollowerMismatch(`cloud head ${page.head.number} (${page.head.hash}) does not match our head ${this.head.number} (${this.head.hash})`))
         for (const b of page.blocks) await this.#replay(b)
         if (this.#replayed >= this.reopenEvery) await this.#reopen()
-        if (page.blocks.length) await this.#save()
+        await this.#save() // not by page: retries a failed save; #reopen relies on this too
         if (!page.blocks.length || this.head.number >= page.head.number) return this.head
       }
     })
   }
 
   /** Store the confirmed copy, trimmed to what loadState needs (state + recent headers), so it stays bounded. */
-  async #save() {
-    if (!this.store) return
-    const dump = await this.node.dumpState()
+  async #save(dump?: SerializedState) {
+    if (!this.store || this.#saved === this.head.hash) return
+    dump ??= await this.node.dumpState()
     await this.store.saveConfirmed(this.key, { head: this.head, dump: { ...dump, blocks: dump.blocks.slice(-HEADERS_KEPT), receipts: {}, transactions: {} } })
+    this.#saved = this.head.hash
   }
 
   async #replay({ header, txs }: BlockRecord) {

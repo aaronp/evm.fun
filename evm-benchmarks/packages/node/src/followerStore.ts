@@ -25,13 +25,13 @@ export interface FollowerStore {
 export class MemoryFollowerStore implements FollowerStore {
   #confirmed = new Map<string, Confirmed>()
   #pending = new Map<string, Map<Hex, PendingTx>>()
-  async loadConfirmed(key: string) { return this.#confirmed.get(key) }
-  async saveConfirmed(key: string, c: Confirmed) { this.#confirmed.set(key, c) }
-  async listPending(key: string) { return [...(this.#pending.get(key)?.values() ?? [])].sort((a, b) => a.seq - b.seq) }
+  async loadConfirmed(key: string) { return structuredClone(this.#confirmed.get(key)) }
+  async saveConfirmed(key: string, c: Confirmed) { this.#confirmed.set(key, structuredClone(c)) }
+  async listPending(key: string) { return structuredClone([...(this.#pending.get(key)?.values() ?? [])].sort((a, b) => a.seq - b.seq)) }
   async putPending(key: string, tx: PendingTx) {
     let m = this.#pending.get(key)
     if (!m) this.#pending.set(key, (m = new Map()))
-    m.set(tx.hash, tx)
+    m.set(tx.hash, structuredClone(tx))
   }
   async deletePending(key: string, hash: Hex) { this.#pending.get(key)?.delete(hash) }
 }
