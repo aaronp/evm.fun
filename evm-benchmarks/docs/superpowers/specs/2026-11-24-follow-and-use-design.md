@@ -73,7 +73,7 @@ keeps working, and its changes are safe until it reconnects.
   nonce, local outcome, status, cloud outcome or reason). An in-memory implementation ships with the package.
 - `Follower.open` loads the confirmed copy from the store when there is one (offline open), otherwise from the cloud
   as today; it syncs when online.
-- `send(raw)`: runs the tx locally, stores the pending record, returns the local receipt. Serialised with `sync`.
+- `send(raw)`: runs the tx locally, stores the pending record, returns the local receipt. Serialised with `sync`'s steps; never waits on the network.
 - `sync()`: sends the pending queue in batches, pulls blocks, rebases (load confirmed → apply cloud blocks with checks
   → store confirmed → re-run pending), and settles each pending record from the per-tx replies and mined receipts.
 - **Nonces.** If a pending tx is refused only for its nonce (e.g. the same key used on two devices, or an earlier tx

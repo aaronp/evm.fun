@@ -54,7 +54,10 @@ export class Follower {
   #queue: Promise<unknown> = Promise.resolve()
   /** The cloud's head as last seen (by `open` or `sync`). */
   cloudHead: BlockSummary
-  /** When this device last caught up with the cloud (ms): a sync's pull, a cloud boot, or the stored copy's `savedAt`. */
+  /**
+   * When this device last caught up with the cloud (ms): a sync's pull, a cloud boot, or the stored copy's `savedAt`.
+   * The copy is stored only when the head moves, so after a reopen this is the last head change (it errs on the old side).
+   */
   lastSynced?: number
 
   #saved?: string // hash of the head last written to the store
@@ -66,6 +69,8 @@ export class Follower {
   #dirty = false // the list changed since onPending last ran
   #stale = false // a record settled since the local view was last rebuilt
   #syncing?: Promise<BlockSummary>
+  #again = false // a tx was sent while a sync ran: it runs once more so the joined callers' txs are submitted too
+  #disposed = false
   private reopenEvery: number
   private store?: FollowerStore
   private key: string
@@ -170,6 +175,7 @@ export class Follower {
   }
 
   #stop(status: 'removed' | 'mismatch', e: Error): never {
+    if (this.#disposed) throw this.#failure ?? new Error('follower disposed') // an answer after dispose changes nothing
     this.status = status
     throw (this.#failure = e)
   }
@@ -181,7 +187,15 @@ export class Follower {
    * Requests run outside the queue; a tx sent meanwhile is not in this sync's submit and is re-run on top at the end.
    */
   sync(): Promise<BlockSummary> {
-    return (this.#syncing ??= this.#sync().finally(() => { this.#syncing = undefined }))
+    return (this.#syncing ??= (async () => {
+      try {
+        for (;;) {
+          this.#again = false
+          const head = await this.#sync()
+          if (!this.#again) return head
+        }
+      } finally { this.#syncing = undefined }
+    })())
   }
 
   async #sync(): Promise<BlockSummary> {
@@ -202,9 +216,13 @@ export class Follower {
     } catch (e) {
       err = e
       const reason = e instanceof FollowerRemoved ? removedReason : e instanceof FollowerMismatch ? () => `chain no longer matches: ${e.message}` : undefined
-      if (reason) await this.#serial(async () => { for (const t of this.#txs) if (t.status === 'pending') await this.#settle(t, { status: 'refused', reason: reason(t) }) }, true).catch(() => {})
+      if (reason) await this.#serial(async () => {
+        if (this.#disposed) return
+        for (const t of this.#txs) if (t.status === 'pending') await this.#settle(t, { status: 'refused', reason: reason(t) })
+      }, true).catch(() => {})
     }
     await this.#serial(async () => {
+      if (this.#disposed) return
       if (!this.#failure) try { await this.#fresh() } catch (e) { err ??= e }
       this.#notify()
     }, true)
@@ -216,6 +234,7 @@ export class Follower {
   /** Rebuild the local view (confirmed + still pending) if a sync step left it behind: an offline sync costs nothing. */
   async #fresh() {
     if (this.#base && !this.#stale) return
+    this.#stale = true // until the re-run completes: a throw part-way must not leave a partial view looking fresh
     await this.#toConfirmed()
     await this.#rerun()
     this.#stale = false
@@ -309,12 +328,14 @@ export class Follower {
         return { nonce, denied: [], error: e } // no answer (or a 5xx): it stays mayBeMined
       }
       await this.#serial(async () => {
+        // the answers in memory first, then the writes: a failed write leaves no answer unapplied
         for (const [j, x] of r.results.entries()) {
           const t = batch[j]!
           if (x.result === 'mined') this.#minedAt.set(t.hash, x.block)
-          else if (x.code === 'nonce') nonce.set(t, x.reason), await this.#mark([t], false)
-          else await this.#settle(t, { status: 'refused', reason: x.reason })
+          else if (x.code === 'nonce') nonce.set(t, x.reason)
         }
+        await this.#mark([...nonce.keys()], false)
+        for (const [j, x] of r.results.entries()) if (x.result === 'refused' && x.code !== 'nonce') await this.#settle(batch[j]!, { status: 'refused', reason: x.reason })
       })
     }
     return { nonce, denied: [] }
@@ -423,6 +444,7 @@ export class Follower {
       const r = await this.#local(raw)
       const t: PendingTx = { hash: r.transactionHash, raw, from: getAddress(r.from), nonce: parseTransaction(raw).nonce ?? 0, seq: this.#seq++, first: outcome(r), status: 'pending' }
       this.#txs.push(t)
+      if (this.#syncing) this.#again = true
       try {
         await this.#put(t)
       } catch (e) { // not stored: undo it locally too
@@ -479,7 +501,10 @@ export class Follower {
     this.#replayed++
   }
 
-  /** Run `fn` on the local node, between syncs. Throws once the follower is removed or mismatched. */
+  /**
+   * Run `fn` on the local node, between sync steps. Throws once the follower is removed or mismatched; it can also
+   * throw a store error, when it first re-runs the pending txs after a sync step and records a `dependsOn`.
+   */
   read<T>(fn: (node: SlimNode) => Promise<T>): Promise<T> {
     return this.#serial(async () => {
       await this.#fresh()
@@ -488,6 +513,7 @@ export class Follower {
   }
 
   dispose(): Promise<void> {
+    this.#disposed = true
     const run = this.#queue.then(() => {
       this.#failure ??= new Error('follower disposed')
       return this.node.dispose()

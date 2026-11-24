@@ -347,7 +347,7 @@ describe('Follower writes', () => {
     store.putPending = async (key, t) => {
       if (broken) throw new Error('tab closed')
       await put(key, t)
-      if (t.nonce === 1 && !resigned) resigned = broken = true // the re-signed record is written; every later write fails
+      if (t.nonce === 1 && t.mayBeMined && !resigned) resigned = broken = true // the re-signed tx is about to be sent; every later write fails
     }
     const del = store.deletePending.bind(store)
     store.deletePending = async (key, id) => { if (broken) throw new Error('tab closed'); return del(key, id) }
@@ -358,6 +358,7 @@ describe('Follower writes', () => {
     await expect(b.sync()).rejects.toThrow('tab closed')
     expect(resigned).toBe(true)
     expect(await store.listPending(cid)).toHaveLength(1) // one record, re-signed in place
+    expect(await cloudFrom(k.address)).toHaveLength(2) // b's re-signed tx was mined; only the settle write failed
     broken = false
     const c = keep(await Follower.open(as(tablet), cid, wasm, { store, signer: signers(k) }))
     await c.sync()
@@ -650,7 +651,7 @@ describe('Follower writes', () => {
     expect(Number(n)).toBe(f.head.number)
   })
 
-  test('a tx sent while a submit is in flight is re-run on top, not lost, and submitted once by the next sync', async () => {
+  test('a tx sent while a submit is in flight is not lost, and the same sync runs again to submit it once', async () => {
     const k = fresh(), x = fresh().address
     await mint(k.address, 10n)
     const real = as(admin)
@@ -674,12 +675,12 @@ describe('Follower writes', () => {
     const t2 = await transfer(f, k, x, 2n) // nonce 1: sees t1
     gate = undefined
     open()
+    const joined = f.sync() // joins the running sync, and still gets t2 submitted
     await syncing
-    expect(f.pending().map((t) => [t.hash, t.status, t.nonce])).toEqual([[t1.transactionHash, 'confirmed', 0], [t2.transactionHash, 'pending', 1]])
-    expect(await balanceOn(f, x)).toBe(3n) // t2 re-run on the new confirmed state
+    await joined
+    expect(f.pending().map((t) => [t.hash, t.status, t.nonce])).toEqual([[t1.transactionHash, 'confirmed', 0], [t2.transactionHash, 'confirmed', 1]])
+    expect(await balanceOn(f, x)).toBe(3n)
     expect(await nonceOn(f, k.address)).toBe(2)
-    await f.sync()
-    expect(f.pending()[1]!.status).toBe('confirmed')
     expect(sent.flat().filter((h) => h === f.pending()[1]!.raw)).toHaveLength(1)
     expect(await cloudFrom(k.address)).toHaveLength(2)
   })
@@ -713,6 +714,29 @@ describe('Follower writes', () => {
     expect(f.pending().map((t) => [t.status, t.nonce])).toEqual([['pending', 0], ['pending', 1]])
     expect(await balanceOn(f, x)).toBe(3n)
     expect(f.head).toEqual(await cloudHead())
+  })
+
+  test('a follower disposed while a page fetch is in flight writes nothing when the answer is a 403', async () => {
+    const real = as(admin)
+    let hang = false, reached!: () => void, answer!: (e: Error) => void
+    const atFetch = new Promise<void>((r) => (reached = r))
+    const stub = {
+      account: admin, state: real.state.bind(real), submit: () => Promise.reject(new NodeError(503, 'down')),
+      blocks: (id: string, after: number) => (hang ? (reached(), new Promise((_, no) => (answer = no))) : real.blocks(id, after)),
+    } as unknown as NodeClient
+    const store = new MemoryFollowerStore()
+    const seen: number[] = []
+    const f = await Follower.open(stub, cid, wasm, { store, onPending: (p) => seen.push(p.length) })
+    await transfer(f, fresh(), fresh().address, 0n)
+    hang = true
+    const syncing = f.sync().catch((e) => e)
+    await atFetch
+    await f.dispose()
+    answer(new NodeError(403, 'not a member'))
+    expect((await syncing).message).toMatch(/disposed/)
+    expect(f.status).toBe('following')
+    expect((await store.listPending(cid)).map((t) => t.status)).toEqual(['pending'])
+    expect(seen).toEqual([1]) // no onPending after dispose
   })
 
   test('two concurrent syncs run once', async () => {
