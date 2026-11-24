@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { keccak256, type Hex } from 'viem'
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import type { SerializedState } from 'webevm'
 import { ChainNode, ChainStore, diffState, HEADERS_KEPT, type SerializedBlock } from '../src'
 import { bunSql } from './bunSql'
@@ -109,6 +110,27 @@ test('apply mines valid txs and reports a bad-nonce tx without failing the block
   expect(errors[1]).toMatch(/^nonce too high/)
   expect(errors[2]).toMatch(/^insufficient funds/)
   expect(errors[3]).toMatch(/^nonce too high/)
+}, 30_000)
+
+test('a tx funded by an earlier tx of the same apply mines in a second block, with its sender\'s later txs', async () => {
+  const { w, a, nonce } = await pair()
+  const k = privateKeyToAccount(generatePrivateKey())
+  const head = a.head().number
+  const fund = await signed(SENDERS[1]!, await nonce(1), { to: k.address, value: 10n ** 18n })
+  // k has nothing until `fund` runs; k's second tx has no funds problem but must follow its first
+  const pay = await k.signTransaction({ type: 'eip1559', chainId: 777, nonce: 0, to: SENDERS[2]!.address, value: 10n ** 17n, gas: 21_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+  const pay2 = await k.signTransaction({ type: 'eip1559', chainId: 777, nonce: 1, to: SENDERS[2]!.address, value: 0n, gas: 21_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+  const n3 = await nonce(3)
+  const broke = await signed(SENDERS[3]!, n3, { value: 10n ** 30n })
+  const after = await signed(SENDERS[3]!, n3 + 1)
+  const { block, results } = await a.apply(w.timestamp(6), [fund, pay, pay2, broke, after])
+  expect(results.map((r) => r.ok)).toEqual([true, true, true, false, false])
+  const errors = results.flatMap((r) => (r.ok ? [] : [r.error]))
+  expect(errors[0]).toMatch(/^insufficient funds/) // still unfunded after the second round
+  expect(errors[1]).toMatch(/^nonce too high/) // its gap
+  expect(a.head().number).toBe(head + 2)
+  expect(block!.txs).toEqual([pay, pay2])
+  expect(block!.header.number).toBe(head + 2)
 }, 30_000)
 
 test('apply with only bad txs mines nothing', async () => {

@@ -178,7 +178,8 @@ export class Follower {
         const who = this.client.account?.address ?? 'this device'
         for (const t of r.denied) await this.#settle(t, { status: 'refused', reason: `${who} is not a writer on this chain` })
       } catch (e) {
-        if (e instanceof FollowerRemoved) for (const t of this.#txs) if (t.status === 'pending') await this.#settle(t, { status: 'refused', reason: 'removed from chain' })
+        const reason = e instanceof FollowerRemoved ? 'removed from chain' : e instanceof FollowerMismatch ? `chain no longer matches: ${e.message}` : undefined
+        if (reason) for (const t of this.#txs) if (t.status === 'pending') await this.#settle(t, { status: 'refused', reason })
         err = e
       }
       // the local view (confirmed + still pending) is rebuilt only when something moved: an offline sync costs nothing
@@ -300,8 +301,10 @@ export class Follower {
       for (const t of this.#txs.filter((t) => t.status === 'pending' && t.from === from && t.seq >= firstSeq && !this.#minedAt.has(t.hash))) {
         const { r: _r, s: _s, v: _v, yParity: _y, ...tx } = parseTransaction(t.raw)
         const raw = await key.signTransaction({ ...tx, nonce: n } as never)
+        const old = { raw: t.raw, nonce: t.nonce, hash: t.hash }
         Object.assign(t, { raw, nonce: n++, hash: keccak256(raw) })
-        await this.#put(t)
+        // not stored: keep the old tx in memory too, or a reopen could resend the old raw beside the new one
+        try { await this.#put(t) } catch (e) { Object.assign(t, old); throw e }
       }
     }
   }

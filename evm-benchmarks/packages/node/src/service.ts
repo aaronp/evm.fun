@@ -17,6 +17,8 @@ const BAD_CODE = 'bad, used or expired code'
 const CURSOR_REFRESH_S = 60
 /** Most blocks one `blocks()` call returns. */
 const MAX_BLOCKS = 100
+/** A `blocks()` page stops before the block that would pass this many stored bytes (always one block), well under the 32 MiB RPC limit. */
+const MAX_PAGE_BYTES = 8 * 1024 * 1024
 const summary = (h: SerializedBlock): BlockSummary => ({ number: h.number, hash: h.hash, stateRoot: h.stateRoot })
 const sender = (raw: Hex) => recoverTransactionAddress({ serializedTransaction: raw as never }).then((a) => a.toLowerCase())
 const meta = (sql: Sql, k: string) => sql.exec('SELECT v FROM meta WHERE k = ?', k)[0]?.v as Address | undefined
@@ -130,7 +132,7 @@ export class ChainService {
   }
 
   /**
-   * Mine `txs` as one block and answer each in order: a tx already on chain answers its block (a resend is
+   * Mine `txs` (one block, or two when a tx is funded by an earlier one; see ChainNode.apply) and answer each in order: a tx already on chain answers its block (a resend is
    * idempotent), the rest are mined or refused by the node. The signer must be a writer; tx senders are not checked.
    */
   submit(signer: string, txs: Hex[], timestamp: number): Promise<SubmitResult> {
@@ -259,10 +261,10 @@ export class ChainService {
     return { head: summary(dump.blocks.at(-1)!), dump }
   }
 
-  /** Up to `limit` (at most 100) blocks after `after`, and the head. */
+  /** Up to `limit` (at most 100) blocks after `after`, at most MAX_PAGE_BYTES of them (but at least one), and the head. */
   blocks(after: number, limit = MAX_BLOCKS): { head: BlockSummary; blocks: BlockRecord[] } {
     const head = this.store.head()
-    return { head: summary(head), blocks: this.store.blocks(after + 1, Math.min(after + Math.min(limit, MAX_BLOCKS), head.number)) }
+    return { head: summary(head), blocks: this.store.blocks(after + 1, Math.min(after + Math.min(limit, MAX_BLOCKS), head.number), MAX_PAGE_BYTES) }
   }
 
   /**

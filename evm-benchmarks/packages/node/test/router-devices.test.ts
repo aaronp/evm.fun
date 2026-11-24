@@ -79,14 +79,16 @@ describe('device routes', () => {
     expect((await a.nodes(cid)).members.some((x) => x.address.toLowerCase() === phone.address.toLowerCase())).toBe(false)
   })
 
-  test('router accepts a 900 KiB submit, 413 above 1 MiB, 413 above 64 KiB on other routes', async () => {
+  test('router accepts a 400 KiB submit, 413 above 512 KiB, 413 above 64 KiB on other routes; 400 over 256 txs', async () => {
     const a = as(admin)
-    // zero-byte calldata: hex is 2 chars a byte, so 450 KiB of data is a ~900 KiB body
+    // zero-byte calldata: hex is 2 chars a byte, so 200 KiB of data is a ~400 KiB body
     const big = async (bytes: number) => admin.signTransaction({ type: 'eip1559', chainId: 31337, nonce: await a.nonce(cid), to: stranger.address, data: `0x${'00'.repeat(bytes)}`, gas: 25_000_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
-    const ok = await a.submit(cid, [await big(450 * 1024)])
+    expect(MAX_SUBMIT_BYTES).toBe(512 * 1024)
+    const ok = await a.submit(cid, [await big(200 * 1024)])
     expect(ok.results[0]!.result).toBe('mined')
     expect(await status(a.submit(cid, [await big(MAX_SUBMIT_BYTES / 2 + 1024)]))).toBe(413)
     expect(await status(a.join(cid, `0x${'00'.repeat(33 * 1024)}`))).toBe(413)
+    expect(await status(a.submit(cid, Array(257).fill('0x00')))).toBe(400)
   })
 
   test('404s: unknown chain, unknown route', async () => {

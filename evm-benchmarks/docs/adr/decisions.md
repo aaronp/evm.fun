@@ -1425,8 +1425,8 @@ cloud-orders, with the chain ACL on the submitting key only. Decided with Aaron:
 Claude's call: outcomes are compared by status and logs (not state), so a tx that behaves the same way after a rebase is confirmed; one that does not is conflicted and the user decides.
 
 ## Consequences
-- `POST /submit` answers per tx: mined, or refused with a code (`nonce`, `invalid`); a resend of a mined tx answers mined; the body is capped at 1 MiB (`413`).
-- Behaviour changes in the worker: an undecodable tx is refused per tx (`invalid`), not a 400 for the request; an empty submit mines nothing; non-hex input is a 400; webevm checks nonce and funds only at mine time, so `ChainNode` prechecks them (the funds check is conservative). A server fault (failed rebuild or commit) answers 503, so a `Follower` keeps its txs pending through an outage; a tx-caused rejection stays 400.
+- `POST /submit` answers per tx: mined, or refused with a code (`nonce`, `invalid`); a resend of a mined tx answers mined; the body is capped at 512 KiB (`413`) and 256 txs, so a block row stays under DO SQLite's 2 MB; a block row over 1.5 MB is a 400 before it is stored; `GET /blocks` pages at 100 blocks or 8 MiB.
+- Behaviour changes in the worker: an undecodable tx is refused per tx (`invalid`), not a 400 for the request; an empty submit mines nothing; non-hex input is a 400; webevm checks nonce and funds only at mine time, so `ChainNode` prechecks them; a tx short of funds is retried in a second block of the same request, since an earlier tx may fund it. A server fault (any failure after mining, or a failed rebuild) answers 503, so a `Follower` keeps its txs pending through an outage; a tx-caused rejection stays 400.
 - Known limits: a re-signed contract deploy, or a tx whose logs include the block number or time, always ends conflicted; `send` can wait behind a running `sync`; webevm 0.9.1 `loadState` does not reset accounts missing from the dump, so the Follower rebases on a fresh node (upstream, t-130).
 - A self-governed allow-list contract is a later card (t-147).
 - Risks R59 and R60.

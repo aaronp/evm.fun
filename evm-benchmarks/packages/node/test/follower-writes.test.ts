@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { decodeFunctionResult, encodeDeployData, encodeFunctionData, getContractAddress, keccak256, toBytes, type Address, type Hex, type LocalAccount } from 'viem'
+import { decodeFunctionResult, encodeDeployData, encodeFunctionData, getContractAddress, keccak256, toBytes, toHex, type Address, type Hex, type LocalAccount } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { createNode } from 'webevm'
 import { createRevmEngine } from 'webevm/revm'
@@ -20,7 +20,7 @@ const chainHost = (id: string): ChainHandleLike => {
   if (!h) hosts.set(id, (h = new ChainHost(bunSql(), wasm, { rootAdmin: admin.address, chain: chainHost })))
   return h
 }
-let srv: ReturnType<typeof Bun.serve>, url: string, cid: string, token: Address
+let srv: ReturnType<typeof Bun.serve>, url: string, cid: string, token: Address, logger: Address
 const as = (a: LocalAccount) => new NodeClient(url, a)
 const followers: Follower[] = []
 const keep = (f: Follower) => (followers.push(f), f)
@@ -66,12 +66,15 @@ const spoil = async (store: MemoryFollowerStore, key = cid) => {
   const c = (await store.loadConfirmed(key))!
   await store.saveConfirmed(key, { ...c, head: { ...c.head, stateRoot: `0x${'11'.repeat(32)}` } })
 }
+/** `from` emits one log of `bytes` zero bytes (hex: twice that in a stored receipt), on device `f`. */
+const bigLog = async (f: Follower, from: LocalAccount, bytes: number) =>
+  f.send(await sign(from, await nonceOn(f, from.address), logger, toHex(bytes, { size: 32 }), 10_000_000n))
 const signers = (...keys: LocalAccount[]) => (from: Address) => keys.find((k) => k.address.toLowerCase() === from.toLowerCase())
 
 beforeAll(async () => {
   srv = Bun.serve({ port: 0, fetch: (r) => handle(r, { chain: chainHost }) })
   url = `http://localhost:${srv.port}`
-  const n = await createNode({ chainId: 31337, computeStateRoot: true, miningConfig: { type: 'manual' }, engine: await createRevmEngine({ wasm }) })
+  const n = await createNode({ chainId: 31337, computeStateRoot: true, miningConfig: { type: 'manual' }, initialBalances: { [admin.address]: 10n ** 24n }, engine: await createRevmEngine({ wasm }) })
   const dump = await n.dumpState()
   await n.dispose()
   const c = as(admin)
@@ -79,10 +82,13 @@ beforeAll(async () => {
   const { access } = await c.info(cid)
   const nonce = await c.nonce(cid)
   token = getContractAddress({ from: admin.address, nonce: BigInt(nonce) })
+  logger = getContractAddress({ from: admin.address, nonce: BigInt(nonce + 3) })
   mined(await c.submit(cid, [
     await sign(admin, nonce, undefined, encodeDeployData({ abi: MintableToken.abi, bytecode: MintableToken.bytecode, args: ['T', 'T'] }), 3_000_000n),
     await inviteTx(admin, nonce + 1, access, 'tablet-code', 600, 1, GRANT_WRITER),
     await inviteTx(admin, nonce + 2, access, 'phone-code', 600, 1, GRANT_READER),
+    // LOG0 of calldata[0:32] zero bytes: runtime 6000356000a000 (calldataload(0), log0(0, it))
+    await sign(admin, nonce + 3, undefined, '0x666000356000a00060005260076019f3'),
   ]))
   await as(tablet).join(cid, await claimTx(tablet, 0, 'tablet-code', access))
   await as(phone).join(cid, await claimTx(phone, 0, 'phone-code', access))
@@ -486,7 +492,7 @@ describe('Follower writes', () => {
       account: admin, state: real.state.bind(real), blocks: real.blocks.bind(real),
       submit: (id: string, txs: Hex[]) => {
         sizes.push(txs.length)
-        return txs.length > 2 || (big && txs.includes(big)) ? Promise.reject(new NodeError(413, 'body over 1048576 bytes')) : real.submit(id, txs)
+        return txs.length > 2 || (big && txs.includes(big)) ? Promise.reject(new NodeError(413, 'body over 524288 bytes')) : real.submit(id, txs)
       },
     } as unknown as NodeClient
     const f = keep(await Follower.open(stub, cid, wasm))
@@ -496,6 +502,82 @@ describe('Follower writes', () => {
     expect(f.pending().map((t) => t.status)).toEqual(['confirmed', 'confirmed', 'confirmed', 'confirmed', 'refused'])
     expect(f.pending()[4]!.reason).toMatch(/too large to submit/)
     expect(sizes).toEqual([5, 2, 3, 1, 2, 1, 1]) // halves, in order; the big one alone, then refused
+  })
+
+  test('a block whose stored row would be too large is a 400: the split mines what fits, a single oversize tx is refused', async () => {
+    const real = as(admin)
+    const sizes: number[] = []
+    const stub = { account: admin, state: real.state.bind(real), blocks: real.blocks.bind(real), submit: (id: string, txs: Hex[]) => (sizes.push(txs.length), real.submit(id, txs)) } as unknown as NodeClient
+    const f = keep(await Follower.open(stub, cid, wasm))
+    // ~1.2 MB of receipt each; two together pass the 1.5 MB row budget, and 800 KB of log (1.6 MB hex) alone does
+    for (const n of [600_000, 600_000, 600_000, 800_000]) await bigLog(f, fresh(), n)
+    await f.sync()
+    expect(f.pending().map((t) => t.status)).toEqual(['confirmed', 'confirmed', 'confirmed', 'refused'])
+    expect(f.pending()[3]!.reason).toMatch(/block too large/)
+    expect(sizes).toEqual([4, 2, 1, 1, 2, 1, 1])
+    expect(await f.sync()).toEqual(await cloudHead())
+  }, 60_000)
+
+  test('GET /blocks pages by size as well as count; a Follower still reaches the head', async () => {
+    const f = keep(await Follower.open(as(admin), cid, wasm))
+    const from = (await cloudHead()).number
+    const c = as(admin)
+    for (let i = 0; i < 8; i++) {
+      const k = fresh()
+      mined(await c.submit(cid, [await sign(k, 0, logger, toHex(600_000, { size: 32 }), 10_000_000n)]))
+    }
+    const page = await c.blocks(cid, from)
+    expect(page.blocks.length).toBeGreaterThan(0)
+    expect(page.blocks.length).toBeLessThan(8) // 8 x ~1.2 MB is over the 8 MiB page
+    expect(await f.sync()).toEqual(await cloudHead())
+  }, 60_000)
+
+  test('offline: fund a new key, then that key pays, in one batch → both confirmed', async () => {
+    const k = fresh(), x = fresh().address
+    const f = keep(await Follower.open(as(admin), cid, wasm))
+    const eth = (from: LocalAccount, nonce: number, to: Address, value: bigint) =>
+      from.signTransaction({ type: 'eip1559', chainId: 31337, nonce, to, value, gas: 21_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    await f.send(await eth(admin, await nonceOn(f, admin.address), k.address, 10n ** 18n))
+    await f.send(await eth(k, 0, x, 10n ** 17n))
+    await f.sync()
+    expect(f.pending().map((t) => t.status)).toEqual(['confirmed', 'confirmed'])
+    expect(await f.read(async (n) => BigInt((await n.request({ method: 'eth_getBalance', params: [x, 'latest'] })) as string))).toBe(10n ** 17n)
+  })
+
+  test('a store failure while re-signing keeps the old tx in memory too; the next sync re-signs it', async () => {
+    const k = fresh(), x = fresh().address, y = fresh().address
+    await mint(k.address, 10n)
+    const a = keep(await Follower.open(as(admin), cid, wasm, { signer: signers(k) }))
+    const store = new MemoryFollowerStore()
+    const put = store.putPending.bind(store)
+    let fail = true
+    store.putPending = async (key, t) => {
+      if (fail && t.nonce === 1) { fail = false; throw new Error('quota') }
+      return put(key, t)
+    }
+    const b = keep(await Follower.open(as(tablet), cid, wasm, { store, signer: signers(k) }))
+    await transfer(a, k, x, 1n)
+    await a.sync()
+    await transfer(b, k, y, 1n)
+    await expect(b.sync()).rejects.toThrow('quota')
+    expect(b.pending()).toEqual(await store.listPending(cid)) // memory and store agree: the old nonce-0 tx
+    expect(b.pending()[0]!.nonce).toBe(0)
+    await b.sync()
+    expect(b.pending().map((t) => [t.status, t.nonce])).toEqual([['confirmed', 1]])
+  })
+
+  test('a mismatch refuses the pending txs', async () => {
+    const real = as(admin)
+    const stub = {
+      account: admin, state: real.state.bind(real),
+      submit: () => Promise.reject(new NodeError(503, 'down')),
+      blocks: async (id: string, after: number) => ({ head: { ...(await real.blocks(id, after)).head, number: after - 1 }, blocks: [] }),
+    } as unknown as NodeClient
+    const f = keep(await Follower.open(stub, cid, wasm))
+    await transfer(f, fresh(), fresh().address, 0n)
+    await expect(f.sync()).rejects.toThrow('cloud head')
+    expect(f.status).toBe('mismatch')
+    expect(f.pending()[0]).toMatchObject({ status: 'refused', reason: expect.stringMatching(/chain no longer matches/) })
   })
 
   test('after dismissing the newest records and reopening, a new unrelated conflict gets no dependsOn', async () => {

@@ -15,8 +15,11 @@ export const GRANT_CREATE_CHAIN = 4
  * leaves room for both hops and the DO's 128 MB memory. evm.fun refuses a larger chain before spending a code.
  */
 export const MAX_CREATE_BYTES = 8 * 1024 * 1024
-/** Largest POST /chains/:id/submit body the worker takes (413 above it; checked before auth). Other routes take 64 KiB. */
-export const MAX_SUBMIT_BYTES = 1024 * 1024
+/**
+ * Largest POST /chains/:id/submit body the worker takes (413 above it; checked before auth). Other routes take 64 KiB.
+ * 512 KiB keeps a block's stored row (txs plus receipts) well under Durable Object SQLite's 2 MB row limit.
+ */
+export const MAX_SUBMIT_BYTES = 512 * 1024
 const tx = { type: 'eip1559', maxFeePerGas: 0n, maxPriorityFeePerGas: 0n } as const
 
 export interface BlockSummary { number: number; hash: string; stateRoot: string }

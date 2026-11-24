@@ -53,7 +53,7 @@ try {
   const tokens: Hex[] = []
   const nonce = senders.map(() => 2)
   const head = await Promise.all(senders.map(async (s) => tx(s, 0, undefined, encodeDeployData({ abi: MintableToken.abi, bytecode: MintableToken.bytecode, args: ['T', 'T'] }), 3_000_000n)))
-  mined(await c.submit(cid, head)) // 10 deploys of ~10 KB hex each, well under the 1 MiB submit cap
+  mined(await c.submit(cid, head)) // 10 deploys of ~10 KB hex each, well under the 512 KiB submit cap
   const { getContractAddress } = await import('viem')
   for (const s of senders) tokens.push(getContractAddress({ from: s.address, nonce: 0n }))
   mined(await c.submit(cid, await Promise.all(senders.map((s, i) => tx(s, 1, tokens[i], encodeFunctionData({ abi: MintableToken.abi, functionName: 'mint', args: [s.address, 10n ** 24n] }))))))

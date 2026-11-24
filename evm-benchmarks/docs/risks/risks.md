@@ -981,6 +981,7 @@ The worker redeems the code on the root chain before the new chain's Durable Obj
 | Stateless set-up checks run before the redeem, so a malformed upload never spends a code; the admin can issue another | Preventive | Partial |
 | Upload capped at 8 MiB (`413` before auth; evm.fun refuses a larger chain before using a code), so a big chain can't exhaust the DO or the RPC hop after the redeem | Preventive | Partial |
 | A failed create after the redeem is recorded (`codes` shows `failed: <error>`), so the admin sees why the use is gone; evm.fun says the code may have been used | Detective | Partial |
+| A server fault while mining the set-up block answers 503, which reads as "retry", but the code is already spent and a retry gets 403; plan 21's create UI must say so | Detective | None yet |
 
 ## R54 · The root admin key sits on Aaron's machine
 - impact: 4
@@ -1087,6 +1088,7 @@ A write made offline is stored only in the device's `FollowerStore` until a sync
 |---|---|---|
 | Each tx is stored before `send` returns, and the list is shown (`onPending`) so a user sees what is unsent | Detective | Partial |
 | A failed submit or an unreachable cloud keeps the tx pending; a server fault answers 503, not a refusal | Preventive | Partial |
+| A block too large to store is a 400 (the Follower's split refuses just the tx), not a 503 retried for ever; `GET /blocks` pages by size (8 MiB) so a device far behind still catches up | Preventive | Partial |
 | Settled records stay until the user dismisses them | Detective | Partial |
 | A durable store for the web app (IndexedDB) instead of memory | Preventive | None yet |
 

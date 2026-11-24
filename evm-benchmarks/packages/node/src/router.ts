@@ -26,6 +26,8 @@ export interface RouterDeps { chain(id: string): ChainHandleLike }
 
 /** Body cap for every route but POST /chains and submit (join, signed GETs). */
 const MAX_BODY_BYTES = 64 * 1024
+/** Most txs in one submit: each costs a sender recovery and RPCs in one DO turn (a Follower sends 25). */
+const MAX_SUBMIT_TXS = 256
 
 const ORIGINS = [/^https:\/\/mychain\.dev$/, /^https:\/\/aaronp\.github\.io$/, /^http:\/\/localhost(:\d+)?$/]
 
@@ -155,6 +157,7 @@ export class ChainHost implements ChainHandleLike {
       case 'POST submit': {
         const { txs } = parse<{ txs: Hex[] }>(r.body)
         if (!Array.isArray(txs) || !txs.length) throw new ServiceError(400, 'txs must be a non-empty array')
+        if (txs.length > MAX_SUBMIT_TXS) throw new ServiceError(400, `at most ${MAX_SUBMIT_TXS} txs per submit`)
         return { status: 200, body: await s.submit(signer, txs, now()) }
       }
       case 'GET state':

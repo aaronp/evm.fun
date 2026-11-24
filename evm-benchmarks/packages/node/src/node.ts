@@ -1,13 +1,20 @@
 import { createNode, type SerializedState, type SlimNode } from 'webevm'
 import { createRevmEngine } from 'webevm/revm'
 import { keccak256, parseTransaction, recoverTransactionAddress, type Hex } from 'viem'
-import { nonZero, type ChainStore, type SerializedBlock, type StateDiff, type StoredBlock } from './store'
+import { MAX_BLOCK_BYTES, nonZero, type ChainStore, type SerializedBlock, type StateDiff, type StoredBlock } from './store'
 
 /** A failure not caused by a tx (a rebuild, the dump or the store's commit failed): the service answers 5xx, so a client keeps its txs. */
 export class NodeFault extends Error {}
 
 /** One tx of an `apply`: accepted into the block, or refused by the node (and in no block). */
 export type TxOutcome = { ok: true; hash: Hex } | { ok: false; hash: Hex; error: string }
+
+/** Funds the sender lacks now; an earlier tx of the same apply may still provide them. */
+class Unfunded extends Error {}
+/** A sender with a deferred tx: its later txs wait too, so its nonces stay contiguous. */
+const BEHIND = new Error('deferred behind an earlier tx from the same sender')
+
+type Outcome = TxOutcome & { deferred?: boolean }
 
 /** Longest refusal reason kept (webevm's own run to ~500 characters; the leading clause is what matters). */
 const MAX_REASON = 300
@@ -102,10 +109,13 @@ export class ChainNode {
   }
 
   /**
-   * Execute `txs` as one block at `timestamp` and commit it; queued behind any other `apply`/`read`.
+   * Execute `txs` at `timestamp` and commit them; queued behind any other `apply`/`read`.
    * Each tx is checked and sent on its own: one the node refuses is reported in `results` (same order as `txs`) and
-   * left out; the block holds exactly the accepted ones, in order. No accepted tx → no block, nothing committed.
-   * On any other failure the node is rebuilt from the store and the error rethrown.
+   * left out. Up to two blocks: the accepted txs, in order; then, if a tx lacked funds, it and its sender's later txs
+   * are tried again on top (an earlier tx may have paid it), and only what fails then is refused. No accepted tx → no
+   * block, nothing committed. `block` is the last one committed. A block whose stored row would pass MAX_BLOCK_BYTES
+   * is a plain error (the client splits the batch). On any other failure the node is rebuilt from the store and the
+   * error rethrown.
    */
   apply(timestamp: number, txs: Hex[]): Promise<{ block?: StoredBlock; results: TxOutcome[] }> {
     return this.#serial(() => this.#apply(timestamp, txs))
@@ -116,48 +126,69 @@ export class ChainNode {
    * tx at send and then refuses the whole batch at `mine()`. The same rules, read against the queued txs, except that
    * an EIP-7702 authorization's nonce bump inside the batch is not modelled (that batch fails at mine). Returns its cost.
    */
-  async #admit(raw: Hex, spent: Map<string, bigint>): Promise<[string, bigint]> {
-    const tx = parseTransaction(raw)
-    const from = (await recoverTransactionAddress({ serializedTransaction: raw as never })).toLowerCase()
+  async #admit(tx: ReturnType<typeof parseTransaction>, from: string, spent: Map<string, bigint>): Promise<bigint> {
     const ask = (method: string, tag: string) => this.#node.request({ method, params: [from, tag] }).then((v) => BigInt(v as string))
     // 'pending' counts this block's queued txs from `from`, so it is the nonce `from` will have when this one runs
     const [nonce, balance] = await Promise.all([ask('eth_getTransactionCount', 'pending'), ask('eth_getBalance', 'latest')])
     if (BigInt(tx.nonce ?? 0) !== nonce)
       throw new Error(`nonce too ${BigInt(tx.nonce ?? 0) < nonce ? 'low' : 'high'}: address ${from}, tx: ${tx.nonce ?? 0}, state: ${nonce}`)
-    // ponytail: funds against the latest balance less this block's earlier txs from `from`, ignoring what earlier txs
-    // pay in; it can refuse a tx a same-block transfer would fund (it mines next block), never fail the batch.
+    // funds against the latest balance less this block's earlier txs from `from`, ignoring what earlier txs pay in:
+    // it never fails the batch, and #apply retries an Unfunded tx in a second block on top of this one
     const cost = (tx.value ?? 0n) + (tx.gas ?? 0n) * (tx.maxFeePerGas ?? tx.gasPrice ?? 0n)
     const want = (spent.get(from) ?? 0n) + cost
-    if (balance < want) throw new Error(`insufficient funds for gas * price + value: address ${from} have ${balance} want ${want}`)
-    return [from, want]
+    if (balance < want) throw new Unfunded(`insufficient funds for gas * price + value: address ${from} have ${balance} want ${want}`)
+    return want
   }
 
   async #apply(timestamp: number, txs: Hex[]): Promise<{ block?: StoredBlock; results: TxOutcome[] }> {
     // a due rebuild runs here, before any tx is sent, so a committed block is never reported as failed
     if (this.blocksSinceRebuild >= (this.cfg.rebuildEvery ?? 1000)) await this.rebuild().catch((e) => { throw new NodeFault(`rebuild failed: ${msg(e)}`) })
-    const results: TxOutcome[] = []
+    const first = await this.#block(timestamp, txs, true)
+    const later = first.results.flatMap((r, i) => (r.deferred ? [i] : []))
+    let { block } = first
+    const results: TxOutcome[] = first.results.map(({ deferred: _, ...r }) => r)
+    if (!later.length) return { block, results }
+    // the second round refuses for good: funds still short → invalid, the txs behind it → nonce too high
+    // if it throws, the first block stays committed: the request fails as a whole (so a client's split can isolate the
+    // culprit), and a resend answers the first block's txs as mined
+    const second = await this.#block(timestamp, later.map((i) => txs[i]!), false)
+    block = second.block ?? block
+    later.forEach((i, j) => (results[i] = second.results[j]!))
+    return { block, results }
+  }
+
+  /** One block of `txs` (see `apply`). With `defer`, a tx short of funds, and its sender's later txs, are marked `deferred`. */
+  async #block(timestamp: number, txs: Hex[], defer: boolean): Promise<{ block?: StoredBlock; results: Outcome[] }> {
+    const results: Outcome[] = []
     const sent: string[] = []
     try {
       this.#env.timestamp = BigInt(timestamp)
       const spent = new Map<string, bigint>()
+      const deferred = new Set<string>()
       for (const raw of txs) {
         const hash = keccak256(raw)
+        let from: string | undefined
         try {
-          const [from, want] = await this.#admit(raw, spent)
+          const tx = parseTransaction(raw)
+          from = (await recoverTransactionAddress({ serializedTransaction: raw as never })).toLowerCase()
+          if (defer && deferred.has(from)) throw BEHIND
+          const want = await this.#admit(tx, from, spent)
           // a tx refused here (bad encoding, signature, gas limit) is never queued
           sent.push((await this.#node.request({ method: 'eth_sendRawTransaction', params: [raw] })) as string)
           spent.set(from, want)
           results.push({ ok: true, hash })
         } catch (e) {
-          // viem's shortMessage: its full message can echo the whole serialized tx (up to 1 MiB)
+          // viem's shortMessage: its full message can echo the whole serialized tx (up to 512 KiB)
           const m = (e as { shortMessage?: string }).shortMessage ?? (e instanceof Error ? e.message : String(e))
-          results.push({ ok: false, hash, error: m.length > MAX_REASON ? `${m.slice(0, MAX_REASON)}…` : m })
+          const out: Outcome = { ok: false, hash, error: m.length > MAX_REASON ? `${m.slice(0, MAX_REASON)}…` : m }
+          if (defer && from && (e === BEHIND || e instanceof Unfunded)) deferred.add(from), (out.deferred = true)
+          results.push(out)
         }
       }
       if (!sent.length) return { results }
       // a rejection from mine() itself stays a plain error (400): most likely a tx the prechecks did not model (e.g. a drained
       // 7702 sender), and the Follower's split isolates and refuses just that tx. A 503 would be retried for ever and block the queue.
-      // Everything after mine() cannot be a tx's fault: a NodeFault (503).
+      // Everything after mine() cannot be a tx's fault: a NodeFault (503), except a block too large to store (below).
       const mined = await this.#node.mine()
       let block: StoredBlock, after: SerializedState
       try {
@@ -171,6 +202,9 @@ export class ChainNode {
           receipts: header.transactions.map((h) => need(after.receipts[h], h)),
         }
       } catch (e) { throw new NodeFault(msg(e)) }
+      // caused by the txs (their size, their logs), so a plain error: the client's split isolates the tx that is too big
+      const bytes = JSON.stringify(block).length
+      if (bytes > MAX_BLOCK_BYTES) throw new Error(`block too large: ${bytes} bytes to store (limit ${MAX_BLOCK_BYTES})`)
       try { this.store.commit(block, diffState(this.#dump, after)) } catch (e) { throw new NodeFault(`commit failed: ${msg(e)}`) }
       this.#dump = after
       this.blocksSinceRebuild++

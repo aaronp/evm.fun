@@ -887,7 +887,7 @@ Demo (t-136): after Deploy (t-134), the browser chain follows the cloud node, so
 
 Part 1 done (worker + Follower): `Follower` in `packages/node` boots from `GET /state` and replays `GET /blocks` with root and hash checks. A (follow and show) done: Deploy converts the owner's copy to a read-only follower, earlier deploys convert on open, and followers are saved as pointers in workspace files (ADR-0024). B (follow and use) remaining: submitting from the browser through the cloud node, so pages can write to a deployed chain.
 
-B part 1 done (worker + Follower writes): per-tx submit answers, idempotent resends, a 1 MiB cap, a chain ACL on the submitting key, `FollowerStore` and `Follower.send`/`sync` with pending, conflicted and refused txs; proven by a two-device race in `make e2e-node` (ADR-0025, risks R59-R60). The browser UI for it remains.
+B part 1 done (worker + Follower writes): per-tx submit answers, idempotent resends, a 512 KiB cap, a chain ACL on the submitting key, `FollowerStore` and `Follower.send`/`sync` with pending, conflicted and refused txs; proven by a two-device race in `make e2e-node` (ADR-0025, risks R59-R60). The browser UI for it remains.
 ```
 
 ```dod

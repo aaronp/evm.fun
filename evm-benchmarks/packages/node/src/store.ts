@@ -18,6 +18,8 @@ export interface StoredBlock {
 }
 
 export const HEADERS_KEPT = 256
+/** Largest block row (header, txs and receipts as stored) a commit takes: Durable Object SQLite caps a row at 2 MB. */
+export const MAX_BLOCK_BYTES = 1_500_000
 
 /** webevm keeps a slot written to zero in its dump (as `0x`); the store drops it, as the trie does. */
 export const nonZero = (slots: Record<string, string> = {}) => Object.fromEntries(Object.entries(slots).filter(([, v]) => !/^0x0*$/.test(v)))
@@ -85,7 +87,13 @@ export class ChainStore {
     return JSON.parse(row.header as string)
   }
 
-  blocks(from: number, to: number): StoredBlock[] {
+  /** Blocks `from`..`to`, stopping before the one that would take the rows past `maxBytes` (always at least one). */
+  blocks(from: number, to: number, maxBytes = Infinity): StoredBlock[] {
+    let total = 0
+    for (const r of this.sql.exec('SELECT number, length(header) + length(txs) + length(receipts) AS n FROM blocks WHERE number BETWEEN ? AND ? ORDER BY number', from, to)) {
+      if (total && total + Number(r.n) > maxBytes) { to = Number(r.number) - 1; break }
+      total += Number(r.n)
+    }
     return this.sql
       .exec('SELECT header, txs, receipts FROM blocks WHERE number BETWEEN ? AND ? ORDER BY number', from, to)
       .map((r) => ({

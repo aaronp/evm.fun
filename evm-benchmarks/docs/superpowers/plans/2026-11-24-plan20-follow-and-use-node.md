@@ -14,7 +14,7 @@
 
 - webevm **0.9.1**, revm-wasm **0.3.1**. `packages/node/src/*` must not import `bun:*` or `node:*`.
 - **Two access controls, never conflated:** the chain `ACL` checks only the key that signs the request; tx senders need no chain role (contracts decide). Remove the "every sender is a writer" check.
-- `POST /chains/:id/submit` body cap **1 MiB** (`MAX_SUBMIT_BYTES = 1024 * 1024`, exported from `client.ts`); other routes keep 64 KiB; create keeps 8 MiB.
+- `POST /chains/:id/submit` body cap **512 KiB** (`MAX_SUBMIT_BYTES = 512 * 1024`, exported from `client.ts`; lowered from 1 MiB in the final fix so a block row stays under DO SQLite's 2 MB); other routes keep 64 KiB; create keeps 8 MiB.
 - Submit reply: `{ head: BlockSummary; results: TxResult[] }`, `TxResult = { hash: Hex; result: 'mined'; block: number } | { hash: Hex; result: 'refused'; code: 'nonce' | 'invalid'; reason: string }`, in request order. Signer not a writer → 403 for the whole request (unchanged). No accepted txs → no block.
 - A tx whose hash is already on chain → `mined` with its block (idempotent resend).
 - Reverted txs are mined (receipt status 0).
@@ -56,7 +56,7 @@
 - [ ] **Step 2:** FAIL. **Step 3:** implement; drop the per-sender writer check in `#submit`. **Step 4:** PASS + full suite.
 - [ ] **Step 5:** Commit `feat(node): chain ACL interface over ChainAccess; submit checks only the submitter (t-132)`.
 
-### Task 3: Per-tx submit, tx index, 1 MiB cap
+### Task 3: Per-tx submit, tx index, submit cap (1 MiB, later 512 KiB)
 
 **Files:**
 - Modify: `packages/node/src/node.ts`, `packages/node/src/store.ts`, `packages/node/src/service.ts`, `packages/node/src/router.ts`, `packages/node/src/client.ts`

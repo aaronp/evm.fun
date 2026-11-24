@@ -64,7 +64,7 @@ keeps working, and its changes are safe until it reconnects.
   block? }` per tx plus the head. A batch is no longer all-or-nothing.
 - **Idempotent resubmits.** A device that lost the reply resends; a tx whose hash is already on the chain is answered
   `mined` with its block, not refused. The cloud keeps a tx-hash → block index beside the chain store.
-- **Batch size.** The submit body cap rises from 64 KiB to **1 MiB** (contract deploys are large; t-139 needs it too).
+- **Batch size.** The submit body cap rises from 64 KiB to **512 KiB** (contract deploys are large; t-139 needs it too). Not 1 MiB: a block's row (txs plus receipts) must stay under Durable Object SQLite's 2 MB row limit.
 - The cloud mines reverted transactions (status 0) as part of the block — the history shows the attempt.
 
 ### Follower (packages/node, UI-free)
