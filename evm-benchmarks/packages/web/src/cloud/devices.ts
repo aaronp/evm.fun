@@ -1,7 +1,7 @@
 // The Devices panel's admin actions on a cloud chain: invite a device with a code, remove a member.
 import type { Hex, LocalAccount } from 'viem'
 import { joinLink } from './join'
-import { GRANT_READER, GRANT_WRITER, accessTx, inviteTx, mined, type Member, type NodeClient } from '@evmb/node/src/client'
+import { GRANT_DEPLOY, GRANT_READER, GRANT_WRITER, accessTx, inviteTx, mined, type Member, type NodeClient } from '@evmb/node/src/client'
 
 export type DeviceRole = 'reader' | 'writer'
 
@@ -10,7 +10,7 @@ export const multiUseWriterWarning = (role: DeviceRole, uses: number): string | 
   role === 'writer' && uses > 1 ? 'Anyone who can read this chain could see a multi-use writer code once it is used. Prefer single-use.' : undefined
 
 /** Step-1 defaults of the invite wizard, restored for every new invite (the single link is opt-in each time). */
-export const inviteDefaults = { ttl: '3600', uses: '1', role: 'reader' as DeviceRole, singleLink: false }
+export const inviteDefaults = { ttl: '3600', uses: '1', role: 'reader' as DeviceRole, deploy: false, singleLink: false }
 
 /** The warning beside the "single join link" checkbox. */
 export const singleLinkWarning = (role: DeviceRole) =>
@@ -21,9 +21,9 @@ export const inviteShare = (o: { base: string; nodeUrl: string; chainId: string;
   o.singleLink ? { link: joinLink(o.base, o.nodeUrl, o.chainId, o.code) } : { link: joinLink(o.base, o.nodeUrl, o.chainId), code: o.code.trim() }
 
 /** Commit an invite for `code` on chain `chainId`; `client` signs as `admin`. Only the code's hash goes on chain. */
-export async function inviteDevice(o: { client: NodeClient; chainId: string; admin: LocalAccount; code: string; ttlS: number; uses: number; role: DeviceRole }) {
+export async function inviteDevice(o: { client: NodeClient; chainId: string; admin: LocalAccount; code: string; ttlS: number; uses: number; role: DeviceRole; deploy?: boolean }) {
   const { nonce, access } = await o.client.joinInfo(o.chainId)
-  const grants = o.role === 'writer' ? GRANT_WRITER : GRANT_READER
+  const grants = o.role === 'writer' ? GRANT_WRITER | (o.deploy ? GRANT_DEPLOY : 0) : GRANT_READER
   mined(await o.client.submit(o.chainId, [await inviteTx(o.admin, nonce, access, o.code.trim(), o.ttlS, o.uses, grants)]))
 }
 
@@ -43,4 +43,10 @@ export async function removeDevice(o: { client: NodeClient; chainId: string; adm
   ]
   const txs: Hex[] = await Promise.all(calls.map(([fn, arg], i) => accessTx(o.admin, nonce + i, access, fn, arg)))
   mined(await o.client.submit(o.chainId, txs))
+}
+
+/** Take the deploy role from a writer (it stays a writer). `client` signs as `admin`. */
+export async function removeDeploy(o: { client: NodeClient; chainId: string; admin: LocalAccount; member: Member }) {
+  const { nonce, access } = await o.client.joinInfo(o.chainId)
+  mined(await o.client.submit(o.chainId, [await accessTx(o.admin, nonce, access, 'removeDeployer', o.member.address)]))
 }

@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, jest, test } from 'bu
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { keccak256, type LocalAccount } from 'viem'
 import { ChainHost, handle, type ChainHandleLike } from '@evmb/node/src/router'
-import { GRANT_READER, GRANT_WRITER, NodeClient, accessTx, claimTx, generateCode, inviteTx, setupTxs } from '@evmb/node/src/client'
+import { GRANT_DEPLOY, GRANT_READER, GRANT_WRITER, NodeClient, accessTx, claimTx, generateCode, inviteTx, setupTxs } from '@evmb/node/src/client'
 import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { Follower } from '@evmb/node/src/follower'
@@ -569,6 +569,39 @@ describe('writing from a follower', () => {
     expect(ap(h).notice()).toBe('This device can only read Shop.')
     await expect(h.send(await sign(reader, 0))).rejects.toThrow('This device can only read Shop.')
     expect(h.approach.pending!()).toBe(0)
+    await registry.remove(h.info.id)
+  })
+
+  test("a device without deploy: a creation send throws the local message, a call goes through", async () => {
+    const w = await member(GRANT_WRITER | GRANT_READER)
+    const { registry } = env({ lock: () => true, account: withKey(w) })
+    const h = await addFollower(registry, { name: 'Shop', follows: follows(w.address) })
+    const create = await w.signTransaction({ type: 'eip1559', chainId: 31337, nonce: 1, data: '0x00', value: 0n, gas: 100_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    await expect(h.send(create)).rejects.toThrow("This device can't deploy contracts on Shop.")
+    expect(h.approach.pending!()).toBe(0)
+    await h.send(await sign(w, 1))
+    expect(h.approach.pending!()).toBe(1)
+    await registry.remove(h.info.id)
+  })
+
+  test('deploy removed with a creation pending: it settles refused with the reason, the call is unaffected', async () => {
+    const w = await member(GRANT_WRITER | GRANT_READER | GRANT_DEPLOY)
+    const { registry } = env({ lock: () => true, account: withKey(w) })
+    const h = await addFollower(registry, { name: 'Shop', follows: follows(w.address) })
+    const c = adminClient()
+    await c.submit(cid, [await accessTx(admin, await c.nonce(cid), access, 'removeDeployer', w.address)])
+    const create = await w.signTransaction({ type: 'eip1559', chainId: 31337, nonce: 1, data: '0x00', value: 0n, gas: 100_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    await h.send(create)
+    await h.send(await sign(w, 2))
+    await syncNow(h)
+    await syncNow(h)
+    const txs = ap(h).pendingTxs()
+    expect(txs.find((t: any) => t.status === 'refused')).toMatchObject({ status: 'refused', reason: `${w.address.toLowerCase()} can't deploy contracts on this chain` })
+    expect(txs.filter((t: any) => t.status === 'refused')).toHaveLength(1)
+    expect(txs.map((t: any) => t.status)).toContain('confirmed') // the call, re-signed at the nonce the refusal freed
+    expect(ap(h).canWrite()).toBeUndefined() // still a writer
+    const create2 = await w.signTransaction({ type: 'eip1559', chainId: 31337, nonce: 3, data: '0x00', value: 0n, gas: 100_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    await expect(h.send(create2)).rejects.toThrow("This device can't deploy contracts on Shop.") // learned from the refusal
     await registry.remove(h.info.id)
   })
 

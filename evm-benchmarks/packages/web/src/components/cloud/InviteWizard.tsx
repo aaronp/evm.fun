@@ -20,6 +20,7 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
   const [ttl, setTtl] = useState(inviteDefaults.ttl)
   const [uses, setUses] = useState(inviteDefaults.uses)
   const [role, setRole] = useState<DeviceRole>(inviteDefaults.role)
+  const [deploy, setDeploy] = useState(inviteDefaults.deploy)
   const [singleLink, setSingleLink] = useState(inviteDefaults.singleLink)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
@@ -29,12 +30,12 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
   const valid = codeUsable(code) && Number.isInteger(n) && n >= 1 && n <= 1000
   const warning = multiUseWriterWarning(role, n)
 
-  function reset() { setTtl(inviteDefaults.ttl); setUses(inviteDefaults.uses); setRole(inviteDefaults.role); setSingleLink(inviteDefaults.singleLink); setShared(undefined) }
+  function reset() { setTtl(inviteDefaults.ttl); setUses(inviteDefaults.uses); setRole(inviteDefaults.role); setDeploy(inviteDefaults.deploy); setSingleLink(inviteDefaults.singleLink); setShared(undefined) }
 
   async function next() {
     setBusy(true); setErr(undefined)
     try {
-      await inviteDevice({ client, chainId, admin: signer, code, ttlS: Number(ttl), uses: n, role })
+      await inviteDevice({ client, chainId, admin: signer, code, ttlS: Number(ttl), uses: n, role, deploy })
       setShared({ ...inviteShare({ base: location.origin + location.pathname, nodeUrl, chainId, code, singleLink }), ...(singleLink && { warn: singleLinkWarning(role) }) })
       setCode(generateCode())
     } catch (e) {
@@ -99,6 +100,12 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
         </label>
       </div>
       {warning && <Notice>{warning}</Notice>}
+      {role === 'writer' && (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={deploy} onChange={(e) => setDeploy(e.target.checked)} />
+          Can deploy contracts
+        </label>
+      )}
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={singleLink} onChange={(e) => setSingleLink(e.target.checked)} />
         Create a single join link (includes the code)

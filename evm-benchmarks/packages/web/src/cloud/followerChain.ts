@@ -1,6 +1,6 @@
 // A follower chain's Approach: a local copy of a cloud chain (packages/node Follower). Sends run locally at once and stay
 // pending until a sync confirms them; polled.
-import type { Address, LocalAccount } from 'viem'
+import { parseTransaction, type Address, type LocalAccount } from 'viem'
 import type { ChainInfo } from '../chain/handle'
 import type { Approach, Hex, Receipt } from '@evmb/core'
 import { NodeClient, NodeError, type BlockSummary } from '@evmb/node/src/client'
@@ -22,6 +22,8 @@ const final = (s: FollowerStatus) => s.kind === 'removed' || s.kind === 'mismatc
 export const followsCloud = (nodeUrl: string) => `Follows ${nodeUrl}: its blocks come from there`
 export const readerOnly = (name: string) => `This device can only read ${name}.`
 const NOT_WRITER = 'is not a writer on this chain' // the Follower's refusal after a submit 403
+const NO_DEPLOY = "can't deploy contracts on this chain" // the worker's refusal of a creation
+export const noDeploy = (name: string) => `This device can't deploy contracts on ${name}.`
 export const otherTab = 'Open in another tab: changes are made there.'
 export const notSaving = "This browser isn't saving data: pending changes are lost if you close the tab."
 
@@ -77,6 +79,7 @@ export function followerApproach(o: {
   let release: (() => void) | undefined
   const refuse = async (): Promise<never> => { throw new Error(followsCloud(nodeUrl)) }
   let role: 'admin' | 'writer' | 'reader' | undefined // from GET /nodes; unknown (offline) → writes allowed, the cloud decides
+  let deploy: boolean | undefined // from GET /nodes (already reflects old chains, where writers deploy); unknown → the cloud decides
   let roleDue = true // fetch the role on the next good sync: on open, and after a submit 403
   const receipts = new Map<Hex, Receipt>() // submitted here, not yet taken by awaitSettled
   /** try to become this chain's writing tab (once held, kept until dispose) */
@@ -102,9 +105,10 @@ export function followerApproach(o: {
   const fetchRole = async () => {
     try {
       const { members } = await client!.nodes(chainId)
-      const next = members.find((m) => m.address.toLowerCase() === address.toLowerCase())?.role ?? 'reader' // not a member: reads only (readOpen)
+      const me = members.find((m) => m.address.toLowerCase() === address.toLowerCase())
+      const next = me?.role ?? 'reader' // not a member: reads only (readOpen)
       roleDue = false
-      if (next !== role) { role = next; o.onChange?.() }
+      if (next !== role || me?.deploy !== deploy) { role = next; deploy = me?.deploy; o.onChange?.() }
     } catch { /* offline: keep the last known role */ }
   }
   /** why this tab can't write now (undefined: it can) */
@@ -160,7 +164,7 @@ export function followerApproach(o: {
         const key = o.key()
         if (!key) return set({ kind: 'needs-key', detail: `Needs ${address}'s key` })
         const onPending = (txs: PendingTx[]) => {
-          if (txs.some((t) => t.status === 'refused' && t.reason?.endsWith(NOT_WRITER))) roleDue = true
+          if (txs.some((t) => t.status === 'refused' && (t.reason?.endsWith(NOT_WRITER) || t.reason?.endsWith(NO_DEPLOY)))) roleDue = true
           o.onChange?.()
         }
         client = new NodeClient(nodeUrl, key.account, { name: key.label })
@@ -222,6 +226,7 @@ export function followerApproach(o: {
       const no = cantWrite()
       if (no) throw new Error(no)
       const follower = local()
+      if (deploy === false && raws.some((r) => !parseTransaction(r).to)) throw new Error(noDeploy(o.name?.() ?? `chain ${chainId}`))
       // a throw part-way leaves the earlier raws pending (their receipts unclaimed); every caller sends one
       for (const raw of raws) {
         const r = await follower.send(raw)
