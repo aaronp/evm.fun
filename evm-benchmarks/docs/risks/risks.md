@@ -1070,3 +1070,40 @@ A join link made with "Create a single join link" carries the invite code, so an
 | Invites default to reader with one use, and have an expiry (5 min, 1 h or 1 day) | Preventive | Partial |
 | The Join form removes the code from the address bar and the back/forward entry once read (the browser's global history, address-bar autocomplete, synced history and the app that delivered the link may still hold the coded URL); opening a link never joins | Preventive | Partial |
 | The admin can revoke an unused code and remove a member | Corrective | Partial |
+
+## R59 · Pending txs live only on the device until synced
+- impact: 3
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+A write made offline is stored only in the device's `FollowerStore` until a sync sends it. Clearing the browser's data, losing the phone or reinstalling the app before then loses it, and the cloud never saw it. (plan 20)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Each tx is stored before `send` returns, and the list is shown (`onPending`) so a user sees what is unsent | Detective | Partial |
+| A failed submit or an unreachable cloud keeps the tx pending; a server fault answers 503, not a refusal | Preventive | Partial |
+| Settled records stay until the user dismisses them | Detective | Partial |
+| A durable store for the web app (IndexedDB) instead of memory | Preventive | None yet |
+
+## R60 · A contract without version checks lets the later write win silently
+- impact: 3
+- likelihood: 3
+- target: 2x2
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+The cloud mines txs in arrival order. A tx that is still valid after another device's write (an overwrite of a key/value, a `set` with no expected version) is confirmed, because its status and logs match what the device saw first, even if the user decided on stale data. (plan 20)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Outcomes are compared by status and logs, so a tx whose result changed shows as conflicted | Detective | Partial |
+| A tx that depends on an earlier conflicted one is marked `dependsOn` | Detective | Partial |
+| Contracts that need it check a version or expected value and revert on a mismatch | Preventive | Partial |

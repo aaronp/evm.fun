@@ -1,12 +1,13 @@
 // End-to-end against the running local worker (make e2e-node): codes issued on root, chains deployed with them, refusals.
 //   bun packages/node/scripts/e2e.ts [url]
 import { join } from 'node:path'
-import { encodeDeployData, type Hex, type LocalAccount } from 'viem'
+import { decodeFunctionResult, encodeDeployData, encodeFunctionData, getContractAddress, type Address, type Hex, type LocalAccount } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { MintableToken } from '@evmb/contracts'
 import { GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, MAX_CREATE_BYTES, MAX_SUBMIT_BYTES, NodeClient, NodeError, accessTx, claimTx, codeHash, generateCode, inviteTx, mined, setupTxs, type CreateChainResult } from '../src/client'
 import { signRequest } from '../src/auth'
 import { Follower, FollowerRemoved } from '../src/follower'
+import { MemoryFollowerStore } from '../src/followerStore'
 import { ensureKey, freshDump, wasm } from './bootstrap'
 
 const URL_ = process.argv[2] ?? 'http://127.0.0.1:8799'
@@ -42,13 +43,14 @@ try {
   // ---- admin issues codes ----
   const issue = async (code: string, ttl: number, uses: number) =>
     mined(await as(admin).submit('root', [await inviteTx(admin, await as(admin).nonce('root'), root.access, code, ttl, uses)]))
-  const one = generateCode(), two = generateCode(), short = generateCode(), race = generateCode(), retry = generateCode(), spent = generateCode()
+  const writes = generateCode(), one = generateCode(), two = generateCode(), short = generateCode(), race = generateCode(), retry = generateCode(), spent = generateCode()
   await issue(one, 600, 1)
   await issue(two, 600, 2)
   await issue(short, 2, 1)
   await issue(race, 600, 1)
   await issue(retry, 600, 1)
   await issue(spent, 600, 1)
+  await issue(writes, 600, 1)
   check(true, 'admin issues 1-use, 2-use and 2 s codes')
 
   // ---- B's browser chain: a fresh chain with one ERC-20 deploy ----
@@ -185,6 +187,77 @@ try {
     check(await status(joinAs(E, revoked)) === 403, 'a revoked unused code → 403')
   } finally {
     await fc.dispose(); await fd.dispose()
+  }
+
+  // ---- writes: phone and tablet follow a chain with an ERC-20 B owns; each sends offline, then syncs ----
+  {
+    const rw = await deploy(B, writes), wid = rw.chainId
+    const token = getContractAddress({ from: B.address, nonce: 0n })
+    const wb = as(B, 'B laptop'), wAccess = (await wb.info(wid)).access
+    const [P, T, M] = [generatePrivateKey(), generatePrivateKey(), generatePrivateKey()].map((k) => privateKeyToAccount(k))
+    const [K1, K2, K3, S] = [0, 1, 2, 3].map(() => privateKeyToAccount(generatePrivateKey()))
+    const x = privateKeyToAccount(generatePrivateKey()).address, y = privateKeyToAccount(generatePrivateKey()).address
+    for (const w of [P!, T!, M!]) {
+      const code = generateCode()
+      mined(await wb.submit(wid, [await inviteTx(B, await wb.nonce(wid), wAccess, code, 300, 1, GRANT_WRITER)]))
+      const ji = await as(w).joinInfo(wid)
+      await as(w).join(wid, await claimTx(w, ji.nonce, code, ji.access))
+    }
+    const sign = (a: LocalAccount, nonce: number, data: Hex) => a.signTransaction({ type: 'eip1559', chainId: 31337, nonce, to: token, data, gas: 300_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    const call = (fn: string, args: unknown[]) => encodeFunctionData({ abi: MintableToken.abi, functionName: fn, args } as never)
+    const bn = await wb.nonce(wid)
+    mined(await wb.submit(wid, await Promise.all([[K1, 10n], [K2, 10n], [K3, 10n], [S, 5n]].map(([k, n], i) => sign(B, bn + i, call('mint', [(k as LocalAccount).address, n]))))))
+    const keys = (...ks: LocalAccount[]) => (from: Address) => ks.find((k) => k.address.toLowerCase() === from.toLowerCase())
+    const phoneStore = new MemoryFollowerStore()
+    const phone = await Follower.open(as(P!, 'phone'), wid, wasm, { store: phoneStore, signer: keys(S) })
+    const tablet = await Follower.open(as(T!, 'tablet'), wid, wasm, { store: new MemoryFollowerStore(), signer: keys(S) })
+    const nonceOn = (f: Follower, a: Address) => f.read(async (n) => Number(await n.request({ method: 'eth_getTransactionCount', params: [a, 'latest'] })))
+    const balOn = (f: Follower, a: Address) => f.read(async (n) => decodeFunctionResult({ abi: MintableToken.abi, functionName: 'balanceOf', data: (await n.request({ method: 'eth_call', params: [{ to: token, data: call('balanceOf', [a]) }, 'latest'] })) as Hex }) as bigint)
+    const transfer = async (f: Follower, from: LocalAccount, to: Address, n: bigint) => f.send(await sign(from, await nonceOn(f, from.address), call('transfer', [to, n])))
+    const states = (f: Follower) => f.pending().map((t) => t.status).join()
+    try {
+      await transfer(phone, K1, x, 1n)
+      await transfer(tablet, K2, y, 2n)
+      check(states(phone) === 'pending' && states(tablet) === 'pending', 'phone and tablet each send offline: both pending, nothing synced')
+      await phone.sync(); await tablet.sync(); await phone.sync()
+      check(states(phone) === 'confirmed' && states(tablet) === 'confirmed', `both devices' writes confirmed (${states(phone)}, ${states(tablet)})`)
+      check((await balOn(phone, y)) === 2n && (await balOn(tablet, x)) === 1n, 'each device sees the other’s transfer')
+      check(phone.head.hash === tablet.head.hash && phone.head.hash === (await wb.state(wid)).head.hash, 'both devices at the cloud head')
+      for (const t of phone.pending()) await phone.dismiss(t.hash)
+      for (const t of tablet.pending()) await tablet.dismiss(t.hash)
+
+      // one key imported on both devices spends one balance twice: the first synced wins, the other is re-signed and conflicts
+      await transfer(phone, S, x, 5n)
+      await transfer(tablet, S, y, 5n)
+      await phone.sync(); await tablet.sync(); await phone.sync()
+      check(states(phone) === 'confirmed' && states(tablet) === 'conflicted', `same key on two devices: phone ${states(phone)}, tablet ${states(tablet)}`)
+      check((await balOn(tablet, S.address)) === 0n && (await balOn(tablet, y)) === 2n && (await balOn(tablet, x)) === 6n, 'the cloud’s order won: tablet shows S’s 5 tokens went to x')
+      for (const t of phone.pending()) await phone.dismiss(t.hash)
+      for (const t of tablet.pending()) await tablet.dismiss(t.hash)
+
+      // a broker device submits a tx signed by a key with no chain role
+      const brokered = await sign(K3, 0, call('transfer', [y, 4n]))
+      const br = await as(M!, 'broker').submit(wid, [brokered])
+      check(br.results[0]?.result === 'mined', `broker submits K3's tx (K3 has no role) → ${br.results[0]?.result}`)
+
+      // phone sends offline, then reopens from its store with the worker unreachable (an unreachable URL, not a stopped worker)
+      await transfer(phone, K1, x, 1n)
+      const storedHead = phone.head
+      await phone.dispose()
+      const offline = await Follower.open(new NodeClient('http://127.0.0.1:9', P!), wid, wasm, { store: phoneStore, signer: keys(S) })
+      check(offline.head.hash === storedHead.hash && states(offline) === 'pending', `reopened with the worker unreachable: at stored head #${offline.head.number}, 1 pending`)
+      check((await balOn(offline, x)) === 7n, 'and the pending tx shows in its local state')
+      check(await offline.sync().then(() => false, () => true) && states(offline) === 'pending', 'an offline sync fails and keeps the tx pending')
+      await offline.dispose()
+      const back = await Follower.open(as(P!, 'phone'), wid, wasm, { store: phoneStore, signer: keys(S) })
+      try {
+        await back.sync()
+        check(states(back) === 'confirmed' && back.head.hash === (await wb.state(wid)).head.hash, `reachable again: the pending tx settles (${states(back)})`)
+        check((await balOn(back, y)) === 6n, 'and shows the broker’s tx too')
+      } finally { await back.dispose() }
+    } finally {
+      await phone.dispose(); await tablet.dispose()
+    }
   }
 
   // ---- rate limit: 10 failed redeems per IP per 10 min ----

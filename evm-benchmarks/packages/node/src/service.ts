@@ -5,7 +5,7 @@ import { ChainAccess } from '@evmb/contracts'
 import type { Sql } from './sql'
 import { chainAcl, type ACL } from './acl'
 import { ChainStore, type SerializedBlock } from './store'
-import { ChainNode, type NodeConfig } from './node'
+import { ChainNode, NodeFault, type NodeConfig } from './node'
 import { codeHash, GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, type BlockRecord, type BlockSummary, type CodeRecord, type Member, type NodesView, type RemoteChainInfo, type SubmitResult, type TxResult } from './client'
 
 export class ServiceError extends Error {
@@ -151,7 +151,7 @@ export class ChainService {
     if (!(await this.canWrite(a))) throw new ServiceError(403, `${a} is not a writer on this chain`)
     const hashes = txs.map((t) => keccak256(t))
     const fresh = txs.filter((_, i) => this.store.blockOf(hashes[i]!) === undefined)
-    const { results } = fresh.length ? await this.node.apply(timestamp, fresh).catch((e) => { throw new ServiceError(400, `block rejected: ${msg(e)}`) }) : { results: [] }
+    const { results } = fresh.length ? await this.node.apply(timestamp, fresh).catch((e) => { throw new ServiceError(e instanceof NodeFault ? 503 : 400, `block rejected: ${msg(e)}`) }) : { results: [] }
     const errors = new Map(results.flatMap((r) => (r.ok ? [] : [[r.hash, r.error] as const])))
     return {
       head: summary(this.node.head()),

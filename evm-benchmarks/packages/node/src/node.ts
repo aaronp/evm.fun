@@ -4,6 +4,9 @@ import { keccak256, parseTransaction, recoverTransactionAddress, type Hex } from
 import { nonZero, type ChainStore, type SerializedBlock, type StateDiff, type StoredBlock } from './store'
 
 /** One tx of an `apply`: accepted into the block, or refused by the node (and in no block). */
+/** A failure not caused by a tx (a rebuild or the store's commit failed): the service answers 5xx, so a client keeps its txs. */
+export class NodeFault extends Error {}
+
 export type TxOutcome = { ok: true; hash: Hex } | { ok: false; hash: Hex; error: string }
 
 /** Longest refusal reason kept (webevm's own run to ~500 characters; the leading clause is what matters). */
@@ -14,6 +17,8 @@ export interface NodeConfig {
   /** Rebuild the in-memory node from the store every N blocks, to bound its history (default 1000). */
   rebuildEvery?: number
 }
+
+const msg = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 function need<T>(v: T | undefined, hash: string): T {
   if (v === undefined) throw new Error(`no tx or receipt for ${hash} in the dump`)
@@ -129,7 +134,7 @@ export class ChainNode {
 
   async #apply(timestamp: number, txs: Hex[]): Promise<{ block?: StoredBlock; results: TxOutcome[] }> {
     // a due rebuild runs here, before any tx is sent, so a committed block is never reported as failed
-    if (this.blocksSinceRebuild >= (this.cfg.rebuildEvery ?? 1000)) await this.rebuild()
+    if (this.blocksSinceRebuild >= (this.cfg.rebuildEvery ?? 1000)) await this.rebuild().catch((e) => { throw new NodeFault(`rebuild failed: ${msg(e)}`) })
     const results: TxOutcome[] = []
     const sent: string[] = []
     try {
@@ -160,7 +165,7 @@ export class ChainNode {
         txs: header.transactions.map((h) => need(after.transactions[h], h).raw as Hex),
         receipts: header.transactions.map((h) => need(after.receipts[h], h)),
       }
-      this.store.commit(block, diffState(this.#dump, after))
+      try { this.store.commit(block, diffState(this.#dump, after)) } catch (e) { throw new NodeFault(`commit failed: ${msg(e)}`) }
       this.#dump = after
       this.blocksSinceRebuild++
       return { block, results }
@@ -168,7 +173,7 @@ export class ChainNode {
       try {
         await this.rebuild()
       } catch (r) {
-        throw new AggregateError([e, r], 'apply failed, and the rebuild from the store failed too')
+        throw new NodeFault(`apply failed (${msg(e)}), and the rebuild from the store failed too: ${msg(r)}`)
       }
       throw e
     }

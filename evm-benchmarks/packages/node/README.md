@@ -56,7 +56,7 @@ Every request except `/health` is signed (`cf-chain v1` EIP-191 message over met
 | `GET /health` | anyone | `{ ok, root }`: the root chain's head, admin and `ChainAccess` address, or `null` |
 | `POST /chains` | root admin, or anyone with a deploy code | no claim: create `root` (only `ROOT_ADMIN`, once). With a `claim` tx (a code): redeem it on the root chain, then create a new chain with the signer as admin. Body: `{ dump, setup, claim? }`; `setup` is two contract creations by the signer, mined as block head+1 by the cloud node, which returns its dump |
 | `GET /chains/<id>` | readers | chain id, head, admin, `access`, `aliases` |
-| `POST /chains/<id>/submit` | writers | `{ txs }`, mined in order |
+| `POST /chains/<id>/submit` | writers | `{ txs }`: one block of the txs the node accepts, in order; answers per tx (see below) |
 | `GET /chains/<id>/nonce` | anyone signed | `{ nonce, access }`: the signer's nonce and the chain's `ChainAccess` address (not secret: a joining device needs it for its claim) |
 | `GET /chains/root/codes` | root admin | issued codes (hash, expiry, uses left, who redeemed) |
 
@@ -119,3 +119,20 @@ Design: [devices follow](../../docs/superpowers/specs/2026-11-23-devices-follow-
 7. **Missing key.** Delete that account (or open the workspace in another browser): the card shows "Needs 0x…'s key" with a link to Accounts, and the Devices panel is hidden.
 8. **Join form URL.** On Cloud change the node URL and Use this node: the Join form's Worker URL follows unless you typed in it.
 9. **Themes and phone width.** Check all three themes and phone width: the Devices table scrolls sideways inside its panel and the invite form wraps.
+
+# Writing to a deployed chain (plan 20)
+
+**Submit answers per tx.** `POST /chains/<id>/submit` returns `{ head, results }`, one entry per tx in order: `{ hash, result: 'mined', block }` or `{ hash, result: 'refused', code: 'nonce' | 'invalid', reason }`. Resending a tx the chain already mined answers `mined` again (idempotent), so a client that lost the reply can just resend. The body is capped at 1 MiB (`MAX_SUBMIT_BYTES`; `413` over it, before auth). Changes from the earlier submit: an undecodable tx is refused per tx (`invalid`), not a `400` for the request; an empty submit mines nothing; non-hex input is a `400`. webevm checks nonce and funds only when it mines, so `ChainNode` prechecks them per tx (the funds check is conservative: it counts the block's earlier spend from the sender but not what earlier txs pay in). A failure not caused by a tx (a failed rebuild or commit) answers `503`, so a client keeps its txs; a tx-caused rejection of the whole block stays `400`.
+
+**Chain ACL and contract ACLs.** The chain's `ChainAccess` checks the key that signs the request (writer to submit, reader to read). The sender of a tx inside it needs no chain role, so a broker device can submit a tx signed by another key. Who may do what in an app is up to its contracts (ADR-0025).
+
+**`FollowerStore`** (`src/followerStore.ts`): `loadConfirmed`/`saveConfirmed` hold the last confirmed copy (head plus a trimmed dump) and `listPending`/`putPending`/`deletePending` the pending records keyed by `seq`. `MemoryFollowerStore` is the in-memory one; with a store, `Follower.open` boots from the stored copy with no network and re-runs the stored pending txs on top.
+
+**`Follower` writes.** `send(raw)` runs the tx on the local copy and keeps it as pending (stored before it returns); a tx the local node refuses throws and is not kept. `sync()` submits the pending txs in batches of `DEFAULT_BATCH` (25; a whole-batch `400`/`413` splits it in halves, and only a single tx is refused for it), replays the cloud's blocks, and settles each record by comparing the cloud's status and logs with the first local outcome: `confirmed`, `conflicted` (with the cloud's outcome), or `refused` (with the reason). A `nonce` refusal is re-signed with the sender's next nonce when `signer(from)` returns its key. A tx that differs after an earlier conflicted one is marked `dependsOn`. `dismiss(hash)` forgets a settled record; `onPending` gets the whole list after any change. A device that is no longer a writer has its pending txs refused; one that is removed has them refused as `removed from chain`.
+
+Known limits:
+- A re-signed contract deploy (its address depends on the nonce), or a tx whose logs include a block number or time, always ends `conflicted`: outcomes are compared by status and logs.
+- `send` runs in the same queue as `sync`, so it can wait behind a running sync.
+- webevm 0.9.1 `loadState` does not reset accounts missing from the dump, so the Follower rebases on a fresh node (upstream, board t-130).
+
+`make e2e-node` also runs the write race: phone and tablet send offline to different keys and both confirm, each seeing the other's; one key imported on both spends one balance, so one is confirmed and one conflicted; a broker submits a tx signed by a key with no role; the phone reopens from its store with its client pointed at an unreachable URL (not a stopped worker), opens at the stored head with its tx pending, and settles once it can reach the worker.

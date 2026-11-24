@@ -94,6 +94,22 @@ From t-128: the block timestamp is the only nondeterminism between the DO and re
 Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps accounts absent from the snapshot, so rolling back a refused block left the new sender's nonce behind (DO/replica drift). The spike rebuilds the node on rollback (~10 ms); fix upstream.
 ```
 
+### Governance.sol: a self-governed allow-list as ChainAccess admin
+- id: t-147
+- parent: t-112
+- tags: chains, contracts, size-M
+- history:
+  - Backlog @ 2026-11-24T12:00:00Z
+
+```md
+The chain ACL checks only the submitting key; what a tx's sender may do is up to the contracts (ADR-0025). A `Governance.sol` that holds an allow-list and votes members in and out, and is itself the `ChainAccess` admin, so the owner key is no longer the single authority.
+```
+
+```dod
+- [ ] A governance contract is the chain's admin; adding or removing a member goes through it
+- [ ] A `Follower` write to it settles confirmed or conflicted like any other
+```
+
 ### Remote chain: device enrolment and auth hardening
 - id: t-131
 - parent: t-112
@@ -870,6 +886,8 @@ Design: [devices on a deployed chain](../superpowers/specs/2026-11-23-devices-fo
 Demo (t-136): after Deploy (t-134), the browser chain follows the cloud node, so they form a 2-node cluster; needed for node cursors (t-140). Uses t-129's `ChainNode` for replay.
 
 Part 1 done (worker + Follower): `Follower` in `packages/node` boots from `GET /state` and replays `GET /blocks` with root and hash checks. A (follow and show) done: Deploy converts the owner's copy to a read-only follower, earlier deploys convert on open, and followers are saved as pointers in workspace files (ADR-0024). B (follow and use) remaining: submitting from the browser through the cloud node, so pages can write to a deployed chain.
+
+B part 1 done (worker + Follower writes): per-tx submit answers, idempotent resends, a 1 MiB cap, a chain ACL on the submitting key, `FollowerStore` and `Follower.send`/`sync` with pending, conflicted and refused txs; proven by a two-device race in `make e2e-node` (ADR-0025, risks R59-R60). The browser UI for it remains.
 ```
 
 ```dod

@@ -257,3 +257,18 @@ test('open() with another chain id than the one stored throws', async () => {
   await create(sql)
   await expect(open(sql, 'other')).rejects.toThrow('holds chain root')
 })
+
+test('submit: a server fault (commit fails) answers 503, a tx-caused refusal stays per tx', async () => {
+  const s = await create()
+  const { access } = await s.info()
+  const store = (s as unknown as { store: { commit: (...a: unknown[]) => void } }).store
+  const commit = store.commit.bind(store)
+  store.commit = () => { throw new Error('disk full') }
+  const e = await refused(s.submit(me, [await inviteTx(admin, 2, access, 'fault-fault-fault-1', 60, 1)], T0 + 500))
+  expect(e.status).toBe(503)
+  expect(e.message).toContain('disk full')
+  store.commit = commit
+  // the node was rebuilt: the same tx mines now
+  expect((await s.submit(me, [await inviteTx(admin, 2, access, 'fault-fault-fault-1', 60, 1)], T0 + 501)).results[0]).toMatchObject({ result: 'mined' })
+  expect((await s.submit(me, ['0x00' as Hex], T0 + 502)).results[0]).toMatchObject({ result: 'refused', code: 'invalid' })
+})

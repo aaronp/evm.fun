@@ -1365,3 +1365,68 @@ Claude's call: a follower is saved in workspace files as a pointer (node URL, ch
 - A workspace file stays small, and a follower's state is never trusted from the file: it is re-fetched and root-checked.
 - A removed or mismatched follower stops and says so; the user deletes it or joins again.
 - Polling cost and the multi-use writer code: risks R55 and R57.
+
+
+---
+id: ADR-0025
+title: "The cloud orders writes; the chain checks who submits, contracts check who acts"
+status: accepted
+date: 2026-11-24
+tags: architecture, chains, access, devices
+decision: cloud-orders
+---
+
+## Goal
+Let a device on a deployed chain write: a tx runs on its own copy at once, and the chain still ends with one order that every copy agrees on.
+
+## Hypothesis
+Devices that write offline will sometimes send txs that clash (one balance spent twice). Someone has to pick which one wins, and the rest must say so rather than vanish.
+
+## People
+- The owner and members who use a chain from a phone or laptop, sometimes offline
+- The chain admin, who decides who may submit
+- Contract authors, who decide who may do what inside a contract
+
+## Criteria
+- one order: every copy reaches the same blocks and state roots
+- offline: a write works with no connection and is kept until it can be sent
+- honest: a clashing write shows as conflicted, never silently lost or silently won
+- simple: the fewest new rules on the chain
+
+## Solution: the cloud orders; the chain ACL checks the submitting key only
+The cloud node mines what it receives, in the order it receives it. A device keeps its own txs as pending, runs them locally, submits them in batches (`POST /submit`, answered per tx), and rebases on the cloud's blocks: a pending tx the cloud mined with the same status and logs is confirmed, with other ones conflicted, and one the cloud refused is refused. The chain's `ChainAccess` is checked against the key that signs the request. The sender of a tx inside it needs no chain role, so a broker device can submit a tx signed by someone else's key. What a sender may do is decided by the contracts (`Governance`-style allow-lists, owner checks).
+Pros:
+- Nothing to merge: the cloud's order is the order
+- A device can send for keys it does not hold the chain role of; apps decide who may act
+- Same copy everywhere, checked by hash and state root
+
+Cons:
+- A contract without version checks lets the later write win silently (risk R60)
+- Pending txs live only on the device until synced (risk R59)
+
+## Solution: every tx sender must be a chain writer
+| criterion | score |
+| --- | --- |
+| oneorder | 4 |
+| offline | 4 |
+| honest | 4 |
+| simple | 2 |
+
+Pros:
+- One place to look for who may write
+
+Cons:
+- Every key a user signs with needs a chain role, and a broker cannot submit for a key with none
+- A second ACL beside each contract's own
+
+## Decision
+cloud-orders, with the chain ACL on the submitting key only. Decided with Aaron: contract ACLs (a governance contract the apps consult) own who may act; the chain ACL owns who may talk to the node.
+
+Claude's call: outcomes are compared by status and logs (not state), so a tx that behaves the same way after a rebase is confirmed; one that does not is conflicted and the user decides.
+
+## Consequences
+- `POST /submit` answers per tx: mined, or refused with a code (`nonce`, `invalid`); a resend of a mined tx answers mined; the body is capped at 1 MiB (`413`).
+- Behaviour changes in the worker: an undecodable tx is refused per tx (`invalid`), not a 400 for the request; an empty submit mines nothing; non-hex input is a 400; webevm checks nonce and funds only at mine time, so `ChainNode` prechecks them (the funds check is conservative). A server fault (failed rebuild or commit) answers 503, so a `Follower` keeps its txs pending through an outage; a tx-caused rejection stays 400.
+- Known limits: a re-signed contract deploy, or a tx whose logs include the block number or time, always ends conflicted; `send` can wait behind a running `sync`; webevm 0.9.1 `loadState` does not reset accounts missing from the dump, so the Follower rebases on a fresh node (upstream, t-130).
+- A self-governed allow-list contract is a later card (t-147).
+- Risks R59 and R60.
