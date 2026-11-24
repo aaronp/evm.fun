@@ -10,11 +10,15 @@ export const joinName = (chainId: string) => `Joined ${chainId.slice(0, 8)}`
 const isUrl = (u: string) => { try { return /^https?:$/.test(new URL(u).protocol) } catch { return false } }
 const isChainId = (s: string) => /^[A-Za-z0-9_-]{1,100}$/.test(s)
 
+/** The longest invite code a join link carries (once trimmed); the invite wizard enforces the same limit. */
+export const MAX_CODE_LENGTH = 200
+export const codeUsable = (code: string) => { const c = code.trim(); return c.length > 0 && c.length <= MAX_CODE_LENGTH }
+
 /** `#/cloud/join?node=…&chain=…&code=…`: the worker URL, chain id and invite code to prefill, when usable (a code is 1-200 chars once trimmed). */
 export function joinPrefill(search: string): { nodeUrl?: string; chainId?: string; code?: string } {
   const p = new URLSearchParams(search)
   const node = p.get('node')?.trim() ?? '', chain = p.get('chain')?.trim() ?? '', code = p.get('code')?.trim() ?? ''
-  return { ...(isUrl(node) && { nodeUrl: node }), ...(isChainId(chain) && { chainId: chain }), ...(code && code.length <= 200 && { code }) }
+  return { ...(isUrl(node) && { nodeUrl: node }), ...(isChainId(chain) && { chainId: chain }), ...(code && code.length <= MAX_CODE_LENGTH && { code }) }
 }
 
 /** The join link for chain `chainId` on `nodeUrl` (`base`: the app's URL without the hash); carries `code` only when given and non-blank. */

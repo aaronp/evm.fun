@@ -1068,5 +1068,5 @@ A join link made with "Create a single join link" carries the invite code, so an
 | Off by default, with a warning naming the role beside the checkbox | Preventive | Partial |
 | The code is in the link's fragment (after `#`), so it never reaches a server or its logs | Preventive | Partial |
 | Invites default to reader with one use, and have an expiry (5 min, 1 h or 1 day) | Preventive | Partial |
-| The Join form removes the code from the address bar and history once read; opening a link never joins | Preventive | Partial |
+| The Join form removes the code from the address bar and the back/forward entry once read (the browser's global history, address-bar autocomplete, synced history and the app that delivered the link may still hold the coded URL); opening a link never joins | Preventive | Partial |
 | The admin can revoke an unused code and remove a member | Corrective | Partial |

@@ -1017,7 +1017,7 @@ The owner sees and edits the chain's policy: gas mode, deployers. Done when the 
 ```md
 The Devices panel's invite form becomes a 2-step wizard: create an access code, then open the link on the other device, as a QR code, a link and (by default) a separate code. The owner can instead tick "Create a single join link (includes the code)", off by default and with a warning; the code is then in the link's fragment, which the Join form reads and removes from the address bar. Design: `docs/superpowers/specs/2026-11-24-invite-wizard-design.md`; risk R58. Done when (checklist run by Aaron, not yet) the wizard issues both kinds of invite, the QR scans on a phone, an unticked invite never puts the code in the link or QR, and the Join form prefills and strips the code. Aaron, 2026-11-24.
 
-Built and tested (913 tests); not yet run in a browser. Left to check: both modes in all three themes, phone width, scanning the QR on a phone, back button after a coded link.
+Built and tested (915 tests); not yet run in a browser. Left to check: both modes in all three themes, phone width, scanning the QR on a phone, back button after a coded link.
 ```
 
 ## Done

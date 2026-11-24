@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { generateCode, type NodeClient } from '@evmb/node/src/client'
 import { inviteDefaults, inviteDevice, inviteShare, multiUseWriterWarning, singleLinkWarning, type DeviceRole } from '../../cloud/devices'
+import { MAX_CODE_LENGTH, codeUsable } from '../../cloud/join'
 import { Button } from '../../ui/button'
 import { CopyIcon } from '../../ui/icons'
 import { Input, fieldLabel } from '../../ui/input'
@@ -22,10 +23,10 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
   const [singleLink, setSingleLink] = useState(inviteDefaults.singleLink)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
-  const [shared, setShared] = useState<{ link: string; code?: string }>() // step 2; shown once, until Invite another / Done
+  const [shared, setShared] = useState<{ link: string; code?: string; warn?: string }>() // step 2; shown once, until Invite another / Done
   const [closed, setClosed] = useState(false)
   const n = Number(uses)
-  const valid = code.trim().length > 0 && Number.isInteger(n) && n >= 1 && n <= 1000
+  const valid = codeUsable(code) && Number.isInteger(n) && n >= 1 && n <= 1000
   const warning = multiUseWriterWarning(role, n)
 
   function reset() { setTtl(inviteDefaults.ttl); setUses(inviteDefaults.uses); setRole(inviteDefaults.role); setSingleLink(inviteDefaults.singleLink); setShared(undefined) }
@@ -34,7 +35,7 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
     setBusy(true); setErr(undefined)
     try {
       await inviteDevice({ client, chainId, admin: signer, code, ttlS: Number(ttl), uses: n, role })
-      setShared(inviteShare({ base: location.origin + location.pathname, nodeUrl, chainId, code, singleLink }))
+      setShared({ ...inviteShare({ base: location.origin + location.pathname, nodeUrl, chainId, code, singleLink }), ...(singleLink && { warn: singleLinkWarning(role) }) })
       setCode(generateCode())
     } catch (e) {
       setErr(`Couldn't create the invite: ${message(e)}`)
@@ -62,7 +63,7 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
                 <Button type="button" variant="ghost" size="sm" onClick={() => copy(shared.code!)}><CopyIcon className="mr-1" />Copy code</Button>
               </div>
             </div>
-          ) : <p className="text-sm text-muted">The link includes the code.</p>}
+          ) : <p className="text-sm text-muted">The link includes the code. {shared.warn}</p>}
           <p className="text-xs text-muted">The code is shown only once.</p>
         </div>
       </div>
@@ -79,7 +80,7 @@ export function InviteWizard({ client, signer, nodeUrl, chainId }: { client: Nod
       <label className={fieldLabel}>
         Code
         <div className="flex gap-2">
-          <Input aria-label="Invite code" className="min-w-0 flex-1 font-mono" autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} />
+          <Input aria-label="Invite code" className="min-w-0 flex-1 font-mono" autoComplete="off" maxLength={MAX_CODE_LENGTH} value={code} onChange={(e) => setCode(e.target.value)} />
           <Button type="button" variant="ghost" onClick={() => setCode(generateCode())}>Generate</Button>
         </div>
       </label>

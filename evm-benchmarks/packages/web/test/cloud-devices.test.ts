@@ -6,7 +6,7 @@ import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry } from '../src/chain/registry'
-import { joinChain, joinPrefill } from '../src/cloud/join'
+import { MAX_CODE_LENGTH, codeUsable, joinChain, joinPrefill } from '../src/cloud/join'
 import { inviteDefaults, inviteDevice, inviteShare, multiUseWriterWarning, removeDevice, singleLinkWarning } from '../src/cloud/devices'
 
 // The worker stand-in, as in cloud-join.test.ts: packages/node's router over in-process ChainHosts on bun:sqlite.
@@ -124,4 +124,13 @@ test('singleLinkWarning names the role', () => {
 
 test('inviteDefaults is single-use reader, 1 h, no single link', () => {
   expect(inviteDefaults).toEqual({ ttl: '3600', uses: '1', role: 'reader', singleLink: false })
+})
+
+test('a code the wizard accepts (200 chars) survives inviteShare -> joinPrefill; 201 and blank are rejected', () => {
+  const code = 'ü'.repeat(MAX_CODE_LENGTH)
+  expect(codeUsable(code)).toBe(true)
+  const r = inviteShare({ ...share, code, singleLink: true })
+  expect(joinPrefill(r.link.slice(r.link.indexOf('?'))).code).toBe(code)
+  expect(codeUsable(code + 'x')).toBe(false)
+  expect(codeUsable('  ')).toBe(false)
 })
