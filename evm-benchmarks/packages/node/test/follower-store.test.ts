@@ -129,4 +129,14 @@ describe('Follower with a store', () => {
     tx.status = 'confirmed'
     expect((await store.listPending('k'))[0]!.status).toBe('pending')
   })
+
+  test('pending records are keyed by seq: a put with a new hash replaces, delete takes the seq', async () => {
+    const store = new MemoryFollowerStore()
+    const tx = { hash: '0x01', raw: '0x', from: '0x00', nonce: 0, seq: 3, first: { status: 'success', logs: [] }, status: 'pending' } as any
+    await store.putPending('k', tx)
+    await store.putPending('k', { ...tx, hash: '0x02', nonce: 1 })
+    expect((await store.listPending('k')).map((t) => t.hash)).toEqual(['0x02'])
+    await store.deletePending('k', 3)
+    expect(await store.listPending('k')).toEqual([])
+  })
 })

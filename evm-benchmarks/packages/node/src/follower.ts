@@ -84,7 +84,10 @@ export class Follower {
         fromStore = true
       } catch (e) { // unusable stored copy: boot from the cloud and overwrite it; if that fails too, report both
         try { booted = await Follower.#boot(client, chainId, wasm) } catch (c) {
-          if (c instanceof FollowerRemoved) throw c
+          if (c instanceof FollowerRemoved) { // no Follower will exist to show it: refuse the stored pending now
+            for (const t of await o.store!.listPending(key)) if (t.status === 'pending') await o.store!.putPending(key, { ...t, status: 'refused', reason: 'removed from chain' })
+            throw c
+          }
           if (e instanceof Error) e.message += `; booting from the cloud failed too: ${c instanceof Error ? c.message : c}`
           throw e
         }
@@ -160,61 +163,70 @@ export class Follower {
    */
   sync(): Promise<BlockSummary> {
     return this.#serial(async () => {
-      let failed: unknown
-      const denied: PendingTx[] = []
+      let err: unknown, failed: unknown
       try {
         let r = await this.#submit()
         await this.#pull()
-        for (let i = 0; r.nonce.size && !r.error && i < RESIGN_ROUNDS; i++) {
-          denied.push(...r.denied)
+        for (let i = 0; r.nonce.size && !r.error && !r.denied.length && i < RESIGN_ROUNDS; i++) {
           await this.#resign(r.nonce)
           r = await this.#submit()
           await this.#pull()
         }
-        denied.push(...r.denied)
         failed = r.error
         // still a member (the pull would have thrown FollowerRemoved): this device may read but not write
         const who = this.client.account?.address ?? 'this device'
-        for (const t of denied) await this.#settle(t, { status: 'refused', reason: `${who} is not a writer on this chain` })
+        for (const t of r.denied) await this.#settle(t, { status: 'refused', reason: `${who} is not a writer on this chain` })
       } catch (e) {
         if (e instanceof FollowerRemoved) for (const t of this.#txs) if (t.status === 'pending') await this.#settle(t, { status: 'refused', reason: 'removed from chain' })
-        throw e
-      } finally {
-        if (this.status === 'following') await this.#rerun()
-        this.#notify()
+        err = e
       }
-      if (failed) throw failed
+      // the local view (confirmed + still pending) is rebuilt only when something moved: an offline sync costs nothing
+      if (this.status === 'following' && (this.#dirty || !this.#base)) {
+        try {
+          await this.#toConfirmed()
+          await this.#rerun()
+        } catch (e) { err ??= e }
+      }
+      this.#notify()
+      if (err !== undefined) throw err
+      if (failed !== undefined) throw failed
       return this.head
     })
   }
 
-  /** Back to the confirmed state, then fetch and replay every block after our head, a page at a time, until caught up. */
+  #blocks(after: number) {
+    return this.client.blocks(this.chainId, after).catch((e) => {
+      if (e instanceof NodeError && e.status === 403) this.#stop('removed', new FollowerRemoved(this.chainId))
+      throw e // transient: still following
+    })
+  }
+
+  /** Fetch and replay every block after our head onto the confirmed state, a page at a time, until caught up. */
   async #pull() {
-    await this.#toConfirmed()
     for (;;) {
-      const page = await this.client.blocks(this.chainId, this.head.number).catch((e) => {
-        if (e instanceof NodeError && e.status === 403) this.#stop('removed', new FollowerRemoved(this.chainId))
-        throw e // transient: still following
-      })
+      const page = await this.#blocks(this.head.number)
       this.cloudHead = page.head
       // never silently follow a different chain: an empty page must end at our head
       if (!page.blocks.length && (page.head.number < this.head.number || (page.head.number === this.head.number && page.head.hash !== this.head.hash)))
         this.#stop('mismatch', new FollowerMismatch(`cloud head ${page.head.number} (${page.head.hash}) does not match our head ${this.head.number} (${this.head.hash})`))
+      // replay, reopen and save only on the confirmed state
+      if (page.blocks.length || this.#replayed >= this.reopenEvery || (this.store && this.#saved !== this.head.hash)) await this.#toConfirmed()
       for (const b of page.blocks) {
         await this.#replay(b)
         await this.#settleFrom(b)
       }
       if (this.#replayed >= this.reopenEvery) await this.#reopen()
-      await this.#save() // not by page: retries a failed save; #reopen relies on this too
+      if (!this.#base) await this.#save() // not by page: retries a failed save; #reopen relies on this too
       if (!page.blocks.length || this.head.number >= page.head.number) break
     }
     // mined in a block we never replayed (booted past it from /state): settle from that block
     for (const [hash, block] of this.#minedAt) {
       if (block > this.head.number || !this.#txs.some((t) => t.hash === hash && t.status === 'pending')) continue
-      const b = (await this.client.blocks(this.chainId, block - 1)).blocks[0]
-      if (b) await this.#settleFrom(b)
+      const b = (await this.#blocks(block - 1)).blocks[0]
+      if (b?.header.number === block) await this.#settleFrom(b)
     }
-    this.#minedAt.clear()
+    // keep the ones still unsettled: #resign must never re-sign a tx the cloud has mined
+    for (const hash of this.#minedAt.keys()) if (!this.#txs.some((t) => t.hash === hash && t.status === 'pending')) this.#minedAt.delete(hash)
   }
 
   /** Settle each pending tx this block mined: same outcome as its first local run → confirmed, else conflicted. */
@@ -244,6 +256,10 @@ export class Follower {
         r = await this.client.submit(this.chainId, batch.map((t) => t.raw))
       } catch (e) {
         if (e instanceof NodeError && e.status === 403) return { nonce, denied: todo.slice(i - batch.length) }
+        if (e instanceof NodeError && (e.status === 400 || e.status === 413)) { // the same answer every time: refuse, don't retry forever
+          for (const t of batch) await this.#settle(t, { status: 'refused', reason: e.error })
+          continue
+        }
         return { nonce, denied: [], error: e }
       }
       for (const [j, x] of r.results.entries()) {
@@ -258,9 +274,11 @@ export class Follower {
 
   /**
    * Re-sign each nonce-refused tx and its sender's later pending ones with the sender's next nonces on the confirmed
-   * state (the node is there between #pull and #rerun). Keeps `first` and `seq`. No key for the sender → refused.
+   * state. Keeps `first` and `seq` (the store's key, so the record is replaced in one write). Never touches a tx the
+   * cloud answered `mined`. No key for the sender → refused.
    */
   async #resign(refused: Map<PendingTx, string>) {
+    await this.#toConfirmed()
     for (const from of new Set([...refused.keys()].map((t) => t.from))) {
       const key = this.o.signer?.(from)
       const mine = [...refused.keys()].filter((t) => t.from === from)
@@ -270,31 +288,31 @@ export class Follower {
       }
       const firstSeq = Math.min(...mine.map((t) => t.seq))
       let n = Number(await this.node.request({ method: 'eth_getTransactionCount', params: [from, 'latest'] }))
-      for (const t of this.#txs.filter((t) => t.status === 'pending' && t.from === from && t.seq >= firstSeq)) {
+      for (const t of this.#txs.filter((t) => t.status === 'pending' && t.from === from && t.seq >= firstSeq && !this.#minedAt.has(t.hash))) {
         const { r: _r, s: _s, v: _v, yParity: _y, ...tx } = parseTransaction(t.raw)
         const raw = await key.signTransaction({ ...tx, nonce: n } as never)
-        const old = t.hash
         Object.assign(t, { raw, nonce: n++, hash: keccak256(raw) })
-        await this.#put(t) // new record first, so a crash between the two keeps it
-        if (t.hash !== old) await this.store?.deletePending(this.key, old)
+        await this.#put(t)
       }
     }
   }
 
   /**
    * Re-run the still-pending txs on top of the confirmed state, each in its own local block. Then mark a tx that
-   * conflicted, or whose re-run differs from its first run, as depending on the latest earlier conflicted one.
+   * conflicted, or whose re-run differs from its first run, as depending on the latest earlier tx that conflicted
+   * while it was pending (settled after it was sent).
    */
   async #rerun() {
     const runs = new Map<PendingTx, Outcome | undefined>()
     for (const t of this.#txs) if (t.status === 'pending') runs.set(t, await this.#local(t.raw).then(outcome, () => undefined))
     // ponytail: "depends on" = an earlier conflicted tx of this device, not a traced read/write overlap
-    let conflict: Hex | undefined
+    const conflicts: PendingTx[] = []
     for (const t of this.#txs) {
       const run = runs.get(t)
       const differs = t.status === 'conflicted' || (runs.has(t) && !(run && same(run, t.first)))
-      if (differs && conflict && !t.dependsOn) await this.#settle(t, { dependsOn: conflict })
-      if (t.status === 'conflicted') conflict = t.hash
+      const cause = differs && !t.dependsOn && conflicts.findLast((c) => (c.settledAt ?? 0) > t.seq)
+      if (cause) await this.#settle(t, { dependsOn: cause.hash })
+      if (t.status === 'conflicted') conflicts.push(t)
     }
   }
 
@@ -322,7 +340,7 @@ export class Follower {
   }
 
   async #settle(t: PendingTx, patch: Partial<PendingTx>) {
-    Object.assign(t, patch)
+    Object.assign(t, patch, patch.status && { settledAt: this.#seq })
     await this.#put(t)
   }
 
@@ -370,7 +388,7 @@ export class Follower {
       const t = this.#txs.find((t) => t.hash === hash)
       if (!t) return
       if (t.status === 'pending') throw new Error(`tx ${hash} is still pending`)
-      await this.store?.deletePending(this.key, hash)
+      await this.store?.deletePending(this.key, t.seq)
       this.#txs.splice(this.#txs.indexOf(t), 1)
       this.#dirty = true
       this.#notify()

@@ -51,6 +51,21 @@ const cloudTxs = async () => {
     after = p.blocks.at(-1)!.header.number
   }
 }
+/** Cloud receipts whose sender is `a`. */
+const cloudFrom = async (a: Address) => {
+  const out: string[] = []
+  for (let after = 0; ;) {
+    const p = await as(admin).blocks(cid, after)
+    for (const b of p.blocks) for (const r of b.receipts as { from: string; transactionHash: string }[]) if (r.from.toLowerCase() === a.toLowerCase()) out.push(r.transactionHash)
+    if (!p.blocks.length) return out
+    after = p.blocks.at(-1)!.header.number
+  }
+}
+/** Make the stored confirmed copy unusable, so the next open boots from the cloud's head. */
+const spoil = async (store: MemoryFollowerStore, key = cid) => {
+  const c = (await store.loadConfirmed(key))!
+  await store.saveConfirmed(key, { ...c, head: { ...c.head, stateRoot: `0x${'11'.repeat(32)}` } })
+}
 const signers = (...keys: LocalAccount[]) => (from: Address) => keys.find((k) => k.address.toLowerCase() === from.toLowerCase())
 
 beforeAll(async () => {
@@ -314,6 +329,133 @@ describe('Follower writes', () => {
     const c = (await store.loadConfirmed(cid))!
     await store.saveConfirmed(cid, { ...c, head: { ...c.head, stateRoot: `0x${'11'.repeat(32)}` } })
     await expect(Follower.open(as(fresh()), cid, wasm, { store })).rejects.toBeInstanceOf(FollowerRemoved)
+  })
+
+  test('a store failure right after a re-sign, then reopen and sync → the tx is mined exactly once', async () => {
+    const k = fresh(), x = fresh().address, y = fresh().address
+    await mint(k.address, 10n)
+    const a = keep(await Follower.open(as(admin), cid, wasm, { signer: signers(k) }))
+    const store = new MemoryFollowerStore()
+    const put = store.putPending.bind(store)
+    let resigned = false, broken = false
+    store.putPending = async (key, t) => {
+      if (broken) throw new Error('tab closed')
+      await put(key, t)
+      if (t.nonce === 1) resigned = broken = true // the re-signed record is written; every later write fails
+    }
+    const del = store.deletePending.bind(store)
+    store.deletePending = async (key, id) => { if (broken) throw new Error('tab closed'); return del(key, id) }
+    const b = keep(await Follower.open(as(tablet), cid, wasm, { store, signer: signers(k) }))
+    await transfer(a, k, x, 1n)
+    await a.sync()
+    await transfer(b, k, y, 1n)
+    await expect(b.sync()).rejects.toThrow('tab closed')
+    expect(resigned).toBe(true)
+    expect(await store.listPending(cid)).toHaveLength(1) // one record, re-signed in place
+    broken = false
+    const c = keep(await Follower.open(as(tablet), cid, wasm, { store, signer: signers(k) }))
+    await c.sync()
+    expect(c.pending().map((t) => [t.status, t.nonce])).toEqual([['confirmed', 1]])
+    expect(await cloudFrom(k.address)).toHaveLength(2) // a's and c's, once each
+    expect(await balanceOn(c, y)).toBe(1n)
+  })
+
+  test('a tx mined in a block this device never replayed settles from that block, and is never re-signed', async () => {
+    const k = fresh(), x = fresh().address, y = fresh().address
+    await mint(k.address, 10n)
+    const a = keep(await Follower.open(as(admin), cid, wasm, { signer: signers(k) }))
+    const real = as(tablet)
+    let offline = false, skip: number | undefined
+    const stub = {
+      account: tablet,
+      state: (id: string) => real.state(id),
+      blocks: async (id: string, after: number) => {
+        if (offline) { offline = false; throw new Error('offline') }
+        if (after === skip) return { head: (await real.blocks(id, after)).head, blocks: [] } // a cloud page that lacks the block
+        return real.blocks(id, after)
+      },
+      submit: (id: string, txs: Hex[]) => real.submit(id, txs),
+    } as unknown as NodeClient
+    const store = new MemoryFollowerStore()
+    const b = keep(await Follower.open(stub, cid, wasm, { store, signer: signers(k) }))
+    const t0 = await transfer(b, k, y, 1n) // nonce 0: a takes it first
+    const t1 = await transfer(b, k, y, 2n) // nonce 1
+    await transfer(a, k, x, 1n)
+    await a.sync()
+    // b's first submit: t0 refused (nonce), t1 mined; then it goes offline before pulling
+    offline = true
+    await expect(b.sync()).rejects.toThrow('offline')
+    const t1Block = (await as(admin).blocks(cid, 0)).blocks.find((bl) => bl.header.transactions.includes(t1.transactionHash))!.header.number
+    // the app reopens; its stored copy is unusable, so it boots from the cloud, past t1's block
+    await spoil(store)
+    skip = t1Block - 1
+    const c = keep(await Follower.open(stub, cid, wasm, { store, signer: signers(k) }))
+    expect(c.head.number).toBeGreaterThanOrEqual(t1Block)
+    await c.sync()
+    const [r0, r1] = c.pending()
+    expect(r0).toMatchObject({ seq: 0, nonce: 2, status: 'confirmed' }) // re-signed after t1
+    expect(r0!.hash).not.toBe(t0.transactionHash)
+    expect(r1).toMatchObject({ seq: 1, nonce: 1, status: 'pending', hash: t1.transactionHash }) // mined, unsettled, not re-signed
+    skip = undefined
+    await c.sync()
+    expect(c.pending()[1]).toMatchObject({ status: 'confirmed', block: t1Block, hash: t1.transactionHash })
+    expect((await cloudTxs()).filter((h) => h === t1.transactionHash)).toHaveLength(1)
+    expect(await cloudFrom(k.address)).toHaveLength(3)
+  })
+
+  test('dependsOn never points at a conflict that settled before the tx was sent', async () => {
+    const k = fresh(), p = fresh(), x = fresh().address, y = fresh().address
+    await mint(k.address, 10n)
+    await mint(p.address, 10n)
+    const a = keep(await Follower.open(as(admin), cid, wasm, { signer: signers(k, p) }))
+    const b = keep(await Follower.open(as(tablet), cid, wasm, { signer: signers(k, p) }))
+    // sync 1: b's k spend conflicts
+    await transfer(a, k, x, 10n)
+    await a.sync()
+    await transfer(b, k, y, 10n)
+    await b.sync()
+    expect(b.pending()[0]!.status).toBe('conflicted')
+    // an independent tx afterwards, re-run unchanged (submit down): no dependsOn
+    const real = as(tablet)
+    ;(b as any).client = { account: tablet, state: real.state.bind(real), blocks: real.blocks.bind(real), submit: () => Promise.reject(new Error('down')) }
+    await transfer(b, p, y, 1n)
+    await expect(b.sync()).rejects.toThrow('down')
+    expect(b.pending()[1]).toMatchObject({ status: 'pending' })
+    expect(b.pending()[1]!.dependsOn).toBeUndefined()
+    ;(b as any).client = real
+    await b.sync()
+    expect(b.pending()[1]).toMatchObject({ status: 'confirmed' })
+    // a new, unrelated conflict does not link to the old one
+    await transfer(a, p, x, 9n)
+    await a.sync()
+    await transfer(b, p, y, 9n)
+    await b.sync()
+    expect(b.pending()[2]).toMatchObject({ status: 'conflicted' })
+    expect(b.pending()[2]!.dependsOn).toBeUndefined()
+  })
+
+  test('a non-403 4xx submit answer refuses that batch; a 5xx keeps it pending', async () => {
+    const real = as(admin)
+    let status = 400
+    const stub = { account: admin, state: real.state.bind(real), blocks: real.blocks.bind(real), submit: () => Promise.reject(new NodeError(status, 'block rejected: boom')) } as unknown as NodeClient
+    const f = keep(await Follower.open(stub, cid, wasm))
+    await transfer(f, fresh(), fresh().address, 0n)
+    await f.sync()
+    expect(f.pending()[0]).toMatchObject({ status: 'refused', reason: 'block rejected: boom' })
+    status = 503
+    await transfer(f, fresh(), fresh().address, 0n)
+    await expect(f.sync()).rejects.toThrow('boom')
+    expect(f.pending()[1]!.status).toBe('pending')
+  })
+
+  test('removed while the stored copy is unusable: open throws FollowerRemoved and the stored pending are refused', async () => {
+    const store = new MemoryFollowerStore()
+    const f = await Follower.open(as(admin), cid, wasm, { store })
+    await transfer(f, fresh(), fresh().address, 0n)
+    await f.dispose()
+    await spoil(store)
+    await expect(Follower.open(as(fresh()), cid, wasm, { store })).rejects.toBeInstanceOf(FollowerRemoved)
+    expect(await store.listPending(cid)).toMatchObject([{ status: 'refused', reason: 'removed from chain' }])
   })
 
   test('removal → all pending refused (removed from chain), then FollowerRemoved', async () => {
