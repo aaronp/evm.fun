@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { encodeDeployData, type Hex, type LocalAccount } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { MintableToken } from '@evmb/contracts'
-import { GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, MAX_CREATE_BYTES, MAX_SUBMIT_BYTES, NodeClient, NodeError, accessTx, claimTx, codeHash, generateCode, inviteTx, setupTxs, type CreateChainResult } from '../src/client'
+import { GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, MAX_CREATE_BYTES, MAX_SUBMIT_BYTES, NodeClient, NodeError, accessTx, claimTx, codeHash, generateCode, inviteTx, mined, setupTxs, type CreateChainResult } from '../src/client'
 import { signRequest } from '../src/auth'
 import { Follower, FollowerRemoved } from '../src/follower'
 import { ensureKey, freshDump, wasm } from './bootstrap'
@@ -41,7 +41,7 @@ try {
 
   // ---- admin issues codes ----
   const issue = async (code: string, ttl: number, uses: number) =>
-    as(admin).submit('root', [await inviteTx(admin, await as(admin).nonce('root'), root.access, code, ttl, uses)])
+    mined(await as(admin).submit('root', [await inviteTx(admin, await as(admin).nonce('root'), root.access, code, ttl, uses)]))
   const one = generateCode(), two = generateCode(), short = generateCode(), race = generateCode(), retry = generateCode(), spent = generateCode()
   await issue(one, 600, 1)
   await issue(two, 600, 2)
@@ -138,11 +138,11 @@ try {
   const cid = r.chainId, bAccess = info.access
   const bc = as(B, 'B laptop')
   const invite = async (grants: number, code = generateCode()) => {
-    await bc.submit(cid, [await inviteTx(B, await bc.nonce(cid), bAccess, code, 300, 1, grants)])
+    mined(await bc.submit(cid, [await inviteTx(B, await bc.nonce(cid), bAccess, code, 300, 1, grants)]))
     return code
   }
   const blocks = async (n: number) => {
-    for (let i = 0; i < n; i++) await bc.submit(cid, [await accessTx(B, await bc.nonce(cid), bAccess, 'setReadOpen', false)])
+    for (let i = 0; i < n; i++) mined(await bc.submit(cid, [await accessTx(B, await bc.nonce(cid), bAccess, 'setReadOpen', false)]))
   }
   const member = async (a: LocalAccount) => (await bc.nodes(cid)).members.find((m) => m.address.toLowerCase() === a.address.toLowerCase())
   const codeC = await invite(GRANT_READER), codeD = await invite(GRANT_WRITER)
@@ -172,7 +172,7 @@ try {
     const bh2 = (await bc.state(cid)).head
     const [mc, md] = [await member(C), await member(D)]
     check(mc?.behind === 2 && mc.block === bh.number && md?.behind === 0 && md.block === bh2.number, `nodes: C ${mc?.behind} behind, D ${md?.behind} behind`)
-    await bc.submit(cid, [await accessTx(B, await bc.nonce(cid), bAccess, 'removeReader', C.address)])
+    mined(await bc.submit(cid, [await accessTx(B, await bc.nonce(cid), bAccess, 'removeReader', C.address)]))
     check(await fc.sync().then(() => false, (e) => e instanceof FollowerRemoved) && fc.status === 'removed', 'removed C: its next sync is FollowerRemoved (403)')
     check(await status(cc.blocks(cid, 0)) === 403, 'removed C: GET blocks → 403')
     check(!(await member(C)), 'nodes omits C after removal')
@@ -181,7 +181,7 @@ try {
     check(await status(joinAs(E, root1)) === 403, 'a create-chain code used to join → 403')
     check(await status(joinAs(E, codeC)) === 403, 'C’s used 1-use code, by another key → 403')
     const revoked = await invite(GRANT_READER)
-    await bc.submit(cid, [await accessTx(B, await bc.nonce(cid), bAccess, 'revokeInvite', codeHash(revoked))])
+    mined(await bc.submit(cid, [await accessTx(B, await bc.nonce(cid), bAccess, 'revokeInvite', codeHash(revoked))]))
     check(await status(joinAs(E, revoked)) === 403, 'a revoked unused code → 403')
   } finally {
     await fc.dispose(); await fd.dispose()

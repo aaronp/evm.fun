@@ -24,6 +24,12 @@ export interface BlockSummary { number: number; hash: string; stateRoot: string 
 export type TxResult = { hash: Hex; result: 'mined'; block: number } | { hash: Hex; result: 'refused'; code: 'nonce' | 'invalid'; reason: string }
 /** Submit reply: the head after the request, and one result per tx in request order. */
 export interface SubmitResult { head: BlockSummary; results: TxResult[] }
+/** `r` if every tx was mined; else throws naming the first refused tx and its reason. For callers that need all of a submit on chain. */
+export function mined(r: SubmitResult): SubmitResult {
+  const no = r.results.find((x) => x.result === 'refused')
+  if (no?.result === 'refused') throw new Error(`tx ${no.hash} refused (${no.code}): ${no.reason}`)
+  return r
+}
 export interface CreateChainRequest { dump: SerializedState; setup: [Hex, Hex]; claim?: Hex }
 export interface CreateChainResult { chainId: string; url: string; head: BlockSummary; dump: SerializedState }
 export interface RemoteChainInfo { chainId: string; head: BlockSummary; admin: Address; access: Address; aliases: Address }

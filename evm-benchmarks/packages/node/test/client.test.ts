@@ -6,7 +6,7 @@ import { createRevmEngine } from 'webevm/revm'
 import { privateKeyToAccount } from 'viem/accounts'
 import { Aliases, ChainAccess } from '@evmb/contracts'
 import { ChainNode, ChainStore } from '../src'
-import { claimTx, codeHash, generateCode, inviteTx, NodeClient, NodeError, setupTxs } from '../src/client'
+import { claimTx, codeHash, generateCode, inviteTx, mined, NodeClient, NodeError, setupTxs, type SubmitResult } from '../src/client'
 import { WORDS } from '../src/words'
 import { bunSql } from './bunSql'
 import { wasm } from './workload'
@@ -19,6 +19,14 @@ const call = (n: ChainNode, to: Hex, abi: any, fn: string, args: unknown[] = [])
 
 test('codeHash is keccak256(bytes(code))', () => {
   expect(codeHash('a-b-c-d')).toBe(keccak256(toBytes('a-b-c-d')))
+})
+
+test('mined passes an all-mined reply through and throws on the first refused tx, naming its reason', () => {
+  const head = { number: 3, hash: '0xh', stateRoot: '0xr' }
+  const ok = { head, results: [{ hash: '0x01', result: 'mined', block: 3 }] } as SubmitResult
+  expect(mined(ok)).toBe(ok)
+  const bad = { head, results: [...ok.results, { hash: '0x02', result: 'refused', code: 'nonce', reason: 'nonce too low: address 0xa, tx: 1, state: 2' }] } as SubmitResult
+  expect(() => mined(bad)).toThrow('tx 0x02 refused (nonce): nonce too low: address 0xa, tx: 1, state: 2')
 })
 
 test('generateCode gives 4 lowercase words', () => {

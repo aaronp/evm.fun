@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { encodeDeployData, encodeFunctionData, type Hex, type LocalAccount } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { ChainAccess, MintableToken } from '@evmb/contracts'
-import { NodeClient, claimTx, inviteTx, setupTxs } from '../src/client'
+import { NodeClient, claimTx, inviteTx, mined, setupTxs } from '../src/client'
 import { ChainHost, handle, type ChainHandleLike } from '../src/router'
 import { bunSql } from '../test/bunSql'
 import { ensureKey, freshDump, wasm } from './bootstrap'
@@ -41,22 +41,22 @@ try {
     root = (await c.health()).root!
   }
   const code = `tp-${crypto.randomUUID()}`
-  await c.submit('root', [await inviteTx(admin, await c.nonce('root'), root.access, code, 600, 1)])
+  mined(await c.submit('root', [await inviteTx(admin, await c.nonce('root'), root.access, code, 600, 1)]))
   const { chainId: cid } = await c.createChain({
     dump: await freshDump(), setup: await setupTxs(admin, 0, 31337), claim: await claimTx(admin, await c.nonce('root'), code, root.access),
   })
   const access = (await c.info(cid)).access
   const senders = Array.from({ length: SENDERS }, () => privateKeyToAccount(generatePrivateKey()))
   let an = await c.nonce(cid)
-  await c.submit(cid, await Promise.all(senders.map((s) => tx(admin, an++, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: 'addWriter', args: [s.address] })))))
+  mined(await c.submit(cid, await Promise.all(senders.map((s) => tx(admin, an++, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: 'addWriter', args: [s.address] }))))))
   // each sender deploys its own token and mints itself a pile (nonces 0, 1); transfers start at nonce 2
   const tokens: Hex[] = []
   const nonce = senders.map(() => 2)
   const head = await Promise.all(senders.map(async (s) => tx(s, 0, undefined, encodeDeployData({ abi: MintableToken.abi, bytecode: MintableToken.bytecode, args: ['T', 'T'] }), 3_000_000n)))
-  await c.submit(cid, head) // 10 deploys of ~10 KB hex each, well under the 1 MiB submit cap
+  mined(await c.submit(cid, head)) // 10 deploys of ~10 KB hex each, well under the 1 MiB submit cap
   const { getContractAddress } = await import('viem')
   for (const s of senders) tokens.push(getContractAddress({ from: s.address, nonce: 0n }))
-  await c.submit(cid, await Promise.all(senders.map((s, i) => tx(s, 1, tokens[i], encodeFunctionData({ abi: MintableToken.abi, functionName: 'mint', args: [s.address, 10n ** 24n] })))))
+  mined(await c.submit(cid, await Promise.all(senders.map((s, i) => tx(s, 1, tokens[i], encodeFunctionData({ abi: MintableToken.abi, functionName: 'mint', args: [s.address, 10n ** 24n] }))))))
   const sink = privateKeyToAccount(generatePrivateKey()).address
 
   const first = (await c.state(cid)).head.number
@@ -71,7 +71,7 @@ try {
       }))
       const t = performance.now()
       if (!t0) t0 = t
-      await c.submit(cid, txs)
+      mined(await c.submit(cid, txs))
       lat.push(performance.now() - t)
       total += size
     }

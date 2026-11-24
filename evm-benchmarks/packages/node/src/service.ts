@@ -159,8 +159,9 @@ export class ChainService {
       results: hashes.map((hash): TxResult => {
         const block = this.store.blockOf(hash)
         if (block !== undefined) return { hash, result: 'mined', block }
-        const reason = errors.get(hash)!
-        return { hash, result: 'refused', code: /nonce/i.test(reason) ? 'nonce' : 'invalid', reason }
+        // classed on the leading clause, as webevm and #admit word it; a decode error may mention "nonce" too
+        const reason = errors.get(hash) ?? 'not in the mined block'
+        return { hash, result: 'refused', code: /^nonce too (low|high)/.test(reason) ? 'nonce' : 'invalid', reason }
       }),
     }
   }

@@ -70,7 +70,10 @@ export class ChainStore {
     })
   }
 
-  /** The block that mined tx `hash`, if this store holds it (a chain created from a dump holds only the dump's blocks). */
+  /**
+   * The block that mined tx `hash`, if this store holds that block. A chain created from a dump holds only the dump's
+   * blocks, so a tx from before them is not found (resent, it is refused as a nonce replay, never mined twice).
+   */
   blockOf(hash: Hex): number | undefined {
     const [row] = this.sql.exec('SELECT block FROM txs WHERE hash = ?', hash.toLowerCase())
     return row ? Number(row.block) : undefined

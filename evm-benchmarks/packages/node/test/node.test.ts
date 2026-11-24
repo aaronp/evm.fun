@@ -96,16 +96,19 @@ test('apply mines valid txs and reports a bad-nonce tx without failing the block
   const low = await signed(SENDERS[3]!, n3 - 1)
   const gap = await signed(SENDERS[3]!, n3 + 1)
   const broke = await signed(SENDERS[3]!, n3, { value: 10n ** 30n })
-  const { block, results } = await a.apply(w.timestamp(6), [low, ...good, gap, broke])
+  // refused for funds, so its nonce is never queued: the sender's next nonce is a gap
+  const after = await signed(SENDERS[3]!, n3 + 1)
+  const { block, results } = await a.apply(w.timestamp(6), [low, ...good, gap, broke, after])
   const theirs = (await ref.apply(w.timestamp(6), good)).block!
   expect(block!.header.hash).toBe(theirs.header.hash)
   expect(block!.txs).toEqual(good)
-  expect(results.map((r) => r.ok)).toEqual([false, ...good.map(() => true), false, false])
-  expect(results.map((r) => r.hash)).toEqual([low, ...good, gap, broke].map((t) => keccak256(t)))
+  expect(results.map((r) => r.ok)).toEqual([false, ...good.map(() => true), false, false, false])
+  expect(results.map((r) => r.hash)).toEqual([low, ...good, gap, broke, after].map((t) => keccak256(t)))
   const errors = results.flatMap((r) => (r.ok ? [] : [r.error]))
   expect(errors[0]).toMatch(/^nonce too low/)
   expect(errors[1]).toMatch(/^nonce too high/)
   expect(errors[2]).toMatch(/^insufficient funds/)
+  expect(errors[3]).toMatch(/^nonce too high/)
 }, 30_000)
 
 test('apply with only bad txs mines nothing', async () => {

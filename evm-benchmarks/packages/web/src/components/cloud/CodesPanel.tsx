@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { keccak256, type Address, type LocalAccount } from 'viem'
-import { generateCode, inviteTx, type CodeRecord, type NodeClient } from '@evmb/node/src/client'
+import { generateCode, inviteTx, mined, type CodeRecord, type NodeClient } from '@evmb/node/src/client'
 import { Button } from '../../ui/button'
 import { Input, fieldLabel } from '../../ui/input'
 import { Notice } from '../../ui/notice'
@@ -39,7 +39,7 @@ export function CodesPanel({ client, account, access }: { client: NodeClient; ac
     setFlash(undefined)
     try {
       const raw = await inviteTx(account, await client.nonce('root'), access, code.trim(), Number(ttl), Number(uses))
-      const { head } = await client.submit('root', [raw])
+      const { head } = mined(await client.submit('root', [raw]))
       setFlash({ tone: 'success', text: `Code "${code.trim()}" is ready — share it with whoever should deploy a chain. Invite tx ${keccak256(raw)} in root block #${head.number}.` })
       setCode(generateCode())
       await load()

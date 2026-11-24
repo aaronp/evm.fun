@@ -1,7 +1,7 @@
 // The Devices panel's admin actions on a cloud chain: invite a device with a code, remove a member.
 import type { Hex, LocalAccount } from 'viem'
 import { joinLink } from './join'
-import { GRANT_READER, GRANT_WRITER, accessTx, inviteTx, type Member, type NodeClient } from '@evmb/node/src/client'
+import { GRANT_READER, GRANT_WRITER, accessTx, inviteTx, mined, type Member, type NodeClient } from '@evmb/node/src/client'
 
 export type DeviceRole = 'reader' | 'writer'
 
@@ -24,7 +24,7 @@ export const inviteShare = (o: { base: string; nodeUrl: string; chainId: string;
 export async function inviteDevice(o: { client: NodeClient; chainId: string; admin: LocalAccount; code: string; ttlS: number; uses: number; role: DeviceRole }) {
   const { nonce, access } = await o.client.joinInfo(o.chainId)
   const grants = o.role === 'writer' ? GRANT_WRITER : GRANT_READER
-  await o.client.submit(o.chainId, [await inviteTx(o.admin, nonce, access, o.code.trim(), o.ttlS, o.uses, grants)])
+  mined(await o.client.submit(o.chainId, [await inviteTx(o.admin, nonce, access, o.code.trim(), o.ttlS, o.uses, grants)]))
 }
 
 /**
@@ -42,5 +42,5 @@ export async function removeDevice(o: { client: NodeClient; chainId: string; adm
     ...(o.closeReads ? [['setReadOpen', false] as const] : []),
   ]
   const txs: Hex[] = await Promise.all(calls.map(([fn, arg], i) => accessTx(o.admin, nonce + i, access, fn, arg)))
-  await o.client.submit(o.chainId, txs)
+  mined(await o.client.submit(o.chainId, txs))
 }

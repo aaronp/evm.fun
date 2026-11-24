@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { encodeDeployData, encodeFunctionData, keccak256, toBytes, type Hex } from 'viem'
+import { encodeDeployData, encodeFunctionData, keccak256, toBytes, toRlp, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { createNode, type SerializedState } from 'webevm'
 import { createRevmEngine } from 'webevm/revm'
@@ -224,6 +224,11 @@ describe('submit answers per tx', () => {
     expect(r.head).toEqual(head.head)
     expect(r.results[0]).toMatchObject({ result: 'refused', code: 'invalid', reason: expect.stringMatching(/^intrinsic gas too low/) })
     expect((await refused(s.submit(me, ['nope' as Hex], T0 + 731))).status).toBe(400)
+    // an undecodable tx whose decode error mentions "nonce" is still invalid, and its reason does not echo the tx
+    const junk = `0x02${toRlp([`0x${'01'.repeat(4000)}`]).slice(2)}` as Hex // viem: "Missing Attributes: …nonce…", echoing the 8 KB tx
+    const [x] = (await s.submit(me, [junk], T0 + 732)).results
+    expect(x).toMatchObject({ result: 'refused', code: 'invalid' })
+    expect((x as { reason: string }).reason.length).toBeLessThan(500)
   })
 
   test('a reverting tx is mined with status 0', async () => {

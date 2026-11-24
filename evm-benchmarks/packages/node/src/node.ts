@@ -6,6 +6,9 @@ import { nonZero, type ChainStore, type SerializedBlock, type StateDiff, type St
 /** One tx of an `apply`: accepted into the block, or refused by the node (and in no block). */
 export type TxOutcome = { ok: true; hash: Hex } | { ok: false; hash: Hex; error: string }
 
+/** Longest refusal reason kept (webevm's own run to ~500 characters; the leading clause is what matters). */
+const MAX_REASON = 300
+
 export interface NodeConfig {
   wasm: WebAssembly.Module | ArrayBufferView
   /** Rebuild the in-memory node from the store every N blocks, to bound its history (default 1000). */
@@ -105,7 +108,8 @@ export class ChainNode {
 
   /**
    * Refuse a tx that would fail webevm's mine-time sender checks (nonce, funds): in manual mining it accepts such a
-   * tx at send and then refuses the whole batch at `mine()`. Same rules, read against the queued txs. Returns its cost.
+   * tx at send and then refuses the whole batch at `mine()`. The same rules, read against the queued txs, except that
+   * an EIP-7702 authorization's nonce bump inside the batch is not modelled (that batch fails at mine). Returns its cost.
    */
   async #admit(raw: Hex, spent: Map<string, bigint>): Promise<[string, bigint]> {
     const tx = parseTransaction(raw)
@@ -140,7 +144,9 @@ export class ChainNode {
           spent.set(from, want)
           results.push({ ok: true, hash })
         } catch (e) {
-          results.push({ ok: false, hash, error: e instanceof Error ? e.message : String(e) })
+          // viem's shortMessage: its full message can echo the whole serialized tx (up to 1 MiB)
+          const m = (e as { shortMessage?: string }).shortMessage ?? (e instanceof Error ? e.message : String(e))
+          results.push({ ok: false, hash, error: m.length > MAX_REASON ? `${m.slice(0, MAX_REASON)}…` : m })
         }
       }
       if (!sent.length) return { results }

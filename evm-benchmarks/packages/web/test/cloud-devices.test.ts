@@ -84,6 +84,14 @@ describe('removeDevice', () => {
     expect(await client.nodes(chainId).catch((x) => x.status)).toBe(403)
   })
 
+  test('a remove the chain refuses rejects with the reason (it is not reported done)', async () => {
+    const refused = { hash: '0x01', result: 'refused', code: 'nonce', reason: 'nonce too low: stale' } as const
+    const client = { joinInfo: async () => ({ nonce: 0, access }), submit: async () => ({ head: { number: 1, hash: '0x', stateRoot: '0x' }, results: [refused] }) } as unknown as NodeClient
+    const member = { address: owner.address, role: 'reader' } as const
+    await expect(removeDevice({ client, chainId, admin: owner, member, closeReads: false })).rejects.toThrow('nonce too low: stale')
+    await expect(inviteDevice({ client, chainId, admin: owner, code: 'c', ttlS: 60, uses: 1, role: 'reader' })).rejects.toThrow('nonce too low: stale')
+  })
+
   test('the admin is never removed', async () => {
     const me = (await o().nodes(chainId)).members.find((x) => x.role === 'admin')!
     await expect(removeDevice({ client: o(), chainId, admin: owner, member: me, closeReads: false })).rejects.toThrow("The chain's admin can't be removed")
