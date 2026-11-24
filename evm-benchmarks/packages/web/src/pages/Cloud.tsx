@@ -6,7 +6,7 @@ import { useApp } from '../state'
 import { useAppBar } from '../state/appBar'
 import { accounts } from '../store/accounts'
 import { clientFor, DEFAULT_NODE_URL, getSyncInterval, nodeUrl, setNodeUrl, setSyncInterval, type SyncInterval } from '../cloud/node'
-import { joinPrefill } from '../cloud/join'
+import { heldCodeFor, joinPrefill, stripCode } from '../cloud/join'
 import { JoinForm } from '../components/cloud/JoinForm'
 import { Segmented } from '../ui/segmented'
 import { deployedUrl } from '../cloud/deploy'
@@ -50,13 +50,12 @@ export function Cloud() {
   const { pathname, search } = useLocation()
   const nav = useNavigate()
   const link = pathname === '/cloud/join' ? joinPrefill(search) : {} // #/cloud/join?node=…&chain=…&code=…
-  const [linkCode, setLinkCode] = useState<string>() // held here: the code leaves the address bar below, the form keeps it
+  const [held, setHeld] = useState<{ code: string; nodeUrl?: string; chainId?: string }>() // the code leaves the address bar below; the form keeps it, for this link only
   useEffect(() => {
-    if (!link.code) return
-    setLinkCode(link.code)
-    const p = new URLSearchParams(search); p.delete('code')
-    nav(`${pathname}?${p}`, { replace: true })
-  }, [link.code]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!new URLSearchParams(search).has('code') || pathname !== '/cloud/join') return
+    if (link.code) setHeld({ code: link.code, nodeUrl: link.nodeUrl, chainId: link.chainId })
+    nav(`${pathname}${stripCode(search)}`, { replace: true })
+  }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
   const [sync, setSync] = useState(() => String(getSyncInterval()))
 
   function save(next: string) {
@@ -95,7 +94,7 @@ export function Cloud() {
         </div>
       </Panel>
 
-      <JoinForm acct={acct} nodeUrl={link.nodeUrl ?? url} usualUrl={url} chainId={link.chainId} code={linkCode} onJoined={() => pathname !== '/cloud' && nav('/cloud', { replace: true })} />
+      <JoinForm acct={acct} nodeUrl={link.nodeUrl ?? url} usualUrl={url} chainId={link.chainId} code={heldCodeFor(held, link)} onJoined={() => { setHeld(undefined); pathname !== '/cloud' && nav('/cloud', { replace: true }) }} />
 
       {root && !acct && <p className="text-sm text-muted">Select an account to issue codes or deploy chains.</p>}
       {isAdmin && client && signer && <CodesPanel client={client} account={signer} access={root!.access} />}

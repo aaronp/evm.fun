@@ -6,7 +6,7 @@ import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry } from '../src/chain/registry'
-import { joinChain, joinLink, joinName, joinPrefill } from '../src/cloud/join'
+import { heldCodeFor, joinChain, joinLink, joinName, joinPrefill, stripCode } from '../src/cloud/join'
 import type { FollowerStatus } from '../src/cloud/followerChain'
 
 // The worker stand-in, as in cloud-deploy.test.ts: packages/node's router over in-process ChainHosts on bun:sqlite.
@@ -137,5 +137,19 @@ describe('joinPrefill', () => {
     expect(joinPrefill(`?chain=c1&code=${'x'.repeat(201)}`)).toEqual({ chainId: 'c1' })
     expect(joinPrefill(`?code=${'x'.repeat(200)}`)).toEqual({ code: 'x'.repeat(200) })
     expect(joinPrefill('?code=%20apple-river%20')).toEqual({ code: 'apple-river' })
+  })
+
+  test('a held code applies only to the link it came with', () => {
+    const a = { code: 'C', nodeUrl: 'https://n.example', chainId: 'X' }
+    expect(heldCodeFor(a, { nodeUrl: 'https://n.example', chainId: 'X' })).toBe('C') // same link reopened (code already stripped)
+    expect(heldCodeFor(a, { nodeUrl: 'https://n.example', chainId: 'Y' })).toBeUndefined() // code-free link B
+    expect(heldCodeFor(a, { nodeUrl: 'https://other.example', chainId: 'X' })).toBeUndefined()
+    expect(heldCodeFor(undefined, { chainId: 'X' })).toBeUndefined()
+  })
+
+  test('stripCode drops code (even an unusable one) and leaves no bare "?"', () => {
+    expect(stripCode('?node=https%3A%2F%2Fn.example&chain=c1&code=a%26b')).toBe('?node=https%3A%2F%2Fn.example&chain=c1')
+    expect(stripCode('?code=x')).toBe('')
+    expect(stripCode('?chain=c1')).toBe('?chain=c1')
   })
 })

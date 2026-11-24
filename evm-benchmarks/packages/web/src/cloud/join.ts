@@ -21,6 +21,16 @@ export function joinPrefill(search: string): { nodeUrl?: string; chainId?: strin
 export const joinLink = (base: string, nodeUrl: string, chainId: string, code?: string) =>
   `${base}#/cloud/join?${new URLSearchParams({ node: nodeUrl, chain: chainId, ...(code?.trim() && { code: code.trim() }) })}`
 
+/** `search` without its `code` param (also an unusable one), with no bare "?" left. */
+export function stripCode(search: string) {
+  const p = new URLSearchParams(search); p.delete('code')
+  return p.size ? `?${p}` : ''
+}
+
+/** The code a join link brought, kept after it leaves the address bar: only for that link's own node and chain. */
+export const heldCodeFor = (held: { code: string; nodeUrl?: string; chainId?: string } | undefined, link: { nodeUrl?: string; chainId?: string }) =>
+  held && held.nodeUrl === link.nodeUrl && held.chainId === link.chainId ? held.code : undefined
+
 /**
  * Claim `code` on cloud chain `chainId` as `account`, then follow it as a new chain named `name`. A refusal throws
  * the worker's message and adds nothing. `client` signs as `account` (with its label as the device name).
