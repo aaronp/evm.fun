@@ -1,8 +1,11 @@
 // A device's copy of a cloud chain: boots from GET /state, replays GET /blocks, checks each block's hash and state root.
-import { createNode, type SlimNode } from 'webevm'
+import { createNode, type SerializedState, type SlimNode } from 'webevm'
 import { createRevmEngine } from 'webevm/revm'
 import { NodeError, type BlockRecord, type BlockSummary, type NodeClient } from './client'
 import { nodeOptions, type NodeConfig } from './node'
+import type { FollowerStore } from './followerStore'
+
+const HEADERS_KEPT = 256 // as the cloud's /state dump
 
 /** This device is no longer a member of the chain (the cloud answered 403). */
 export class FollowerRemoved extends Error {
@@ -26,16 +29,21 @@ export class Follower {
   #replayed = 0 // blocks replayed on the current node
 
   private constructor(private client: NodeClient, readonly chainId: string, private wasm: NodeConfig['wasm'], private reopenEvery: number,
+    private store: FollowerStore | undefined, private key: string,
     private node: SlimNode, private env: { timestamp?: bigint }, public head: BlockSummary) { this.cloudHead = head }
 
   /** `reopenEvery`: after that many replayed blocks, start a fresh node from GET /state (bounds memory). */
-  static async open(client: NodeClient, chainId: string, wasm: NodeConfig['wasm'], o: { reopenEvery?: number } = {}): Promise<Follower> {
-    const { node, env, head } = await Follower.#boot(client, chainId, wasm)
-    return new Follower(client, chainId, wasm, o.reopenEvery ?? 1000, node, env, head)
+  static async open(client: NodeClient, chainId: string, wasm: NodeConfig['wasm'], o: { reopenEvery?: number; store?: FollowerStore; key?: string } = {}): Promise<Follower> {
+    const key = o.key ?? chainId
+    const stored = await o.store?.loadConfirmed(key)
+    const { node, env, head, dump } = await Follower.#boot(client, chainId, wasm, stored)
+    const f = new Follower(client, chainId, wasm, o.reopenEvery ?? 1000, o.store, key, node, env, head)
+    if (!stored) await o.store?.saveConfirmed(key, { head, dump })
+    return f
   }
 
-  static async #boot(client: NodeClient, chainId: string, wasm: NodeConfig['wasm']) {
-    const { head, dump } = await client.state(chainId).catch((e) => {
+  static async #boot(client: NodeClient, chainId: string, wasm: NodeConfig['wasm'], stored?: { head: BlockSummary; dump: SerializedState }) {
+    const { head, dump } = stored ?? await client.state(chainId).catch((e) => {
       throw e instanceof NodeError && e.status === 403 ? new FollowerRemoved(chainId) : e
     })
     const env = {}
@@ -97,9 +105,17 @@ export class Follower {
           this.#stop('mismatch', new FollowerMismatch(`cloud head ${page.head.number} (${page.head.hash}) does not match our head ${this.head.number} (${this.head.hash})`))
         for (const b of page.blocks) await this.#replay(b)
         if (this.#replayed >= this.reopenEvery) await this.#reopen()
+        if (page.blocks.length) await this.#save()
         if (!page.blocks.length || this.head.number >= page.head.number) return this.head
       }
     })
+  }
+
+  /** Store the confirmed copy, trimmed to what loadState needs (state + recent headers), so it stays bounded. */
+  async #save() {
+    if (!this.store) return
+    const dump = await this.node.dumpState()
+    await this.store.saveConfirmed(this.key, { head: this.head, dump: { ...dump, blocks: dump.blocks.slice(-HEADERS_KEPT), receipts: {}, transactions: {} } })
   }
 
   async #replay({ header, txs }: BlockRecord) {
