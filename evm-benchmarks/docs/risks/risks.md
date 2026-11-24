@@ -1047,6 +1047,6 @@ Each signed `GET /blocks` poll writes a request nonce and runs EVM `canRead` (pl
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
-| evm.fun followers poll every 5, 15 (default) or 60 s, or only on Sync now (Manual); polling pauses while the tab is hidden and backs off after failures (plan 18) | Preventive | Partial |
+| evm.fun followers poll every 5 (default), 15 or 60 s, or only on Sync now (Manual); polling pauses while the tab is hidden and backs off after failures (plan 18) | Preventive | Partial |
 | Cursor writes at most once a minute when idle; pages capped at 100 blocks | Preventive | Partial |
 | Cap or stream `state` (later) | Preventive | Partial |

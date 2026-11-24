@@ -1358,7 +1358,7 @@ Cons:
 ## Decision
 all-follow. Decided with Aaron (design option (ii) rejected): Deploy converts the owner's copy to a follower (a chain deployed earlier converts when opened: quietly if its head matches the cloud block hash, else the user picks Export or Convert anyway).
 
-Claude's call: a follower is saved in workspace files as a pointer (node URL, chain id, the account that follows, last known head) together with its contract and asset records, not as a copy of the chain; opening it makes no request, and the follower boots from the cloud's `state` on demand.
+Claude's call: a follower is saved in workspace files as a pointer (node URL, chain id, the account that follows) together with its contract and asset records, not as a copy of the chain; opening it makes no request, and the follower boots from the cloud's `state` on demand.
 
 ## Consequences
 - No playground page writes to a deployed chain until B; they show a read-only message.
