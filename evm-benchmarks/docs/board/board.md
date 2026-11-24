@@ -91,7 +91,7 @@ Spiked ([docs/spikes/cf-views.md](../spikes/cf-views.md)): `Aliases.sol` in gene
 ```md
 From t-128: the block timestamp is the only nondeterminism between the DO and replicas, pinned today through a webevm internal. Upstream `mine({timestamp})` and a dump without state history.
 
-Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps accounts absent from the snapshot, so rolling back a refused block left the new sender's nonce behind (DO/replica drift). The spike rebuilds the node on rollback (~10 ms); fix upstream.
+Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps accounts absent from the snapshot, so rolling back a refused block left the new sender's nonce behind (DO/replica drift). The spike rebuilds the node on rollback (~10 ms); fix upstream. The `Follower` (t-132) rebases on a fresh node for the same reason.
 ```
 
 ### Governance.sol: a self-governed allow-list as ChainAccess admin

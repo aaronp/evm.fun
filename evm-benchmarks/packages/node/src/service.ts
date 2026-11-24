@@ -87,7 +87,7 @@ export class ChainService {
     let node: ChainNode | undefined
     try {
       node = await ChainNode.create(store, opts.dump, { wasm })
-      const { block: blk, results } = await node.apply(opts.timestamp, setup).catch((e) => { throw new ServiceError(400, `setup block rejected: ${msg(e)}`) })
+      const { block: blk, results } = await node.apply(opts.timestamp, setup).catch((e) => { throw new ServiceError(e instanceof NodeFault ? 503 : 400, `setup block rejected: ${msg(e)}`) })
       const no = results.flatMap((r) => (r.ok ? [] : [r.error]))[0]
       if (no !== undefined || !blk) throw new ServiceError(400, `setup block rejected: ${no}`)
       const receipts = blk.receipts as { status: number; contractAddress: Address }[]
@@ -226,7 +226,7 @@ export class ChainService {
   }
 
   async #claim(claim: Hex, timestamp: number): Promise<BlockSummary> {
-    const { block: blk, results: [r] } = await this.node.apply(timestamp, [claim]).catch((e) => { throw new ServiceError(400, `claim rejected: ${msg(e)}`) })
+    const { block: blk, results: [r] } = await this.node.apply(timestamp, [claim]).catch((e) => { throw new ServiceError(e instanceof NodeFault ? 503 : 400, `claim rejected: ${msg(e)}`) })
     if (!blk) throw new ServiceError(400, `claim rejected: ${r && !r.ok ? r.error : 'not mined'}`)
     if ((blk.receipts[0] as { status: number }).status !== 1) throw new ServiceError(403, BAD_CODE)
     return summary(blk.header)

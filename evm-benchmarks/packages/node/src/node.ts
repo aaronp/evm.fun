@@ -3,10 +3,10 @@ import { createRevmEngine } from 'webevm/revm'
 import { keccak256, parseTransaction, recoverTransactionAddress, type Hex } from 'viem'
 import { nonZero, type ChainStore, type SerializedBlock, type StateDiff, type StoredBlock } from './store'
 
-/** One tx of an `apply`: accepted into the block, or refused by the node (and in no block). */
-/** A failure not caused by a tx (a rebuild or the store's commit failed): the service answers 5xx, so a client keeps its txs. */
+/** A failure not caused by a tx (a rebuild, the dump or the store's commit failed): the service answers 5xx, so a client keeps its txs. */
 export class NodeFault extends Error {}
 
+/** One tx of an `apply`: accepted into the block, or refused by the node (and in no block). */
 export type TxOutcome = { ok: true; hash: Hex } | { ok: false; hash: Hex; error: string }
 
 /** Longest refusal reason kept (webevm's own run to ~500 characters; the leading clause is what matters). */
@@ -155,16 +155,22 @@ export class ChainNode {
         }
       }
       if (!sent.length) return { results }
+      // a rejection from mine() itself stays a plain error (400): most likely a tx the prechecks did not model (e.g. a drained
+      // 7702 sender), and the Follower's split isolates and refuses just that tx. A 503 would be retried for ever and block the queue.
+      // Everything after mine() cannot be a tx's fault: a NodeFault (503).
       const mined = await this.#node.mine()
-      if (mined.txHashes.join() !== sent.join()) throw new Error(`mined txs [${mined.txHashes.join(', ')}] are not the sent txs [${sent.join(', ')}]`)
-      const after = await this.#node.dumpState()
-      const header = after.blocks.at(-1)!
-      // txs and receipts both from the mined header, so they always match it
-      const block: StoredBlock = {
-        header,
-        txs: header.transactions.map((h) => need(after.transactions[h], h).raw as Hex),
-        receipts: header.transactions.map((h) => need(after.receipts[h], h)),
-      }
+      let block: StoredBlock, after: SerializedState
+      try {
+        if (mined.txHashes.join() !== sent.join()) throw new Error(`mined txs [${mined.txHashes.join(', ')}] are not the sent txs [${sent.join(', ')}]`)
+        after = await this.#node.dumpState()
+        const header = after.blocks.at(-1)!
+        // txs and receipts both from the mined header, so they always match it
+        block = {
+          header,
+          txs: header.transactions.map((h) => need(after.transactions[h], h).raw as Hex),
+          receipts: header.transactions.map((h) => need(after.receipts[h], h)),
+        }
+      } catch (e) { throw new NodeFault(msg(e)) }
       try { this.store.commit(block, diffState(this.#dump, after)) } catch (e) { throw new NodeFault(`commit failed: ${msg(e)}`) }
       this.#dump = after
       this.blocksSinceRebuild++

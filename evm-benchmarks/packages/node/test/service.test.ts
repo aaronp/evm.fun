@@ -272,3 +272,18 @@ test('submit: a server fault (commit fails) answers 503, a tx-caused refusal sta
   expect((await s.submit(me, [await inviteTx(admin, 2, access, 'fault-fault-fault-1', 60, 1)], T0 + 501)).results[0]).toMatchObject({ result: 'mined' })
   expect((await s.submit(me, ['0x00' as Hex], T0 + 502)).results[0]).toMatchObject({ result: 'refused', code: 'invalid' })
 })
+
+test('a dumpState fault after mine answers 503 on submit; a commit fault answers 503 on redeem', async () => {
+  const s = await create()
+  const { access } = await s.info()
+  const inner = (s as unknown as { node: { read: (f: (n: { dumpState: () => Promise<unknown> }) => Promise<void>) => Promise<void> } }).node
+  await inner.read(async (n) => { n.dumpState = () => Promise.reject(new Error('dump boom')) })
+  const e = await refused(s.submit(me, [await inviteTx(admin, 2, access, 'dump-dump-dump-dump', 60, 1)], T0 + 600))
+  expect(e.status).toBe(503)
+  expect(e.message).toContain('dump boom')
+  // rebuilt: works again, then a commit fault on the claim path
+  await s.submit(me, [await inviteTx(admin, 2, access, 'dump-dump-dump-dump', 60, 1)], T0 + 601)
+  const store = (s as unknown as { store: { commit: (...a: unknown[]) => void } }).store
+  store.commit = () => { throw new Error('disk full') }
+  expect((await refused(s.redeem(joiner.address, await claimTx(joiner, 0, 'dump-dump-dump-dump', access), T0 + 602))).status).toBe(503)
+})
