@@ -1,4 +1,4 @@
-.PHONY: dev build test bench report soak-node throughput-node dev-services dev-services-status dev-services-stop e2e-node deploy
+.PHONY: dev build test bench report soak-node throughput-node dev-services dev-services-status dev-services-stop clear-local e2e-node deploy
 
 dev:     ## playground dev server (http://localhost:5173)
 	bun run web:dev
@@ -31,6 +31,12 @@ dev-services-status:
 
 dev-services-stop:
 	$(DEV_SERVICES) stop
+
+clear-local: ## stop the local worker and delete its chains (root included); keeps .env.local's root key. Then make dev-services
+	$(DEV_SERVICES) stop
+	@if curl -sf http://127.0.0.1:8799/health >/dev/null; then echo 'The local worker is still running: stop it first (make dev-services-stop), then retry.'; exit 1; fi
+	rm -rf .run/node-state
+	@echo "Local chains deleted. 'make dev-services' creates a fresh root chain; in evm.fun, delete chains that followed the old ones."
 
 e2e-node: ## end-to-end against the local worker; starts it if needed, stops it only if it started it
 	@if curl -sf http://127.0.0.1:8799/health >/dev/null; then started=; else $(DEV_SERVICES) start || exit 1; started=1; fi; \
