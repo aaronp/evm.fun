@@ -13,9 +13,12 @@ export type PendingTx = {
   block?: number; cloud?: Outcome; reason?: string; dependsOn?: Hex
   /** The store's next `seq` when this record settled: it settled while a record with a lower `seq` was pending. */
   settledAt?: number
+  /** Sent in a submit whose reply did not say it is off chain (none came, or it said mined). */
+  mayBeMined?: boolean
 }
 
-export type Confirmed = { head: BlockSummary; dump: SerializedState }
+/** `savedAt`: when it was stored (ms); copies stored before it existed lack it. */
+export type Confirmed = { head: BlockSummary; dump: SerializedState; savedAt?: number }
 
 export interface FollowerStore {
   loadConfirmed(key: string): Promise<Confirmed | undefined>

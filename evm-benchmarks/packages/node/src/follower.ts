@@ -5,7 +5,7 @@ import { createNode, type SerializedReceipt, type SerializedState, type SlimNode
 import { createRevmEngine } from 'webevm/revm'
 import { MAX_SUBMIT_BYTES, NodeError, type BlockRecord, type BlockSummary, type NodeClient } from './client'
 import { nodeOptions, type NodeConfig } from './node'
-import type { FollowerStore, Outcome, PendingTx } from './followerStore'
+import type { Confirmed, FollowerStore, Outcome, PendingTx } from './followerStore'
 
 const HEADERS_KEPT = 256 // as the cloud's /state dump
 /** Txs per submit (docs/spikes/cf-throughput.md). */
@@ -33,6 +33,7 @@ const outcome = (r: { status: string | number; logs: readonly Log[] }): Outcome 
   logs: r.logs.map((l) => ({ address: l.address.toLowerCase() as Address, topics: l.topics.map((t) => t.toLowerCase()) as Hex[], data: l.data.toLowerCase() as Hex })),
 })
 const same = (a: Outcome, b: Outcome) => JSON.stringify(a) === JSON.stringify(b)
+const removedReason = (t: PendingTx) => (t.mayBeMined ? 'removed from chain — it may have been mined before removal' : 'removed from chain')
 
 /** This device is no longer a member of the chain (the cloud answered 403). */
 export class FollowerRemoved extends Error {
@@ -43,7 +44,8 @@ export class FollowerRemoved extends Error {
 export class FollowerMismatch extends Error {}
 
 /**
- * Keeps a local webevm node in step with a cloud chain. `sync` and `read` run one at a time.
+ * Keeps a local webevm node in step with a cloud chain. Node and store work runs one step at a time; `sync` does its
+ * requests between its steps, so `send` and `read` never wait on the network. One `sync` runs at a time (a second call joins it).
  * After a removal or a mismatch the follower is stopped: `sync` and `read` throw that error again (after `dispose`, a "disposed" error).
  */
 export class Follower {
@@ -52,6 +54,8 @@ export class Follower {
   #queue: Promise<unknown> = Promise.resolve()
   /** The cloud's head as last seen (by `open` or `sync`). */
   cloudHead: BlockSummary
+  /** When this device last caught up with the cloud (ms): a sync's pull, a cloud boot, or the stored copy's `savedAt`. */
+  lastSynced?: number
 
   #saved?: string // hash of the head last written to the store
   #replayed = 0 // blocks replayed on the current node
@@ -60,6 +64,8 @@ export class Follower {
   #base?: SerializedState // the node's confirmed state, while local (pending) blocks sit on top of it
   #minedAt = new Map<Hex, number>() // submit said mined in this block
   #dirty = false // the list changed since onPending last ran
+  #stale = false // a record settled since the local view was last rebuilt
+  #syncing?: Promise<BlockSummary>
   private reopenEvery: number
   private store?: FollowerStore
   private key: string
@@ -80,21 +86,22 @@ export class Follower {
     let fromStore = false
     if (stored) {
       try {
-        booted = await Follower.#boot(client, chainId, wasm, stored)
+        booted = await Follower.#boot(chainId, wasm, stored, true)
         fromStore = true
       } catch (e) { // unusable stored copy: boot from the cloud and overwrite it; if that fails too, report both
-        try { booted = await Follower.#boot(client, chainId, wasm) } catch (c) {
+        try { booted = await Follower.#boot(chainId, wasm, await Follower.#state(client, chainId)) } catch (c) {
           if (c instanceof FollowerRemoved) { // no Follower will exist to show it: refuse the stored pending now
-            for (const t of await o.store!.listPending(key)) if (t.status === 'pending') await o.store!.putPending(key, { ...t, status: 'refused', reason: 'removed from chain' })
+            for (const t of await o.store!.listPending(key)) if (t.status === 'pending') await o.store!.putPending(key, { ...t, status: 'refused', reason: removedReason(t) })
             throw c
           }
           if (e instanceof Error) e.message += `; booting from the cloud failed too: ${c instanceof Error ? c.message : c}`
           throw e
         }
       }
-    } else booted = await Follower.#boot(client, chainId, wasm)
+    } else booted = await Follower.#boot(chainId, wasm, await Follower.#state(client, chainId))
     const { node, env, head, dump } = booted
     const f = new Follower(client, chainId, wasm, o, node, env, head)
+    f.lastSynced = fromStore ? stored!.savedAt : Date.now()
     try {
       if (fromStore) f.#saved = head.hash
       else await f.#save(dump)
@@ -106,10 +113,13 @@ export class Follower {
     return f
   }
 
-  static async #boot(client: NodeClient, chainId: string, wasm: NodeConfig['wasm'], stored?: { head: BlockSummary; dump: SerializedState }) {
-    const { head, dump } = stored ?? await client.state(chainId).catch((e) => {
+  static #state(client: NodeClient, chainId: string): Promise<Confirmed> {
+    return client.state(chainId).catch((e) => {
       throw e instanceof NodeError && e.status === 403 ? new FollowerRemoved(chainId) : e
     })
+  }
+
+  static async #boot(chainId: string, wasm: NodeConfig['wasm'], { head, dump }: Confirmed, stored = false) {
     const env = {}
     const node = await createNode({ chainId: dump.chainId, ...nodeOptions(env), engine: await createRevmEngine({ wasm }) })
     try {
@@ -125,22 +135,29 @@ export class Follower {
     return { node, env, head, dump }
   }
 
-  /** Swap in a node booted from the cloud's current state; it must extend our head. */
+  /** Swap in a node booted from the cloud's current state (fetched outside the queue); it must extend our head. Stores it. */
   async #reopen() {
-    const next = await Follower.#boot(this.client, this.chainId, this.wasm).catch((e) => {
+    const s = await Follower.#state(this.client, this.chainId).catch((e) => {
       if (e instanceof FollowerRemoved) this.#stop('removed', e)
-      if (e instanceof FollowerMismatch) this.#stop('mismatch', e)
       throw e
     })
-    const ours = next.dump.blocks.find((b) => b.number === this.head.number)
-    if (next.head.number < this.head.number || (ours && ours.hash !== this.head.hash)) {
-      await next.node.dispose()
-      this.#stop('mismatch', new FollowerMismatch(`cloud state at block ${next.head.number} does not extend our head ${this.head.number} (${this.head.hash})`))
-    }
-    const old = this.node
-    Object.assign(this, { node: next.node, env: next.env, head: next.head, cloudHead: next.head })
-    this.#replayed = 0
-    await old.dispose()
+    await this.#serial(async () => {
+      await this.#toConfirmed()
+      const next = await Follower.#boot(this.chainId, this.wasm, s).catch((e) => {
+        if (e instanceof FollowerMismatch) this.#stop('mismatch', e)
+        throw e
+      })
+      const ours = next.dump.blocks.find((b) => b.number === this.head.number)
+      if (next.head.number < this.head.number || (ours && ours.hash !== this.head.hash)) {
+        await next.node.dispose()
+        this.#stop('mismatch', new FollowerMismatch(`cloud state at block ${next.head.number} does not extend our head ${this.head.number} (${this.head.hash})`))
+      }
+      const old = this.node
+      Object.assign(this, { node: next.node, env: next.env, head: next.head, cloudHead: next.head })
+      this.#replayed = 0
+      await old.dispose()
+      await this.#save(s.dump)
+    })
   }
 
   #serial<T>(fn: () => Promise<T>, evenStopped = false): Promise<T> {
@@ -161,39 +178,47 @@ export class Follower {
    * Submit the pending txs, replay the cloud's new blocks onto the confirmed state (and store it), settle each pending tx
    * mined in them, re-sign and resubmit nonce refusals, then re-run what is still pending on top.
    * A failed submit still pulls and re-runs, then rejects with that error; the txs stay pending.
+   * Requests run outside the queue; a tx sent meanwhile is not in this sync's submit and is re-run on top at the end.
    */
   sync(): Promise<BlockSummary> {
-    return this.#serial(async () => {
-      let err: unknown, failed: unknown
-      try {
-        let r = await this.#submit()
+    return (this.#syncing ??= this.#sync().finally(() => { this.#syncing = undefined }))
+  }
+
+  async #sync(): Promise<BlockSummary> {
+    if (this.#failure) throw this.#failure
+    let err: unknown, failed: unknown
+    try {
+      let r = await this.#submit()
+      await this.#pull()
+      for (let i = 0; r.nonce.size && !r.error && !r.denied.length && i < RESIGN_ROUNDS; i++) {
+        await this.#serial(() => this.#resign(r.nonce))
+        r = await this.#submit()
         await this.#pull()
-        for (let i = 0; r.nonce.size && !r.error && !r.denied.length && i < RESIGN_ROUNDS; i++) {
-          await this.#resign(r.nonce)
-          r = await this.#submit()
-          await this.#pull()
-        }
-        failed = r.error
-        // still a member (the pull would have thrown FollowerRemoved): this device may read but not write
-        const who = this.client.account?.address ?? 'this device'
-        for (const t of r.denied) await this.#settle(t, { status: 'refused', reason: `${who} is not a writer on this chain` })
-      } catch (e) {
-        const reason = e instanceof FollowerRemoved ? 'removed from chain' : e instanceof FollowerMismatch ? `chain no longer matches: ${e.message}` : undefined
-        if (reason) for (const t of this.#txs) if (t.status === 'pending') await this.#settle(t, { status: 'refused', reason })
-        err = e
       }
-      // the local view (confirmed + still pending) is rebuilt only when something moved: an offline sync costs nothing
-      if (this.status === 'following' && (this.#dirty || !this.#base)) {
-        try {
-          await this.#toConfirmed()
-          await this.#rerun()
-        } catch (e) { err ??= e }
-      }
+      failed = r.error
+      // still a member (the pull would have thrown FollowerRemoved): this device may read but not write
+      const who = this.client.account?.address ?? 'this device'
+      await this.#serial(async () => { for (const t of r.denied) await this.#settle(t, { status: 'refused', reason: `${who} is not a writer on this chain` }) })
+    } catch (e) {
+      err = e
+      const reason = e instanceof FollowerRemoved ? removedReason : e instanceof FollowerMismatch ? () => `chain no longer matches: ${e.message}` : undefined
+      if (reason) await this.#serial(async () => { for (const t of this.#txs) if (t.status === 'pending') await this.#settle(t, { status: 'refused', reason: reason(t) }) }, true).catch(() => {})
+    }
+    await this.#serial(async () => {
+      if (!this.#failure) try { await this.#fresh() } catch (e) { err ??= e }
       this.#notify()
-      if (err !== undefined) throw err
-      if (failed !== undefined) throw failed
-      return this.head
-    })
+    }, true)
+    if (err !== undefined) throw err
+    if (failed !== undefined) throw failed
+    return this.head
+  }
+
+  /** Rebuild the local view (confirmed + still pending) if a sync step left it behind: an offline sync costs nothing. */
+  async #fresh() {
+    if (this.#base && !this.#stale) return
+    await this.#toConfirmed()
+    await this.#rerun()
+    this.#stale = false
   }
 
   #blocks(after: number) {
@@ -207,25 +232,29 @@ export class Follower {
   async #pull() {
     for (;;) {
       const page = await this.#blocks(this.head.number)
-      this.cloudHead = page.head
-      // never silently follow a different chain: an empty page must end at our head
-      if (!page.blocks.length && (page.head.number < this.head.number || (page.head.number === this.head.number && page.head.hash !== this.head.hash)))
-        this.#stop('mismatch', new FollowerMismatch(`cloud head ${page.head.number} (${page.head.hash}) does not match our head ${this.head.number} (${this.head.hash})`))
-      // replay, reopen and save only on the confirmed state
-      if (page.blocks.length || this.#replayed >= this.reopenEvery || (this.store && this.#saved !== this.head.hash)) await this.#toConfirmed()
-      for (const b of page.blocks) {
-        await this.#replay(b)
-        await this.#settleFrom(b)
-      }
+      await this.#serial(async () => {
+        this.cloudHead = page.head
+        // never silently follow a different chain: an empty page must end at our head
+        if (!page.blocks.length && (page.head.number < this.head.number || (page.head.number === this.head.number && page.head.hash !== this.head.hash)))
+          this.#stop('mismatch', new FollowerMismatch(`cloud head ${page.head.number} (${page.head.hash}) does not match our head ${this.head.number} (${this.head.hash})`))
+        // replay, reopen and save only on the confirmed state
+        if (page.blocks.length || this.#replayed >= this.reopenEvery || (this.store && this.#saved !== this.head.hash)) await this.#toConfirmed()
+        for (const b of page.blocks) {
+          await this.#replay(b)
+          await this.#settleFrom(b)
+        }
+        // not by page: retries a failed save; a reopen stores its own
+        if (this.#replayed < this.reopenEvery && !this.#base) await this.#save()
+      })
       if (this.#replayed >= this.reopenEvery) await this.#reopen()
-      if (!this.#base) await this.#save() // not by page: retries a failed save; #reopen relies on this too
       if (!page.blocks.length || this.head.number >= page.head.number) break
     }
+    this.lastSynced = Date.now()
     // mined in a block we never replayed (booted past it from /state): settle from that block
     for (const [hash, block] of this.#minedAt) {
       if (block > this.head.number || !this.#txs.some((t) => t.hash === hash && t.status === 'pending')) continue
       const b = (await this.#blocks(block - 1)).blocks[0]
-      if (b?.header.number === block) await this.#settleFrom(b)
+      if (b?.header.number === block) await this.#serial(() => this.#settleFrom(b))
     }
     // keep the ones still unsettled: #resign must never re-sign a tx the cloud has mined
     for (const hash of this.#minedAt.keys()) if (!this.#txs.some((t) => t.hash === hash && t.status === 'pending')) this.#minedAt.delete(hash)
@@ -244,42 +273,58 @@ export class Follower {
   /**
    * POST the pending txs in seq order, in batches. A 400 or 413 on a batch splits it in halves (the request fails as a
    * whole, so it says nothing about each tx); only a single tx is refused for it. Stops at the first other failure;
-   * a 403 marks that batch and the rest `denied`.
+   * a 403 marks that batch and the rest `denied`. Only the requests run outside the queue. Each batch is marked
+   * `mayBeMined` (stored) before it is sent; an answer that it is off chain (nonce, 403) clears it.
    */
   async #submit(): Promise<{ nonce: Map<PendingTx, string>; denied: PendingTx[]; error?: unknown }> {
     const nonce = new Map<PendingTx, string>()
     const tooBig = `too large to submit (over the ${MAX_SUBMIT_BYTES}-byte submit limit)`
     const size = (t: PendingTx) => t.raw.length + 3 // quotes and comma in {"txs":[...]}
     const batches: PendingTx[][] = []
-    let bytes = Infinity
-    for (const t of this.#txs.filter((t) => t.status === 'pending')) {
-      if (size(t) + 9 > MAX_SUBMIT_BYTES) { await this.#settle(t, { status: 'refused', reason: tooBig }); continue }
-      const last = batches.at(-1)
-      if (!last || last.length >= (this.o.batch ?? DEFAULT_BATCH) || bytes + size(t) > MAX_SUBMIT_BYTES) batches.push([t]), bytes = 9 + size(t)
-      else last.push(t), bytes += size(t)
-    }
+    await this.#serial(async () => {
+      let bytes = Infinity
+      for (const t of this.#txs.filter((t) => t.status === 'pending')) {
+        if (size(t) + 9 > MAX_SUBMIT_BYTES) { await this.#settle(t, { status: 'refused', reason: tooBig }); continue }
+        const last = batches.at(-1)
+        if (!last || last.length >= (this.o.batch ?? DEFAULT_BATCH) || bytes + size(t) > MAX_SUBMIT_BYTES) batches.push([t]), bytes = 9 + size(t)
+        else last.push(t), bytes += size(t)
+      }
+    })
     while (batches.length) {
       const batch = batches.shift()!
+      await this.#serial(() => this.#mark(batch, true))
       let r
       try {
         r = await this.client.submit(this.chainId, batch.map((t) => t.raw))
       } catch (e) {
-        if (e instanceof NodeError && e.status === 403) return { nonce, denied: [batch, ...batches].flat() }
+        if (e instanceof NodeError && e.status === 403) {
+          await this.#serial(() => this.#mark(batch, false))
+          return { nonce, denied: [batch, ...batches].flat() }
+        }
         if (e instanceof NodeError && (e.status === 400 || e.status === 413)) {
           if (batch.length > 1) batches.unshift(batch.slice(0, batch.length >> 1), batch.slice(batch.length >> 1))
-          else await this.#settle(batch[0]!, { status: 'refused', reason: e.status === 413 ? tooBig : e.error })
+          else await this.#serial(() => this.#settle(batch[0]!, { status: 'refused', reason: e.status === 413 ? tooBig : e.error }))
           continue
         }
-        return { nonce, denied: [], error: e }
+        return { nonce, denied: [], error: e } // no answer (or a 5xx): it stays mayBeMined
       }
-      for (const [j, x] of r.results.entries()) {
-        const t = batch[j]!
-        if (x.result === 'mined') this.#minedAt.set(t.hash, x.block)
-        else if (x.code === 'nonce') nonce.set(t, x.reason)
-        else await this.#settle(t, { status: 'refused', reason: x.reason })
-      }
+      await this.#serial(async () => {
+        for (const [j, x] of r.results.entries()) {
+          const t = batch[j]!
+          if (x.result === 'mined') this.#minedAt.set(t.hash, x.block)
+          else if (x.code === 'nonce') nonce.set(t, x.reason), await this.#mark([t], false)
+          else await this.#settle(t, { status: 'refused', reason: x.reason })
+        }
+      })
     }
     return { nonce, denied: [] }
+  }
+
+  async #mark(txs: PendingTx[], mayBeMined: boolean) {
+    for (const t of txs) if (!!t.mayBeMined !== mayBeMined) {
+      t.mayBeMined = mayBeMined
+      await this.#put(t)
+    }
   }
 
   /**
@@ -353,6 +398,7 @@ export class Follower {
 
   async #settle(t: PendingTx, patch: Partial<PendingTx>) {
     Object.assign(t, patch, patch.status && { settledAt: this.#seq })
+    if (patch.status) this.#stale = true
     await this.#put(t)
   }
 
@@ -373,6 +419,7 @@ export class Follower {
    */
   send(raw: Hex): Promise<Receipt> {
     return this.#serial(async () => {
+      await this.#fresh()
       const r = await this.#local(raw)
       const t: PendingTx = { hash: r.transactionHash, raw, from: getAddress(r.from), nonce: parseTransaction(raw).nonce ?? 0, seq: this.#seq++, first: outcome(r), status: 'pending' }
       this.#txs.push(t)
@@ -411,7 +458,7 @@ export class Follower {
   async #save(dump?: SerializedState) {
     if (!this.store || this.#saved === this.head.hash) return
     dump ??= await this.node.dumpState()
-    await this.store.saveConfirmed(this.key, { head: this.head, dump: { ...dump, blocks: dump.blocks.slice(-HEADERS_KEPT), receipts: {}, transactions: {} } })
+    await this.store.saveConfirmed(this.key, { head: this.head, dump: { ...dump, blocks: dump.blocks.slice(-HEADERS_KEPT), receipts: {}, transactions: {} }, savedAt: Date.now() })
     this.#saved = this.head.hash
   }
 
@@ -434,7 +481,10 @@ export class Follower {
 
   /** Run `fn` on the local node, between syncs. Throws once the follower is removed or mismatched. */
   read<T>(fn: (node: SlimNode) => Promise<T>): Promise<T> {
-    return this.#serial(() => fn(this.node))
+    return this.#serial(async () => {
+      await this.#fresh()
+      return fn(this.node)
+    })
   }
 
   dispose(): Promise<void> {

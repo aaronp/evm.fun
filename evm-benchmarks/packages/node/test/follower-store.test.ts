@@ -122,6 +122,25 @@ describe('Follower with a store', () => {
     await expect(Follower.open(offline, cid, wasm, { store })).rejects.toThrow(/network used/)
   })
 
+  test('lastSynced set after a sync and restored from the stored copy', async () => {
+    const store = new MemoryFollowerStore()
+    const f = keep(await Follower.open(client, cid, wasm, { store, key: 'ls' }))
+    await mine(1)
+    const before = Date.now()
+    await f.sync()
+    expect(f.lastSynced).toBeGreaterThanOrEqual(before)
+    const saved = (await store.loadConfirmed('ls'))!
+    expect(saved.savedAt).toBeGreaterThanOrEqual(before)
+    const g = keep(await Follower.open(offline, cid, wasm, { store, key: 'ls' }))
+    expect(g.lastSynced).toBe(saved.savedAt!)
+    // a copy stored before savedAt existed still loads
+    const { savedAt: _, ...old } = saved
+    await store.saveConfirmed('ls', old)
+    const h = keep(await Follower.open(offline, cid, wasm, { store, key: 'ls' }))
+    expect(h.head).toEqual(saved.head)
+    expect(h.lastSynced).toBeUndefined()
+  })
+
   test('the store returns copies, not live objects', async () => {
     const store = new MemoryFollowerStore()
     const tx = { hash: '0x01', raw: '0x', from: '0x00', nonce: 0, seq: 0, first: { status: 'success', logs: [] }, status: 'pending' } as any

@@ -347,7 +347,7 @@ describe('Follower writes', () => {
     store.putPending = async (key, t) => {
       if (broken) throw new Error('tab closed')
       await put(key, t)
-      if (t.nonce === 1) resigned = broken = true // the re-signed record is written; every later write fails
+      if (t.nonce === 1 && !resigned) resigned = broken = true // the re-signed record is written; every later write fails
     }
     const del = store.deletePending.bind(store)
     store.deletePending = async (key, id) => { if (broken) throw new Error('tab closed'); return del(key, id) }
@@ -615,6 +615,147 @@ describe('Follower writes', () => {
     await spoil(store)
     await expect(Follower.open(as(fresh()), cid, wasm, { store })).rejects.toBeInstanceOf(FollowerRemoved)
     expect(await store.listPending(cid)).toMatchObject([{ status: 'refused', reason: 'removed from chain' }])
+  })
+
+  test('send resolves while a sync hangs on a never-resolving submit', async () => {
+    const k = fresh(), x = fresh().address
+    await mint(k.address, 10n)
+    const real = as(admin)
+    let reached!: () => void
+    const atSubmit = new Promise<void>((r) => (reached = r))
+    const stub = { account: admin, state: real.state.bind(real), blocks: real.blocks.bind(real), submit: () => (reached(), new Promise(() => {})) } as unknown as NodeClient
+    const f = keep(await Follower.open(stub, cid, wasm))
+    await transfer(f, k, x, 1n)
+    void f.sync()
+    await atSubmit
+    const r = await Promise.race([transfer(f, k, x, 2n), Bun.sleep(1000).then(() => { throw new Error('send waited on the network') })])
+    expect(r.status).toBe('0x1')
+    expect(f.pending().map((t) => t.status)).toEqual(['pending', 'pending'])
+    expect(await balanceOn(f, x)).toBe(3n)
+  })
+
+  test('read resolves while a sync hangs on a page fetch', async () => {
+    const real = as(admin)
+    let hang = false, reached!: () => void
+    const atFetch = new Promise<void>((r) => (reached = r))
+    const stub = {
+      account: admin, state: real.state.bind(real), submit: real.submit.bind(real),
+      blocks: (id: string, after: number) => (hang ? (reached(), new Promise(() => {})) : real.blocks(id, after)),
+    } as unknown as NodeClient
+    const f = keep(await Follower.open(stub, cid, wasm))
+    hang = true
+    void f.sync()
+    await atFetch
+    const n = await Promise.race([f.read(async (n) => n.request({ method: 'eth_blockNumber' })), Bun.sleep(1000).then(() => { throw new Error('read waited on the network') })])
+    expect(Number(n)).toBe(f.head.number)
+  })
+
+  test('a tx sent while a submit is in flight is re-run on top, not lost, and submitted once by the next sync', async () => {
+    const k = fresh(), x = fresh().address
+    await mint(k.address, 10n)
+    const real = as(admin)
+    let gate: Promise<void> | undefined, open!: () => void, reached!: () => void
+    const atSubmit = new Promise<void>((r) => (reached = r))
+    const sent: Hex[][] = []
+    const stub = {
+      account: admin, state: real.state.bind(real), blocks: real.blocks.bind(real),
+      submit: async (id: string, txs: Hex[]) => {
+        sent.push(txs)
+        const r = await real.submit(id, txs)
+        if (gate) reached(), await gate
+        return r
+      },
+    } as unknown as NodeClient
+    const f = keep(await Follower.open(stub, cid, wasm))
+    const t1 = await transfer(f, k, x, 1n)
+    gate = new Promise((r) => (open = r))
+    const syncing = f.sync()
+    await atSubmit // t1 is mined on the cloud, its reply not yet in
+    const t2 = await transfer(f, k, x, 2n) // nonce 1: sees t1
+    gate = undefined
+    open()
+    await syncing
+    expect(f.pending().map((t) => [t.hash, t.status, t.nonce])).toEqual([[t1.transactionHash, 'confirmed', 0], [t2.transactionHash, 'pending', 1]])
+    expect(await balanceOn(f, x)).toBe(3n) // t2 re-run on the new confirmed state
+    expect(await nonceOn(f, k.address)).toBe(2)
+    await f.sync()
+    expect(f.pending()[1]!.status).toBe('confirmed')
+    expect(sent.flat().filter((h) => h === f.pending()[1]!.raw)).toHaveLength(1)
+    expect(await cloudFrom(k.address)).toHaveLength(2)
+  })
+
+  test('a send while a sync is between steps (confirmed state rebuilt, reopen fetch in flight) sees the pending txs', async () => {
+    const k = fresh(), x = fresh().address
+    await mint(k.address, 10n)
+    const real = as(admin)
+    let gate: Promise<void> | undefined, open!: () => void, reached!: () => void
+    const atState = new Promise<void>((r) => (reached = r))
+    const stub = {
+      account: admin, blocks: real.blocks.bind(real), submit: () => Promise.reject(new NodeError(503, 'down')),
+      state: async (id: string) => {
+        const s = await real.state(id)
+        if (gate) reached(), await gate
+        return s
+      },
+    } as unknown as NodeClient
+    const f = keep(await Follower.open(stub, cid, wasm, { reopenEvery: 1, store: new MemoryFollowerStore() }))
+    await transfer(f, k, x, 1n)
+    await mint(fresh().address, 1n) // a cloud block to replay, then reopen
+    gate = new Promise((r) => (open = r))
+    const syncing = f.sync().catch((e) => e)
+    await atState
+    expect(await nonceOn(f, k.address)).toBe(1) // the pending tx re-run on the replayed state
+    const t2 = await transfer(f, k, x, 2n)
+    expect(parseInt(t2.status)).toBe(1)
+    gate = undefined
+    open()
+    expect((await syncing).message).toMatch('down')
+    expect(f.pending().map((t) => [t.status, t.nonce])).toEqual([['pending', 0], ['pending', 1]])
+    expect(await balanceOn(f, x)).toBe(3n)
+    expect(f.head).toEqual(await cloudHead())
+  })
+
+  test('two concurrent syncs run once', async () => {
+    const real = as(admin)
+    let submits = 0, pages = 0
+    const stub = {
+      account: admin, state: real.state.bind(real),
+      blocks: (id: string, after: number) => (pages++, real.blocks(id, after)),
+      submit: (id: string, txs: Hex[]) => (submits++, real.submit(id, txs)),
+    } as unknown as NodeClient
+    const f = keep(await Follower.open(stub, cid, wasm))
+    await transfer(f, fresh(), fresh().address, 0n)
+    const [a, b] = await Promise.all([f.sync(), f.sync()])
+    expect(a).toEqual(b)
+    expect([submits, pages]).toEqual([1, 1])
+    expect(f.pending()[0]!.status).toBe('confirmed')
+    await f.sync() // a later call runs again
+    expect(pages).toBe(2)
+  })
+
+  test('lastSynced is set by a sync', async () => {
+    const f = keep(await Follower.open(as(admin), cid, wasm))
+    const before = Date.now()
+    await f.sync()
+    expect(f.lastSynced).toBeGreaterThanOrEqual(before)
+  })
+
+  test('removal after a lost reply refuses with "may have been mined before removal"', async () => {
+    const r = fresh()
+    const c = as(admin)
+    const { access } = await c.info(cid)
+    mined(await c.submit(cid, [await inviteTx(admin, await c.nonce(cid), access, 'lost-code', 600, 1, GRANT_WRITER)]))
+    await as(r).join(cid, await claimTx(r, 0, 'lost-code', access))
+    const real = as(r)
+    const stub = { account: r, state: real.state.bind(real), blocks: real.blocks.bind(real), submit: () => Promise.reject(new Error('connection reset')) } as unknown as NodeClient
+    const store = new MemoryFollowerStore()
+    const f = keep(await Follower.open(stub, cid, wasm, { store }))
+    await transfer(f, fresh(), fresh().address, 0n)
+    mined(await c.submit(cid, [await sign(admin, await c.nonce(cid), access, encodeFunctionData({ abi: ChainAccess.abi, functionName: 'removeWriter', args: [r.address] }))]))
+    expect(await f.sync().catch((x) => x)).toBeInstanceOf(FollowerRemoved)
+    const may = 'removed from chain — it may have been mined before removal'
+    expect(f.pending()[0]).toMatchObject({ status: 'refused', reason: may })
+    expect((await store.listPending(cid))[0]).toMatchObject({ status: 'refused', reason: may })
   })
 
   test('removal → all pending refused (removed from chain), then FollowerRemoved', async () => {
