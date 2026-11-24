@@ -317,6 +317,19 @@ describe('deploy role', () => {
     expect((await s.submit(joiner.address, [await creation(joiner, 1)], T0 + 202)).results[0]).toMatchObject({ result: 'refused', code: 'invalid', reason })
   })
 
+  test('a resend of a mined creation after deploy is removed answers mined; a creation then a call from the same sender: invalid, then nonce', async () => {
+    const s = await create()
+    await adminCall(s, 'addWriter', [joiner.address])
+    await adminCall(s, 'addDeployer', [joiner.address])
+    const c = await creation(joiner)
+    expect((await s.submit(joiner.address, [c], T0 + 200)).results[0]!.result).toBe('mined')
+    await adminCall(s, 'removeDeployer', [joiner.address])
+    expect((await s.submit(joiner.address, [c], T0 + 201)).results[0]!.result).toBe('mined')
+    const [c2, call2] = [await creation(joiner, 1), await joiner.signTransaction({ ...tx, nonce: 2, to: other.address, gas: 21_000n })]
+    const r = await s.submit(joiner.address, [c2, call2], T0 + 202)
+    expect(r.results.map((x) => x.result === 'refused' && x.code)).toEqual(['invalid', 'nonce'])
+  })
+
   test('old ChainAccess (previous bytecode) falls back to canWrite', async () => {
     const data = (abi: any, bytecode: Hex, args?: unknown[]) => encodeDeployData({ abi, bytecode, args } as never)
     const access = (await import('viem')).getContractAddress({ from: admin.address, nonce: 0n })

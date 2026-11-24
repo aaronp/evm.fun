@@ -136,3 +136,20 @@ test('admin canDeploy without being listed', () => setup(async ({read}) => {
   expect(await read('canDeploy', [admin.address])).toBe(true)
   expect(await read('deployers')).toEqual([])
 }), 60_000)
+
+test('removeWriter also drops deploy; a plain writer invite does not bring it back', () => setup(async ({acc, read}) => {
+  await acc(admin, 'invite', [hash, 3600n, 1, 8])
+  await acc(joiner, 'claim', [code])
+  await acc(admin, 'removeWriter', [joiner.address])
+  expect(await read('canDeploy', [joiner.address])).toBe(false)
+  expect(await read('deployers')).toEqual([])
+  await acc(admin, 'invite', [hash, 3600n, 1, 2])
+  await acc(joiner, 'claim', [code])
+  expect(await read('canWrite', [joiner.address])).toBe(true)
+  expect(await read('canDeploy', [joiner.address])).toBe(false)
+}), 60_000)
+
+test('addDeployer also makes the key a writer', () => setup(async ({acc, read}) => {
+  await acc(admin, 'addDeployer', [joiner.address])
+  expect(await read('canWrite', [joiner.address])).toBe(true)
+}), 60_000)

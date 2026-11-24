@@ -39,3 +39,13 @@ test('an old ChainAccess (canDeploy/deployers revert) falls back to write', asyn
   expect(await acl.canDeploy(b as never)).toBe(true)
   expect(await acl.canDeploy(c as never)).toBe(false)
 })
+
+test('only an absent function falls back: any other error rejects instead of granting deploy', async () => {
+  for (const msg of ['node gone', 'execution reverted: paused', 'timeout']) {
+    const broken = async (fn: string, args: unknown[] = []) => { if (fn === 'canDeploy' || fn === 'deployers') throw new Error(msg); return fake()(fn, args) }
+    await expect(chainAcl(broken).canDeploy(b as never)).rejects.toThrow(msg)
+    await expect(chainAcl(broken).list()).rejects.toThrow(msg)
+  }
+  const nodata = async (fn: string, args: unknown[] = []) => { if (fn === 'canDeploy') throw new Error('The contract function "canDeploy" returned no data ("0x").'); return fake()(fn, args) }
+  expect(await chainAcl(nodata).canDeploy(b as never)).toBe(true)
+})

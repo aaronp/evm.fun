@@ -44,8 +44,14 @@ contract ChainAccess {
     function addReader(address a) external onlyAdmin { _add(_readers, readerIdx, a); emit Reader(a, true); }
     function removeReader(address a) external onlyAdmin { _remove(_readers, readerIdx, a); emit Reader(a, false); }
     function addWriter(address a) external onlyAdmin { _add(_writers, writerIdx, a); emit Writer(a, true); }
-    function removeWriter(address a) external onlyAdmin { _remove(_writers, writerIdx, a); emit Writer(a, false); }
-    function addDeployer(address a) external onlyAdmin { _add(_deployers, deployerIdx, a); emit Deployer(a, true); }
+    function removeWriter(address a) external onlyAdmin {
+        _remove(_writers, writerIdx, a); emit Writer(a, false);
+        if (isDeployer(a)) { _remove(_deployers, deployerIdx, a); emit Deployer(a, false); } // deploy implies write
+    }
+    function addDeployer(address a) external onlyAdmin {
+        _add(_deployers, deployerIdx, a); emit Deployer(a, true);
+        if (!isWriter(a)) { _add(_writers, writerIdx, a); emit Writer(a, true); }
+    }
     function removeDeployer(address a) external onlyAdmin { _remove(_deployers, deployerIdx, a); emit Deployer(a, false); }
     function setAdmin(address a) external onlyAdmin { admin = a; emit Admin(a); }
 
