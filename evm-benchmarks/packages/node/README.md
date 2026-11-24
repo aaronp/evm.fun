@@ -81,7 +81,7 @@ As the root admin, open evm.fun → Cloud: pick a code (one is generated: 4 word
 
 # Devices on a deployed chain (plan 17, part 1)
 
-A device is a key that is a member of a chain's `ChainAccess` (reader or writer). Design: [devices follow](../../docs/superpowers/specs/2026-11-23-devices-follow-design.md).
+A device is a key that is a member of a chain's `ChainAccess` (reader, writer, or writer with deploy). Design: [devices follow](../../docs/superpowers/specs/2026-11-23-devices-follow-design.md).
 
 | Route | Who | What |
 |---|---|---|
@@ -89,6 +89,8 @@ A device is a key that is a member of a chain's `ChainAccess` (reader or writer)
 | `GET /chains/<id>/blocks?after=N` | members | `{ head, blocks }`: up to 100 blocks after N (header, raw txs and receipts) |
 | `GET /chains/<id>/nodes` | members | `{ head, admin, readOpen, members }`: each member's role, name, block, behind and last seen. Replaces `/nodes/latest` of the cursor design |
 | `POST /chains/<id>/join` | anyone signed | `{ claim }`: a `claim` tx for a reader or writer code the admin issued with `inviteTx(…, grants)`. Redeems it and returns `{ head, role }`. A create-chain code is refused (`403`); failed joins count toward the 10-per-IP-per-chain `429` |
+
+**Roles and grants.** Read (`GRANT_READER` = 1) reads chain data; write (`GRANT_WRITER` = 2) submits txs; deploy (`GRANT_DEPLOY` = 8) also submits contract creations (a tx with no `to`). `GRANT_CREATE_CHAIN` (4) is the root deploy-code grant. A deploy invite is `GRANT_WRITER | GRANT_DEPLOY`; `addDeployer` also adds a writer and `removeWriter` also drops deploy; the admin can always deploy. `submit` checks the submitter per tx and refuses a creation from a key without deploy: `{ result: 'refused', code: 'invalid', reason: '<signer> can't deploy contracts on this chain' }`. Contracts that create contracts (factories) are not checked. A chain whose `ChainAccess` predates the role (no `canDeploy`) lets writers deploy. `/nodes` members carry `deploy`, and `NodesView.deployRole` is `false` on such a chain, so a UI hides the deploy controls. ADR-0025.
 
 **Joining.** The admin issues a code (`inviteTx` with `GRANT_READER` or `GRANT_WRITER`), sends it out of band; the device gets `{ nonce, access }` from `NodeClient.joinInfo` (it can't read the chain yet), signs `claimTx` and calls `join`. The admin can cancel an unused code with `accessTx(…, 'revokeInvite', codeHash(code))`.
 

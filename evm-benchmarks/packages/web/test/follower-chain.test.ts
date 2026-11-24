@@ -602,8 +602,9 @@ describe('writing from a follower', () => {
     const w = await member(GRANT_WRITER | GRANT_READER)
     const { registry } = env({ lock: () => true, account: withKey(w) })
     const h = await addFollower(registry, { name: 'Shop', follows: follows(w.address) })
+    await syncNow(h) // deploy === false is known before the malformed send
     await h.send(await sign(w, 1)).catch(() => {})
-    await expect(h.send('0xdeadbeef' as never)).rejects.not.toThrow("can't deploy")
+    await expect(h.send('0xdeadbeef' as never)).rejects.toThrow(/invalid RLP/) // the local node's refusal, not the pre-check's parse error
     await registry.remove(h.info.id)
   })
 

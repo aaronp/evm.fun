@@ -27,23 +27,6 @@ Order: deploy role (t-152) → governance allow-lists and contacts (t-147, t-143
 - [ ] Someone who isn't a developer creates, deploys and shares a chain and reads a contract's data over REST, unaided
 ```
 
-### Deploy role: read, write and deploy
-- id: t-152
-- parent: t-151
-- tags: chains, access, size-S
-- history:
-  - Backlog @ 2026-11-24T20:43:30Z
-
-```md
-The chain ACL gains a third role: **deploy** = may create contracts (a tx with no `to`). Read = read chain data; write = submit txs; deploy = submit contract creations. `ChainAccess` gets `deployers()`/`canDeploy`, invites grant it (`GRANT_DEPLOY`), the worker refuses a creation tx from a submitter without it, the Follower refuses it locally, and the `ACL` interface reports it.
-```
-
-```dod
-- [ ] A writer without deploy is refused a contract creation (cloud and locally); with deploy it is mined
-- [ ] Invites and the Devices panel can grant deploy
-- [ ] ADR-0025 updated
-```
-
 ### Indexer: REST reads with their own access
 - id: t-153
 - parent: t-151
@@ -1117,6 +1100,26 @@ The owner sees and edits the chain's policy: gas mode, deployers. Done when the 
 ```
 
 ## Doing
+
+### Deploy role: read, write and deploy
+- id: t-152
+- parent: t-151
+- tags: chains, access, size-S
+- history:
+  - Backlog @ 2026-11-24T20:43:30Z
+  - Doing @ 2026-11-24T21:20:00Z
+
+```md
+The chain ACL gains a third role: **deploy** = may create contracts (a tx with no `to`). Read = read chain data; write = submit txs; deploy = submit contract creations. `ChainAccess` gets `deployers()`/`canDeploy`, invites grant it (`GRANT_DEPLOY`), the worker refuses a creation tx from a submitter without it, the Follower refuses it locally, and the `ACL` interface reports it.
+```
+
+```dod
+- [x] A writer without deploy is refused a contract creation (cloud and locally); with deploy it is mined
+- [x] Invites and the Devices panel can grant deploy
+- [x] ADR-0025 updated
+- [x] Tests pass (packages/node 149, follower-chain 44, cloud-devices 14; web:build ok)
+- [ ] Checked in a browser: invite as Writer shows "Can deploy contracts" (hidden for Reader); join and deploy a contract works; a writer invited without it sees the local refusal while a normal send works; the Devices table shows the deploy badge; Remove deploy drops the badge and the device still writes; three themes and phone width (actions cell wraps)
+```
 
 ### Get started: filter walkthroughs by text and tag
 - id: t-146
