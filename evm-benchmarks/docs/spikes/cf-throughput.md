@@ -17,7 +17,7 @@ Machine: Apple M4 Pro, 12 cores, macOS, Bun 1.3.13; worker = `wrangler dev` (wor
 | local worker | 10 | 200 | 489 | 20 | 26 | 2.0 |
 | local worker | 100 | 2000 | 755 | 133 | 142 | 1.3 |
 
-One run each, 20 samples per size (p95 is nearly the max for N=1); treat as order of magnitude.
+All 2220 measured transfers were checked from GET /blocks receipts: every one has status 1 (the script fails otherwise). One run each, 20 samples per size (p95 is nearly the max for N=1); treat as order of magnitude.
 
 ## Where the time goes
 
