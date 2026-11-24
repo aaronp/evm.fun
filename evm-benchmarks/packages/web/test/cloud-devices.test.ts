@@ -7,7 +7,7 @@ import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry } from '../src/chain/registry'
 import { MAX_CODE_LENGTH, codeUsable, joinChain, joinPrefill } from '../src/cloud/join'
-import { inviteDefaults, inviteDevice, inviteShare, multiUseWriterWarning, removeDeploy, removeDevice, singleLinkWarning } from '../src/cloud/devices'
+import { inviteDefaults, inviteDevice, inviteShare, multiUseWriterWarning, grantDeploy, removeDeploy, removeDevice, singleLinkWarning } from '../src/cloud/devices'
 
 // The worker stand-in, as in cloud-join.test.ts: packages/node's router over in-process ChainHosts on bun:sqlite.
 const admin = privateKeyToAccount(generatePrivateKey())
@@ -75,6 +75,13 @@ describe('deploy role', () => {
     const c2 = new NodeClient(url, k2, { name: 'd' })
     await c2.join(chainId, await claimTx(k2, (await c2.joinInfo(chainId)).nonce, code2, access))
     expect((await o().nodes(chainId)).members.find((x) => x.address === k2.address)).toMatchObject({ role: 'writer', deploy: false })
+  })
+
+  test('grantDeploy sends addDeployer: a writer without deploy can then deploy', async () => {
+    const { m } = await member(GRANT_WRITER)
+    expect(m.deploy).toBe(false)
+    await grantDeploy({ client: o(), chainId, admin: owner, member: m })
+    expect((await o().nodes(chainId)).members.find((x) => x.address === m.address)).toMatchObject({ role: 'writer', deploy: true })
   })
 
   test('removeDeploy sends removeDeployer: still a writer, no deploy', async () => {

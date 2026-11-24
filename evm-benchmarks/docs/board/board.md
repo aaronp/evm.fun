@@ -1086,6 +1086,8 @@ Proven in the CF spike: base fee 0, a 0-ETH key transacts ([docs/spikes/cf-acces
 
 ```md
 Contract creation is refused unless the sender is on the chain's deployer list (held in chain state, enforced at admission on approaches 01 and 02). Done when a non-listed account's deploy is refused with a clear error and a listed one succeeds.
+
+Superseded by t-152 (ADR-0025): there is no deployer list in chain state; the deploy role is checked on the submitter.
 ```
 
 ### Chain owner admin view
@@ -1097,6 +1099,8 @@ Contract creation is refused unless the sender is on the chain's deployer list (
 
 ```md
 The owner sees and edits the chain's policy: gas mode, deployers. Done when the owner can add/remove a deployer from the Chains page and the change applies immediately.
+
+See t-152 (ADR-0025): no deployer list; the deploy role is checked on the submitter, and the Devices panel grants and removes it.
 ```
 
 ## Doing
@@ -1107,7 +1111,7 @@ The owner sees and edits the chain's policy: gas mode, deployers. Done when the 
 - tags: chains, access, size-S
 - history:
   - Backlog @ 2026-11-24T20:43:30Z
-  - Doing @ 2026-11-24T21:20:00Z
+  - Doing @ 2026-11-24T21:39:34Z
 
 ```md
 The chain ACL gains a third role: **deploy** = may create contracts (a tx with no `to`). Read = read chain data; write = submit txs; deploy = submit contract creations. `ChainAccess` gets `deployers()`/`canDeploy`, invites grant it (`GRANT_DEPLOY`), the worker refuses a creation tx from a submitter without it, the Follower refuses it locally, and the `ACL` interface reports it.

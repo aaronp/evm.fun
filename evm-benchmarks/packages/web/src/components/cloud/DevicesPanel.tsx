@@ -3,7 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { NodeClient, type Member, type NodesView } from '@evmb/node/src/client'
 import type { ChainHandle } from '../../chain/handle'
 import { ago, followerStatus, followerTxs, pendingSummary, statusBadge, type FollowerStatus } from '../../cloud/followerChain'
-import { removeDeploy, removeDevice } from '../../cloud/devices'
+import { grantDeploy, removeDeploy, removeDevice } from '../../cloud/devices'
 import { joinLink } from '../../cloud/join'
 import { accounts } from '../../store/accounts'
 import { useApp } from '../../state'
@@ -113,15 +113,15 @@ function Members({ view, me, admin }: { view: NodesView; me: string; admin?: Adm
     } finally { setBusy(false) }
   }
 
-  async function dropDeploy(m: Member) {
+  async function setDeploy(m: Member, grant: boolean) {
     if (!admin) return
     setBusy(true); setFlash(undefined)
     try {
-      await removeDeploy({ client: admin.client, chainId: admin.chainId, admin: admin.signer, member: m })
-      setFlash({ tone: 'success', text: `${label(m)} can no longer deploy contracts.` })
+      await (grant ? grantDeploy : removeDeploy)({ client: admin.client, chainId: admin.chainId, admin: admin.signer, member: m })
+      setFlash({ tone: 'success', text: `${label(m)} ${grant ? 'can now' : 'can no longer'} deploy contracts.` })
       await admin.after()
     } catch (e) {
-      setFlash({ tone: 'warn', text: `Couldn't remove deploy from ${label(m)}: ${message(e)}` })
+      setFlash({ tone: 'warn', text: `Couldn't ${grant ? 'grant' : 'remove'} deploy ${grant ? 'to' : 'from'} ${label(m)}: ${message(e)}` })
     } finally { setBusy(false) }
   }
 
@@ -146,7 +146,8 @@ function Members({ view, me, admin }: { view: NodesView; me: string; admin?: Adm
                 <td className={td}>{m.behind === undefined ? <span className="text-muted">not synced yet</span> : m.behind ? `${m.behind} behind` : 'in sync'}</td>
                 <td className={`${td} whitespace-nowrap text-xs text-muted`}>{m.seenAt === undefined ? '—' : <span title={new Date(m.seenAt * 1000).toLocaleString()}>{ago(m.seenAt)}</span>}</td>
                 {admin && <td className={td}><div className="flex flex-wrap justify-end gap-1">
-                  {view.deployRole && m.role === 'writer' && m.deploy && <Button variant="ghost" size="sm" aria-label={`Remove deploy from ${label(m)}`} disabled={busy} onClick={() => dropDeploy(m)}>Remove deploy</Button>}
+                  {view.deployRole && m.role === 'writer' && m.deploy && <Button variant="ghost" size="sm" aria-label={`Remove deploy from ${label(m)}`} disabled={busy} onClick={() => setDeploy(m, false)}>Remove deploy</Button>}
+                  {view.deployRole && m.role === 'writer' && !m.deploy && <Button variant="ghost" size="sm" aria-label={`Grant deploy to ${label(m)}`} disabled={busy} onClick={() => setDeploy(m, true)}>Grant deploy</Button>}
                   {m.role !== 'admin' && <Button variant="danger-outline" size="sm" aria-label={`Remove ${label(m)}`} disabled={busy} onClick={() => { setRemoving(m); setCloseReads(false); setFlash(undefined) }}>Remove</Button>}
                 </div></td>}
               </tr>

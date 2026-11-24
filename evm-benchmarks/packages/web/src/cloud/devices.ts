@@ -50,3 +50,9 @@ export async function removeDeploy(o: { client: NodeClient; chainId: string; adm
   const { nonce, access } = await o.client.joinInfo(o.chainId)
   mined(await o.client.submit(o.chainId, [await accessTx(o.admin, nonce, access, 'removeDeployer', o.member.address)]))
 }
+
+/** Give a writer the deploy role (addDeployer). `client` signs as `admin`. */
+export async function grantDeploy(o: { client: NodeClient; chainId: string; admin: LocalAccount; member: Member }) {
+  const { nonce, access } = await o.client.joinInfo(o.chainId)
+  mined(await o.client.submit(o.chainId, [await accessTx(o.admin, nonce, access, 'addDeployer', o.member.address)]))
+}
