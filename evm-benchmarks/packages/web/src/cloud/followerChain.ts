@@ -3,6 +3,7 @@ import type { LocalAccount } from 'viem'
 import type { ChainInfo } from '../chain/handle'
 import type { Approach } from '@evmb/core'
 import { NodeClient, NodeError, type BlockSummary } from '@evmb/node/src/client'
+import type { FollowerStore } from '@evmb/node/src/followerStore'
 import { Follower, FollowerMismatch, FollowerRemoved } from '@evmb/node/src/follower'
 import type { NodeConfig } from '@evmb/node/src/node'
 import { getSyncInterval, onSyncIntervalChange } from './node'
@@ -10,12 +11,31 @@ import { getSyncInterval, onSyncIntervalChange } from './node'
 export type Follows = NonNullable<ChainInfo['follows']>
 export type FollowerStatus =
   | { kind: 'following'; block: number; behind: number }
+  | { kind: 'offline'; lastSynced?: number; detail: string }
   | { kind: 'removed' | 'mismatch' | 'needs-key' | 'unreachable' | 'clock' | 'gone'; detail: string }
 
 const MAX_BACKOFF_MS = 60_000
 /** No point retrying: only Delete / Re-join / Import key help. */
 const final = (s: FollowerStatus) => s.kind === 'removed' || s.kind === 'mismatch' || s.kind === 'needs-key' || s.kind === 'gone'
 export const readOnly = (nodeUrl: string) => `Read-only until B: this chain lives on ${nodeUrl}`
+export const otherTab = 'Open in another tab: changes are made there.'
+export const notSaving = "This browser isn't saving data: pending changes are lost if you close the tab."
+
+/** "just now", "5 min ago", "3 h ago", "2 days ago" since `at` (unix s). */
+export function ago(at: number, now = Date.now() / 1000) {
+  const s = now - at
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`
+  return `${Math.floor(s / 86400)} days ago`
+}
+
+/** One writing tab per chain: holds the Web Lock until `fn`'s promise settles; false when another tab holds it (no Locks API: granted). */
+const webLock = (name: string, fn: () => Promise<void>): Promise<boolean> => {
+  const locks = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks
+  if (!locks) { void fn(); return Promise.resolve(true) }
+  return new Promise((res) => void locks.request(name, { ifAvailable: true }, (l) => { res(!!l); return l ? fn() : undefined }))
+}
 const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden'
 
 /**
@@ -33,16 +53,34 @@ export function followerApproach(o: {
   wasm(): Promise<NodeConfig['wasm']>
   /** the accounts store changed (e.g. Import key): a needs-key follower tries again; returns the unsubscribe */
   onKeysChange?(cb: () => void): () => void
+  /** this chain's id in this browser: the store key and lock name */
+  id?: string
+  /** where the copy and pending txs are kept; without it nothing is stored and there is no lock */
+  store?: FollowerStore
+  lock?(name: string, fn: () => Promise<void>): boolean | Promise<boolean>
+  /** false when the browser can't keep data (kv fell back to memory) */
+  persistent?(): boolean
   onStatus(s: FollowerStatus): void; onHead(h: BlockSummary): void
-}): Approach & { status(): FollowerStatus; syncNow(): Promise<void> } {
+}): Approach & { status(): FollowerStatus; syncNow(): Promise<void>; canWrite(): string | undefined; notice(): string | undefined } {
   const { nodeUrl, chainId, account: address } = o.follows
   const why = readOnly(nodeUrl)
-  const refuse = async (): Promise<never> => { throw new Error(why) }
+  const lockName = `evmb-follower:${o.id ?? chainId}`
+  let holding = false
+  let release: (() => void) | undefined
+  const refuse = async (): Promise<never> => { throw new Error(o.store && !holding ? otherTab : why) }
+  /** try to become this chain's writing tab (once held, kept until dispose) */
+  const acquire = async () => {
+    if (holding || !o.store) return
+    const held = new Promise<void>((r) => (release = r))
+    holding = await (o.lock ?? webLock)(lockName, () => held)
+    if (!holding) release = undefined
+  }
   let status: FollowerStatus = { kind: 'unreachable', detail: `Connecting to ${nodeUrl}` }
   let f: Follower | undefined
   let running: Promise<void> | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let backoff: number | undefined // ms, after an error
+  let fStore = false // the open follower has the store
   let stopped = false
   let unsubs: (() => void)[] | undefined
 
@@ -58,6 +96,10 @@ export function followerApproach(o: {
     if (e instanceof NodeError && e.status === 401) return { kind: 'clock', detail: `Check this device's clock (${e.error})` }
     if (e instanceof NodeError && e.status === 404) return { kind: 'gone', detail: 'This chain no longer exists' }
     // fetch failures are TypeErrors in browsers (Bun: other errors); a 5xx or 429 also just means "retrying"
+    if (f && !(e instanceof NodeError && e.status < 500 && e.status !== 429)) {
+      const at = f.lastSynced
+      return { kind: 'offline', lastSynced: at, detail: `Offline${at ? ` — last synced ${ago(at / 1000)}` : ''}. Changes are kept and sent when you're back.` }
+    }
     return { kind: 'unreachable', detail: e instanceof NodeError ? `${nodeUrl}: ${e.error}` : `Can't reach ${nodeUrl}` }
   }
 
@@ -78,11 +120,14 @@ export function followerApproach(o: {
   async function sync() {
     try {
       if (stopped || (final(status) && status.kind !== 'needs-key')) return
+      if (!stopped) await acquire()
+      if (f && o.store && holding && !fStore) { await f.dispose(); f = undefined } // took over from another tab: reopen with the store
       const first = !f
       if (!f) {
         const key = o.key()
         if (!key) return set({ kind: 'needs-key', detail: `Needs ${address}'s key` })
-        const next = await Follower.open(new NodeClient(nodeUrl, key.account, { name: key.label }), chainId, await o.wasm())
+        const next = await Follower.open(new NodeClient(nodeUrl, key.account, { name: key.label }), chainId, await o.wasm(), o.store && holding ? { store: o.store, key: o.id } : {})
+        fStore = !!(o.store && holding)
         if (stopped) return void (await next.dispose())
         f = next
       }
@@ -110,6 +155,8 @@ export function followerApproach(o: {
       tradeoffs: { evm: true, stateRoot: 'per-block', log: 'memory', sigVerify: 'inline', execution: 'serial', notes: 'read-only copy of a cloud chain' },
     },
     status: () => status,
+    canWrite: () => (o.store && !holding ? otherTab : undefined),
+    notice: () => (o.store && !holding ? otherTab : o.store && o.persistent && !o.persistent() ? notSaving : undefined),
     syncNow,
     async open() {
       if (!unsubs) {
@@ -135,6 +182,7 @@ export function followerApproach(o: {
       unsubs?.forEach((u) => u())
       await running
       await f?.dispose()
+      release?.()
     },
   }
 }
@@ -146,6 +194,6 @@ export const followerStatus = (h?: { approach: unknown }): FollowerStatus | unde
 /** The short badge for a follower status. */
 export function statusBadge(s: FollowerStatus): { text: string; tone: 'success' | 'warn' | 'danger' } {
   if (s.kind === 'following') return { text: s.behind ? `${s.behind} behind` : 'in sync', tone: s.behind ? 'warn' : 'success' }
-  const text = { removed: 'removed', mismatch: 'differs', 'needs-key': 'needs key', unreachable: 'unreachable', clock: 'check clock', gone: 'gone' }[s.kind]
-  return { text, tone: s.kind === 'unreachable' || s.kind === 'clock' || s.kind === 'needs-key' ? 'warn' : 'danger' }
+  const text = { removed: 'removed', mismatch: 'differs', 'needs-key': 'needs key', offline: 'offline', unreachable: 'unreachable', clock: 'check clock', gone: 'gone' }[s.kind]
+  return { text, tone: s.kind === 'unreachable' || s.kind === 'offline' || s.kind === 'clock' || s.kind === 'needs-key' ? 'warn' : 'danger' }
 }

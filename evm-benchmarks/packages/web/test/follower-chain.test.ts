@@ -58,8 +58,8 @@ afterEach(() => {
 })
 
 const keys = new Map<string, { account: LocalAccount; label: string }>([[admin.address, { account: admin, label: 'laptop' }], [phone.address, { account: phone, label: 'phone' }]])
-function env(o: { wasm?: () => Promise<any>; account?: (a: `0x${string}`) => { account: LocalAccount; label: string } | undefined } = {}) {
-  const kv = createKv()
+function env(o: { kv?: ReturnType<typeof createKv>; lock?: () => boolean; wasm?: () => Promise<any>; account?: (a: `0x${string}`) => { account: LocalAccount; label: string } | undefined } = {}) {
+  const kv = o.kv ?? createKv()
   const keySubs = new Set<() => void>()
   const stores = new Map<string, any>()
   const events: string[] = []
@@ -67,7 +67,7 @@ function env(o: { wasm?: () => Promise<any>; account?: (a: `0x${string}`) => { a
     kv,
     host: (id: string) => ({ persistence: { load: async () => stores.get(id) ?? null, save: async (s: any) => void stores.set(id, structuredClone(s)) } }),
     purge: async (id: string) => void stores.delete(id),
-    follower: { wasm: o.wasm ?? (async () => wasm), account: o.account ?? ((a) => keys.get(a)), onAccountsChange: (cb) => (keySubs.add(cb), () => void keySubs.delete(cb)) },
+    follower: { lock: o.lock, wasm: o.wasm ?? (async () => wasm), account: o.account ?? ((a) => keys.get(a)), onAccountsChange: (cb) => (keySubs.add(cb), () => void keySubs.delete(cb)) },
   })
   registry.watch((id) => events.push(id))
   return { kv, stores, registry, events, keysChanged: () => keySubs.forEach((cb) => cb()) }
@@ -209,12 +209,12 @@ describe('follower chains', () => {
     await registry.remove(h.info.id)
   })
 
-  test('network error → unreachable, then following again', async () => {
+  test('network error on an open follower → offline, then following again', async () => {
     const { registry } = env()
     const h = await addFollower(registry, { name: 'd', follows: follows() })
     globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
     await syncNow(h)
-    expect(status(h)).toMatchObject({ kind: 'unreachable', detail: `Can't reach ${url}` })
+    expect(status(h)).toMatchObject({ kind: 'offline' })
     globalThis.fetch = realFetch
     await mineBlocks(1)
     await syncNow(h)
@@ -327,4 +327,53 @@ test('signAndSend on a follower refuses with the read-only reason, before any ba
   const h = { info: { id: 'f', name: 'f', type: 'follower', createdAt: '', follows: { nodeUrl, chainId: 'c', account: admin.address } }, request: async () => '0x0', send: async () => { throw new Error('sent') } } as any
   const acct = { label: 'phone', address: phone.address, privateKey: generatePrivateKey() }
   await expect(signAndSend(h, acct, { to: admin.address, value: 1n })).rejects.toThrow(`Read-only until B: this chain lives on ${nodeUrl}`)
+
+})
+
+describe('follower store and writing tab', () => {
+  test('a follower with a stored copy opens with the node unreachable and reports offline with lastSynced', async () => {
+    const kv = createKv()
+    const a = env({ kv })
+    const h1 = await addFollower(a.registry, { name: 'd', follows: follows() })
+    const info = h1.info
+    await a.registry.close(info.id)
+    globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
+    const b = env({ kv })
+    const h2 = await b.registry.open(info.id).catch(() => undefined)
+    expect(status(h2!)).toMatchObject({ kind: 'offline' })
+    const s = status(h2!) as any
+    expect(s.lastSynced).toBeGreaterThan(0)
+    expect(s.detail).toMatch(/^Offline — last synced .+\. Changes are kept and sent when you're back\.$/)
+    expect(await bn(h2!)).toBeGreaterThanOrEqual(0)
+  })
+
+  test('a tab without the lock opens without a store and refuses sends with the other-tab message', async () => {
+    const kv = createKv()
+    const { registry } = env({ kv, lock: () => false })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    expect(status(h).kind).toBe('following')
+    expect(await kv.get('followerConfirmed', h.info.id)).toBeUndefined()
+    const ap = h.approach as any
+    expect(ap.canWrite()).toBe('Open in another tab: changes are made there.')
+    await expect(ap.submit([])).rejects.toThrow('Open in another tab: changes are made there.')
+    await registry.remove(h.info.id)
+  })
+
+  test('a tab with the lock stores its copy', async () => {
+    const kv = createKv()
+    const { registry } = env({ kv, lock: () => true })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    expect((await kv.get<any>('followerConfirmed', h.info.id))?.head).toBeDefined()
+    expect((h.approach as any).canWrite()).toBeUndefined()
+    await registry.remove(h.info.id)
+  })
+
+  test('memory-only kv shows the not-saving notice text', async () => {
+    const kv = createKv() // no IndexedDB under Bun: memory fallback
+    expect(kv.persistent).toBe(false)
+    const { registry } = env({ kv })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    expect((h.approach as any).notice()).toBe("This browser isn't saving data: pending changes are lost if you close the tab.")
+    await registry.remove(h.info.id)
+  })
 })

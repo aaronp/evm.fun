@@ -1,3 +1,4 @@
+import { kvFollowerStore } from '../cloud/followerStore'
 import type { Address, ApproachHost } from '@evmb/core'
 import plain from '@evmb/approach-01-webevm-baseline'
 import sequencer from '@evmb/approach-02-seq-memory'
@@ -31,6 +32,8 @@ export function createChainRegistry(deps: {
   /** what follower chains need: the compiled revm wasm, and the key (and label, sent as the device name) of an account in this browser */
   follower?: {
     wasm(): Promise<NodeConfig['wasm']>
+    /** the writing-tab lock (default: Web Locks) */
+    lock?(name: string, fn: () => Promise<void>): boolean | Promise<boolean>
     account(address: Address): { account: LocalAccount; label: string } | undefined
     /** the accounts store changed: a follower waiting for its key looks again */
     onAccountsChange?(cb: () => void): () => void
@@ -43,12 +46,13 @@ export function createChainRegistry(deps: {
   let transientQueue: Promise<void> = Promise.resolve()
   const watchers = new Set<(id: string) => void>()
   const emit = (id: string) => watchers.forEach(cb => cb(id))
+  const followerStore = kvFollowerStore(deps.kv)
   const build = (info: ChainInfo) => {
     if (info.type !== 'follower') return makeHandle(info, factories[info.type]({}, { ...deps.host(info.id), stateHistory: STATE_HISTORY }))
     if (!deps.follower || !info.follows) throw new Error(`chain ${info.id} can't follow a cloud chain here`)
-    const { account, wasm, onAccountsChange } = deps.follower, follows = info.follows
+    const { account, wasm, onAccountsChange, lock } = deps.follower, follows = info.follows
     return makeHandle(info, followerApproach({
-      follows, name: () => info.name, key: () => account(follows.account), wasm, onKeysChange: onAccountsChange,
+      follows, name: () => info.name, id: info.id, store: followerStore, lock, persistent: () => deps.kv.persistent, key: () => account(follows.account), wasm, onKeysChange: onAccountsChange,
       onStatus: () => emit(info.id), onHead: () => emit(info.id),
     }))
   }

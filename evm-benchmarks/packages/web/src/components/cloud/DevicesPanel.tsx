@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { privateKeyToAccount } from 'viem/accounts'
 import { NodeClient, type Member, type NodesView } from '@evmb/node/src/client'
 import type { ChainHandle } from '../../chain/handle'
-import { followerStatus, statusBadge, type FollowerStatus } from '../../cloud/followerChain'
+import { ago, followerStatus, statusBadge, type FollowerStatus } from '../../cloud/followerChain'
 import { removeDevice } from '../../cloud/devices'
 import { joinLink } from '../../cloud/join'
 import { accounts } from '../../store/accounts'
@@ -18,15 +18,6 @@ import { Table, td, th } from '../../ui/table'
 const short = (s: string) => `${s.slice(0, 6)}…${s.slice(-4)}`
 const message = (e: unknown) => (e && typeof e === 'object' && 'error' in e ? String(e.error) : e instanceof Error ? e.message : String(e))
 const same = (a?: string, b?: string) => !!a && !!b && a.toLowerCase() === b.toLowerCase()
-
-/** "just now", "5 min ago", "3 h ago", "2 days ago" since `at` (unix s). */
-function ago(at: number, now = Date.now() / 1000) {
-  const s = now - at
-  if (s < 60) return 'just now'
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`
-  return `${Math.floor(s / 86400)} days ago`
-}
 
 /** A follower's status as a badge (nothing for other chains or one not opened yet). */
 export function FollowerBadge({ chain }: { chain?: ChainHandle }) {
@@ -44,7 +35,9 @@ export function FollowerStatusLine({ chain, onDelete, onReload }: { chain: Chain
   const s = followerStatus(chain)
   const f = chain.info.follows
   if (!s || !f) return null
-  if (s.kind === 'following') return <span className="text-xs text-text-2">Block #{s.block} · {s.behind ? `${s.behind} behind` : 'in sync'}</span>
+  const note = (chain.approach as unknown as { notice?(): string | undefined }).notice?.()
+  const extra = note && <Notice tone="warn">{note}</Notice>
+  if (s.kind === 'following') return <><span className="text-xs text-text-2">Block #{s.block} · {s.behind ? `${s.behind} behind` : 'in sync'}</span>{extra}</>
   const text = s.kind === 'unreachable' ? `${s.detail}. Retrying.` : s.detail
   const action = s.kind === 'needs-key' ? <a className="shrink-0 text-xs font-medium text-accent underline" href="#/accounts">Import key on Accounts</a>
     : s.kind === 'removed' || s.kind === 'mismatch' || s.kind === 'gone' ? (
@@ -54,7 +47,7 @@ export function FollowerStatusLine({ chain, onDelete, onReload }: { chain: Chain
         <Button variant="danger" size="sm" onClick={onDelete}>Delete</Button>
       </span>
     ) : undefined
-  return <Notice tone={statusBadge(s).tone} action={action}>{text}</Notice>
+  return <><Notice tone={statusBadge(s).tone} action={action}>{text}</Notice>{extra}</>
 }
 
 /**
