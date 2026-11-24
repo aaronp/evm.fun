@@ -247,6 +247,22 @@ describe('deployChain', () => {
     await c.registry.remove(c.chain.info.id)
   })
 
+  test('convertDeployed asks the cloud with the selected account first and stops at the first admin', async () => {
+    const a = await legacyDeploy()
+    const realFetch = globalThis.fetch
+    const infos: string[] = [] // GET /chains/:id, one per account probed
+    globalThis.fetch = ((u: any, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'GET' && new URL(String(u)).pathname === `/chains/${a.deployed.chainId}`) infos.push(String(u))
+      return realFetch(u, init)
+    }) as typeof fetch
+    try {
+      const others = Array.from({ length: 3 }, () => privateKeyToAccount(generatePrivateKey()))
+      expect(await convertDeployed(a.chain.id, { registry: a.chain.registry, accounts: [...others, user], prefer: user.address })).toBe('converted')
+      expect(infos.length).toBe(1)
+    } finally { globalThis.fetch = realFetch }
+    await a.chain.registry.remove(a.chain.id)
+  })
+
   test('benchmark and sequencer chains are refused before anything is sent', async () => {
     const { registry, chain } = await browserChain()
     const seq = await registry.create('s', 'sequencer', [user.address])

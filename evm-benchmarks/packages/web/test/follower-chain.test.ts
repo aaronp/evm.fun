@@ -75,12 +75,18 @@ function env(o: { wasm?: () => Promise<any>; account?: (a: `0x${string}`) => { a
 const follows = (account = admin.address, chainId = cid) => ({ nodeUrl: url, chainId, account })
 const status = (h: { approach: unknown }) => (h.approach as { status(): FollowerStatus }).status()
 const syncNow = (h: { approach: unknown }) => (h.approach as { syncNow(): Promise<void> }).syncNow()
+/** As Join does: store the pointer, then open it. */
+async function addFollower(registry: ReturnType<typeof createChainRegistry>, o: { name: string; follows: ReturnType<typeof follows> }) {
+  const id = crypto.randomUUID()
+  await registry.putFollower({ id, name: o.name, createdAt: new Date().toISOString(), follows: o.follows, contracts: [] })
+  return registry.open(id)
+}
 const bn = async (h: { request(m: string, p?: unknown[]): Promise<unknown> }) => Number(BigInt((await h.request('eth_blockNumber', [])) as string))
 
 describe('follower chains', () => {
-  test('addFollower opens at the cloud head and eth_blockNumber/eth_getBalance answer', async () => {
+  test('a follower opens at the cloud head and eth_blockNumber/eth_getBalance answer', async () => {
     const { registry, kv, events } = env()
-    const h = await registry.addFollower({ name: 'deployed', follows: follows() })
+    const h = await addFollower(registry, { name: 'deployed', follows: follows() })
     const head = await cloudHead()
     expect(h.info).toMatchObject({ name: 'deployed', type: 'follower', follows: follows() })
     expect(await bn(h)).toBe(head.number)
@@ -96,7 +102,7 @@ describe('follower chains', () => {
 
   test('send on a follower throws the read-only reason; mine and snapshot too', async () => {
     const { registry } = env()
-    const h = await registry.addFollower({ name: 'd', follows: follows() })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
     const why = `Read-only until B: this chain lives on ${url}`
     await expect(h.send('0x00')).rejects.toThrow(why)
     await expect(h.mine(1)).rejects.toThrow(why)
@@ -107,7 +113,7 @@ describe('follower chains', () => {
 
   test('syncNow picks up blocks the admin submits', async () => {
     const { registry } = env()
-    const h = await registry.addFollower({ name: 'd', follows: follows() })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
     await mineBlocks(2)
     await syncNow(h)
     const head = await cloudHead()
@@ -121,7 +127,7 @@ describe('follower chains', () => {
     const c = adminClient(), code = generateCode()
     await c.submit(cid, [await inviteTx(admin, await c.nonce(cid), access, code, 600, 1, GRANT_READER)])
     await new NodeClient(url, phone).join(cid, await claimTx(phone, 0, code, access))
-    const h = await registry.addFollower({ name: 'd', follows: follows(phone.address) })
+    const h = await addFollower(registry, { name: 'd', follows: follows(phone.address) })
     expect(status(h).kind).toBe('following')
     await c.submit(cid, [await accessTx(admin, await c.nonce(cid), access, 'removeReader', phone.address)])
     await syncNow(h)
@@ -133,7 +139,7 @@ describe('follower chains', () => {
   test('missing account → needs-key, no request sent, no wasm; importing the key recovers without reopening', async () => {
     let present = false, compiles = 0
     const { registry, keysChanged } = env({ wasm: async () => (compiles++, wasm), account: (a) => (present ? keys.get(a) : undefined) })
-    const h = await registry.addFollower({ name: 'd', follows: follows() })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
     expect(status(h)).toEqual({ kind: 'needs-key', detail: `Needs ${admin.address}'s key` })
     await syncNow(h)
     expect(compiles).toBe(0)
@@ -149,7 +155,7 @@ describe('follower chains', () => {
   test('a wasm compile that fails once → unreachable, then the next sync recovers', async () => {
     let n = 0
     const { registry } = env({ wasm: async () => { if (n++ === 0) throw new Error('compile failed'); return wasm } })
-    const h = await registry.addFollower({ name: 'd', follows: follows() })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
     expect(status(h).kind).toBe('unreachable')
     await syncNow(h)
     expect(status(h)).toMatchObject({ kind: 'following', behind: 0 })
@@ -159,7 +165,7 @@ describe('follower chains', () => {
 
   test('no status or head events from a poll that finds nothing new', async () => {
     const { registry, events } = env()
-    const h = await registry.addFollower({ name: 'd', follows: follows() })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
     const n = events.length
     await syncNow(h)
     await syncNow(h)
@@ -176,7 +182,7 @@ describe('follower chains', () => {
     try {
       const { registry } = env()
       jest.useFakeTimers()
-      const h = await registry.addFollower({ name: 'd', follows: follows() })
+      const h = await addFollower(registry, { name: 'd', follows: follows() })
       expect(jest.getTimerCount()).toBe(1)
       state = 'hidden'
       listener!()
@@ -195,7 +201,7 @@ describe('follower chains', () => {
     let calls = 0
     globalThis.fetch = ((...a: Parameters<typeof fetch>) => (calls++, realFetch(...a))) as typeof fetch
     const stranger = privateKeyToAccount(generatePrivateKey()).address
-    const h = await registry.addFollower({ name: 'd', follows: follows(stranger) })
+    const h = await addFollower(registry, { name: 'd', follows: follows(stranger) })
     await syncNow(h)
     expect(status(h)).toEqual({ kind: 'needs-key', detail: `Needs ${stranger}'s key` })
     expect(calls).toBe(0)
@@ -205,7 +211,7 @@ describe('follower chains', () => {
 
   test('network error → unreachable, then following again', async () => {
     const { registry } = env()
-    const h = await registry.addFollower({ name: 'd', follows: follows() })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
     globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
     await syncNow(h)
     expect(status(h)).toMatchObject({ kind: 'unreachable', detail: `Can't reach ${url}` })
@@ -223,7 +229,7 @@ describe('follower chains', () => {
     let calls = 0
     globalThis.fetch = ((...a: Parameters<typeof fetch>) => (calls++, realFetch(...a))) as typeof fetch
     jest.useFakeTimers()
-    const h = await registry.addFollower({ name: 'd', follows: follows() })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
     expect(jest.getTimerCount()).toBe(1)
     setSyncInterval(15)
     expect(getSyncInterval()).toBe(15)
@@ -248,12 +254,12 @@ describe('follower chains', () => {
 
   test('a 401 → clock; a 404 → gone', async () => {
     const { registry } = env()
-    const h = await registry.addFollower({ name: 'd', follows: follows() })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
     globalThis.fetch = (async () => Response.json({ error: 'stale request' }, { status: 401 })) as unknown as typeof fetch
     await syncNow(h)
     expect(status(h)).toMatchObject({ kind: 'clock' })
     globalThis.fetch = realFetch
-    const gone = await registry.addFollower({ name: 'g', follows: follows(admin.address, 'no-such-chain') })
+    const gone = await addFollower(registry, { name: 'g', follows: follows(admin.address, 'no-such-chain') })
     expect(status(gone)).toMatchObject({ kind: 'gone' })
     await registry.remove(h.info.id)
     await registry.remove(gone.info.id)
@@ -313,4 +319,12 @@ describe('follower chains', () => {
     for (const c of others) await registry.remove(c.info.id)
     await registry.remove(id)
   })
+})
+
+test('signAndSend on a follower refuses with the read-only reason, before any balance check', async () => {
+  const { signAndSend } = await import('../src/tx/send')
+  const nodeUrl = 'https://node.example'
+  const h = { info: { id: 'f', name: 'f', type: 'follower', createdAt: '', follows: { nodeUrl, chainId: 'c', account: admin.address } }, request: async () => '0x0', send: async () => { throw new Error('sent') } } as any
+  const acct = { label: 'phone', address: phone.address, privateKey: generatePrivateKey() }
+  await expect(signAndSend(h, acct, { to: admin.address, value: 1n })).rejects.toThrow(`Read-only until B: this chain lives on ${nodeUrl}`)
 })

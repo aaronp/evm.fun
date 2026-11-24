@@ -1,6 +1,6 @@
 import type { DeployedContract as ContractRecord } from '../contracts/registry'
 import type { Asset } from '@evmb/assets'
-import type { ChainType } from './handle'
+import type { ChainInfo, ChainType } from './handle'
 
 export type { ContractRecord }
 
@@ -12,6 +12,15 @@ export interface ChainFile {
   format: 'evm.fun/chain'; version: 1; exportedAt: string; chainId: number; engine: string
   chain: { name: string; type: ChainType }; dump: unknown; contracts: ContractRecord[]; assets?: Asset[]; source?: ChainSource
 }
+
+/** A follower's snapshots were taken while it was a plain chain (only plain chains deploy): they fork and export as plain. */
+export const snapshotType = (t: ChainType): 'plain' | 'sequencer' => (t === 'follower' ? 'plain' : t)
+
+/** Chain `info`'s state `s` (its current state, or one of its snapshots) as a chain file. */
+export const toChainFile = (info: Pick<ChainInfo, 'name' | 'type' | 'source'>, engine: string, s: { dump: unknown; contracts: ContractRecord[]; assets?: Asset[] }): ChainFile => ({
+  format: 'evm.fun/chain', version: 1, exportedAt: new Date().toISOString(), chainId: 31337, engine,
+  chain: { name: info.name, type: snapshotType(info.type) }, dump: s.dump, contracts: s.contracts, assets: s.assets ?? [], ...(info.source && { source: info.source }),
+})
 
 // ADR "Chain snapshots via webevm dumpState/loadState": dumps load across engines (both ways).
 export const CROSS_ENGINE_OK = true

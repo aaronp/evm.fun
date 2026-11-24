@@ -18,6 +18,7 @@ import { Explorer } from './Explorer'
 import { DeployDialog } from '../components/cloud/DeployDialog'
 import { DevicesPanel, FollowerBadge, FollowerStatusLine, syncNow } from '../components/cloud/DevicesPanel'
 import { cannotDeploy, convertDeployed, deployedUrl } from '../cloud/deploy'
+import { readOnly } from '../cloud/followerChain'
 import { useWizardAction, useWizardMark } from '../walkthrough/wizard'
 import { useBlockWindow } from '../explorer/useBlockWindow'
 import { Button } from '../ui/button'
@@ -59,7 +60,7 @@ function useWide() {
 }
 
 export function Chains() {
-  const { chains, chain, error, selectChain, refresh, balanceTick } = useApp()
+  const { chains, chain, error, selectChain, refresh, balanceTick, account } = useApp()
   const nav = useNavigate()
   const wide = useWide()
   const { pathname, search, state: navState } = useLocation()
@@ -93,7 +94,7 @@ export function Chains() {
     converting.current.add(id)
     try {
       const keys = accounts.list().map(a => privateKeyToAccount(a.privateKey))
-      if (await convertDeployed(id, { registry, accounts: keys, force }) === 'diverged') return setDiverged(id)
+      if (await convertDeployed(id, { registry, accounts: keys, prefer: account, force }) === 'diverged') return setDiverged(id)
       setDiverged(undefined)
       await refresh()
       if (selected.current === id) await selectChain(id) // still the one shown: pick up its follower handle
@@ -110,13 +111,14 @@ export function Chains() {
     await convert(chain.info.id, true)
   }
   const none = chain ? undefined : 'Select a chain first'
+  const ro = chain?.info.follows && readOnly(chain.info.follows.nodeUrl) // a follower: no snapshot or export (its snapshots list still opens)
   useAppBar({
     title: 'Chains',
     crumbs: crumbsFor(pathname, chain?.info.name),
     actions: [
-      { kind: 'button', id: 'snapshot', label: 'Snapshot', icon: <CameraIcon />, title: none ?? 'Take a snapshot', disabled: !chain, onClick: () => { setTakeTick(t => t + 1); takeRef.current?.showModal() } },
+      { kind: 'button', id: 'snapshot', label: 'Snapshot', icon: <CameraIcon />, title: none ?? ro ?? 'Take a snapshot', disabled: !chain || !!ro, onClick: () => { setTakeTick(t => t + 1); takeRef.current?.showModal() } },
       { kind: 'button', id: 'snapshots', label: 'Snapshots', icon: <HistoryIcon />, title: none ?? 'Snapshots of this chain', disabled: !chain, onClick: () => { setListTick(t => t + 1); listRef.current?.showModal() } },
-      { kind: 'button', id: 'export', label: 'Export', icon: <DownloadIcon />, title: none ?? 'Export this chain to a file', disabled: !chain, onClick: () => { exportChain(chain!).catch(e => setFlash({ tone: 'warn', text: `Export failed: ${e instanceof Error ? e.message : String(e)}` })) } },
+      { kind: 'button', id: 'export', label: 'Export', icon: <DownloadIcon />, title: none ?? ro ?? 'Export this chain to a file', disabled: !chain || !!ro, onClick: () => { exportChain(chain!).catch(e => setFlash({ tone: 'warn', text: `Export failed: ${e instanceof Error ? e.message : String(e)}` })) } },
       { kind: 'button', id: 'import', label: 'Import', icon: <UploadIcon />, title: 'Import a chain file as a new chain', onClick: () => fileRef.current?.click() },
       { kind: 'button', id: 'refresh', label: 'Refresh', icon: <RefreshIcon />, title: none ?? 'Refresh', onClick: win.refresh, disabled: !chain },
     ],
@@ -132,6 +134,13 @@ export function Chains() {
 
   /** Switching chain drops a block/tx URL that belongs to the old one. */
   function pick(id?: string) { if (id !== chain?.info.id) nav('/chains'); return selectChain(id) }
+
+  /** A follower whose copy differs: close it and open it again, so it boots fresh from the cloud's state. */
+  async function reload(id: string) {
+    await registry.close(id)
+    await refresh()
+    await selectChain(id)
+  }
 
   async function remove(c: ChainInfo) {
     if (!confirm(`Delete chain "${c.name}"?`)) return
@@ -186,7 +195,7 @@ export function Chains() {
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <Badge>{c.type}</Badge>
                       {c.ephemeral && <Badge variant="warn">benchmark</Badge>}
-                      {c.deployed && <Badge variant="success">deployed</Badge>}
+                      {c.deployed && !c.follows && <Badge variant="success">deployed</Badge>}
                       <FollowerBadge chain={registry.peek(c.id)} />
                       {registry.peek(c.id) && <Badge>running</Badge>}
                       {sel && <Badge variant="accent">selected</Badge>}
@@ -205,10 +214,10 @@ export function Chains() {
               <div>
                 <div className="font-medium">{chain.info.name}</div>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
-                  <Badge>{chain.info.type}</Badge>{chain.info.ephemeral && <Badge variant="warn">benchmark (not saved)</Badge>}{chain.info.deployed && <Badge variant="success">Deployed</Badge>}<span>{chain.info.createdAt}</span>
+                  <Badge>{chain.info.type}</Badge>{chain.info.ephemeral && <Badge variant="warn">benchmark (not saved)</Badge>}{chain.info.deployed && !chain.info.follows && <Badge variant="success">Deployed</Badge>}<span>{chain.info.createdAt}</span>
                 </div>
                 {provenanceText(chain.info.source) && <div className="mt-1 text-xs text-muted">{provenanceText(chain.info.source)}</div>}
-                {chain.info.follows && <div className="mt-1"><FollowerStatusLine chain={chain} onDelete={() => remove(chain.info)} /></div>}
+                {chain.info.follows && <div className="mt-1"><FollowerStatusLine chain={chain} onDelete={() => remove(chain.info)} onReload={() => reload(chain.info.id)} /></div>}
                 {noFunds === chain.info.id && <div className="mt-2"><Notice onDismiss={() => setNoFunds(undefined)}>{NO_FUNDS}</Notice></div>}
               </div>
               {diverged === chain.info.id && chain.info.deployed && (

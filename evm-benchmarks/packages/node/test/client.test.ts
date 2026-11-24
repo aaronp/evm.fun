@@ -71,3 +71,15 @@ test('NodeClient signs and throws NodeError on non-2xx', async () => {
   expect(seen!.get('x-sig')).toBeTruthy()
   expect(seen!.get('x-ts') && seen!.get('x-nonce')).toBeTruthy()
 })
+
+test('a request the worker never answers times out (not a NodeError: the follower reads it as unreachable)', async () => {
+  const srv = Bun.serve({ port: 0, fetch: () => new Promise<Response>(() => {}) }) // never answers
+  try {
+    const t0 = Date.now()
+    const e = await new NodeClient(`http://localhost:${srv.port}`, admin, { timeoutMs: 100 }).info('x').catch((e) => e)
+    expect(e).toBeInstanceOf(Error)
+    expect(e).not.toBeInstanceOf(NodeError)
+    expect((e as Error).name).toBe('TimeoutError')
+    expect(Date.now() - t0).toBeLessThan(5_000)
+  } finally { srv.stop(true) }
+})

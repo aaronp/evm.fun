@@ -12,8 +12,9 @@ import { Panel } from '../../ui/panel'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-/** Join a cloud chain with an invite code; this browser then follows it, signing as `acct`. Prefilled from a join link (never the code). */
-export function JoinForm({ acct, nodeUrl, chainId: initialChain = '', onJoined }: { acct?: Account; nodeUrl: string; chainId?: string; onJoined?(): void }) {
+/** Join a cloud chain with an invite code; this browser then follows it, signing as `acct`. Prefilled from a join link (never the code).
+ *  `usualUrl`: the node-URL setting; a link pointing elsewhere gets a warning (it could be a lookalike worker). */
+export function JoinForm({ acct, nodeUrl, usualUrl, chainId: initialChain = '', onJoined }: { acct?: Account; nodeUrl: string; usualUrl: string; chainId?: string; onJoined?(): void }) {
   const { refresh, selectChain, setBusy } = useApp()
   const [url, setUrl] = useState(nodeUrl)
   const [urlEdited, setUrlEdited] = useState(false)
@@ -66,6 +67,7 @@ export function JoinForm({ acct, nodeUrl, chainId: initialChain = '', onJoined }
           Chain name
           <Input value={name} placeholder={id ? joinName(id) : 'Joined …'} onChange={(e) => setName(e.target.value)} disabled={running} />
         </label>
+        {nodeUrl !== usualUrl && url.trim() === nodeUrl && <Notice>{`This link points at ${nodeUrl}, not your usual worker ${usualUrl}. Only continue if you trust it.`}</Notice>}
         {!acct && <Notice>Select an account first: it signs the join and this browser follows the chain as it.</Notice>}
         {acct && <p className="text-xs text-muted">Joins as {acct.label}; this device shows up to the chain's admin under that name.</p>}
         <div className="flex justify-end">

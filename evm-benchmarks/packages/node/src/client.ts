@@ -63,7 +63,8 @@ export class NodeError extends Error {
 }
 
 export class NodeClient {
-  constructor(readonly baseUrl: string, private account?: LocalAccount, private opts: { name?: string } = {}) {}
+  /** `timeoutMs` (default 30 s): a hung request must not block dispose, delete, New or Open; it rejects with a TimeoutError. */
+  constructor(readonly baseUrl: string, private account?: LocalAccount, private opts: { name?: string; timeoutMs?: number } = {}) {}
 
   private async req<T>(method: string, path: string, body?: unknown, sign = true): Promise<T> {
     const url = new URL(path, this.baseUrl)
@@ -75,8 +76,14 @@ export class NodeClient {
       const s = await signRequest(this.account, method, url, text)
       Object.assign(headers, { 'x-ts': s.ts, 'x-nonce': s.nonce, 'x-sig': s.sig })
     }
-    const res = await fetch(url, { method, headers, body: text || undefined })
-    const out = await res.json().catch(() => ({}))
+    // not AbortSignal.timeout: its timer outlives the request; this one is cleared as soon as the body is read
+    const ctl = new AbortController()
+    const timer = setTimeout(() => ctl.abort(new DOMException('request timed out', 'TimeoutError')), this.opts.timeoutMs ?? 30_000)
+    let res: Response, out: unknown
+    try {
+      res = await fetch(url, { method, headers, body: text || undefined, signal: ctl.signal })
+      out = await res.json().catch(() => { if (ctl.signal.aborted) throw ctl.signal.reason; return {} })
+    } finally { clearTimeout(timer) }
     if (!res.ok) throw new NodeError(res.status, (out as { error?: string }).error ?? res.statusText)
     return out as T
   }

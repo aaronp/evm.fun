@@ -228,15 +228,6 @@ export function createChainRegistry(deps: {
     async pruneSnapshots() {
       await snapshots.pruneOrphans(new Set((await self.list()).map(c => c.id)))
     },
-    /** Follow a cloud chain (read-only); its state is never stored, only this pointer. */
-    async addFollower(o: { name: string; follows: NonNullable<ChainInfo['follows']>; id?: string; createdAt?: string }): Promise<ChainHandle> {
-      assertRoom()
-      if (o.id !== undefined && (live.has(o.id) || opening.has(o.id) || transient.has(o.id) || await deps.kv.get(STORE, o.id))) throw new Error(`A chain with id ${o.id} already exists`)
-      const info: ChainInfo = { id: o.id ?? crypto.randomUUID(), name: o.name, type: 'follower', createdAt: o.createdAt ?? new Date().toISOString(), follows: o.follows }
-      const h = await startFollower(info)
-      await deps.kv.set(STORE, info.id, info)
-      return h
-    },
     /** Store a follower as a pointer plus its records, without opening it (workspace Open): no worker request until it is opened. */
     async putFollower(o: { id: string; name: string; createdAt: string; follows: NonNullable<ChainInfo['follows']>; contracts: ContractRecord[]; assets?: Asset[] }) {
       if (live.has(o.id) || opening.has(o.id) || transient.has(o.id) || await deps.kv.get(STORE, o.id)) throw new Error(`A chain with id ${o.id} already exists`)

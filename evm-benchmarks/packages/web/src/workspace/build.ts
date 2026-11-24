@@ -3,7 +3,7 @@ import type { Address } from '@evmb/core'
 import type { Kv } from '../store/kv'
 import type { Account } from '../store/accounts'
 import type { createChainRegistry } from '../chain/registry'
-import { CROSS_ENGINE_OK, encodeJson, type ChainFile } from '../chain/chainFile'
+import { CROSS_ENGINE_OK, encodeJson, toChainFile, type ChainFile } from '../chain/chainFile'
 import { createSnapshotStore, type Snapshot } from '../chain/snapshots'
 import { NO_SNAPSHOT } from '../chain/snapshotUi'
 import { createContractsRegistry } from '../contracts/registry'
@@ -35,7 +35,8 @@ export const RUNS = 'walkthroughRuns'
 const get = (s: WorkspaceEnv['storage'], k: string) => { try { return s.getItem(k) ?? undefined } catch { return undefined } }
 
 /** The whole workspace as plain data. Saved chains only (benchmark chains are skipped), one at a time via registry.withChain so more than LIVE_MAX work (and Save works at the cap).
- *  Followers are saved as pointers from their stored info plus their records, never opened (no state or snapshots). */
+ *  Followers are saved as pointers from their stored info plus their records, never opened (no state); their snapshots
+ *  (taken before the chain was deployed) are kept. Every chain keeps its createdAt, so Open keeps the list order. */
 export async function buildWorkspace(env: WorkspaceEnv): Promise<WorkspaceFile> {
   const { registry, kv } = env
   const contracts = createContractsRegistry(kv), assets = createWebAssets(kv)
@@ -48,18 +49,13 @@ export async function buildWorkspace(env: WorkspaceEnv): Promise<WorkspaceFile> 
   for (const info of saved) {
     const file = await registry.withChain(info.id, async (h): Promise<ChainFile> => {
       if (!h.approach.snapshot) throw new Error(NO_SNAPSHOT)
-      return {
-        format: 'evm.fun/chain', version: 1, exportedAt: new Date().toISOString(), chainId: 31337, engine: env.engine,
-        chain: { name: info.name, type: info.type }, dump: await h.approach.snapshot(),
-        contracts: await contracts.list(info.id), assets: (await assets.list(info.id)).filter(a => a.kind === 'erc20'),
-        ...(info.source && { source: info.source }),
-      }
+      return toChainFile(info, env.engine, { dump: await h.approach.snapshot(), contracts: await contracts.list(info.id), assets: (await assets.list(info.id)).filter(a => a.kind === 'erc20') })
     })
-    chains.push({ ...file, id: info.id, ...(info.deployed && { deployed: info.deployed }) })
+    chains.push({ ...file, id: info.id, createdAt: info.createdAt, ...(info.deployed && { deployed: info.deployed }) })
   }
   const ids = new Set(all.map(c => c.id))
   const snaps = createSnapshotStore(kv), snapshots: Snapshot[] = []
-  for (const c of saved) snapshots.push(...(await snaps.list(c.id)).map(s => ({ ...s, assets: s.assets ?? [] }))) // taken before assets were kept
+  for (const c of all) snapshots.push(...(await snaps.list(c.id)).map(s => ({ ...s, assets: s.assets ?? [] }))) // taken before assets were kept
   const orderbook: WorkspaceFile['orderbook'] = []
   for (const table of Object.keys(bookSchema)) for (const r of await env.book.entries(table)) orderbook.push({ table, ...r })
   const stored = get(env.storage, SELECTED_CHAIN), active = get(env.storage, ACTIVE_WALKTHROUGH)

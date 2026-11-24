@@ -65,14 +65,15 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
     if (!isObj(c)) return bad(`chains[${i}] is not an object`)
     if (!isId(c.id)) return bad(`${label}: invalid id`)
     if (chains.has(c.id)) return bad(`${label}: duplicate chain id ${c.id}`)
-    const { id, deployed, ...file } = c
+    const { id, deployed, createdAt, ...file } = c
     if (deployed !== undefined && !deployedOk(deployed)) return bad(`${label}: invalid deployed (needs an http(s) nodeUrl, chainId, at and head)`)
+    if (createdAt !== undefined && !str(createdAt)) return bad(`${label}: invalid createdAt`)
     const d = decodeChainFile(encodeJson(file), opts)
     if (!d.ok) return bad(`${label}: ${d.error}`)
-    chains.set(id, { ...d.file, id, ...(deployed !== undefined && { deployed }) })
+    chains.set(id, { ...d.file, id, ...(createdAt !== undefined && { createdAt }), ...(deployed !== undefined && { deployed }) })
   })
 
-  const followers = new Set<string>()
+  const followers = new Map<string, any>() // id → the chain file its snapshots are checked as (a plain chain's: see snapshotType)
   ;(f.followers ?? []).forEach((c: any, i: number) => {
     const at = `followers[${i}]`
     if (!isObj(c)) return bad(`${at} is not an object`)
@@ -81,7 +82,7 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
     if (!followsOk(c.follows)) return bad(`${at}: invalid follows (needs an http(s) nodeUrl, chainId and account address)`)
     const records = recordsError(c.contracts, c.assets)
     if (records) return bad(`${at}: ${records}`)
-    followers.add(c.id)
+    followers.set(c.id, { format: 'evm.fun/chain', version: 1, exportedAt: f.savedAt, chainId: 31337, engine: f.engine, chain: { name: c.name, type: 'plain' } })
   })
 
   const snapIds = new Set<string>()
@@ -90,7 +91,7 @@ function check(text: string, opts: { engine: string; crossEngineOk: boolean }): 
     if (!isObj(s)) return bad(`${at} is not an object`)
     if (!isId(s.id) || snapIds.has(s.id)) return bad(`${at}.id is missing, invalid or a duplicate`)
     snapIds.add(s.id)
-    const chain = chains.get(s.chainId)
+    const chain = chains.get(s.chainId) ?? followers.get(s.chainId)
     if (!chain) return bad(`${at} belongs to a chain not in this file`)
     if (!str(s.name) || !isStr(s.createdAt) || !Number.isInteger(s.height) || s.height < 0 || typeof s.bytes !== 'number')
       return bad(`${at} needs name, createdAt, height and bytes`)

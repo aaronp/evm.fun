@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { registry, snapshots } from '../chain/revm'
-import { defaultSnapshotName, MAX_NAME } from '../chain/chainFile'
+import { defaultSnapshotName, MAX_NAME, snapshotType } from '../chain/chainFile'
 import type { ChainHandle } from '../chain/handle'
 import type { Snapshot } from '../chain/snapshots'
 import { forkName, NO_SNAPSHOT, sizeKb, WARN_BYTES } from '../chain/snapshotUi'
@@ -11,6 +11,7 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Notice } from '../ui/notice'
 import { exportChain } from './exportFile'
+import { readOnly } from '../cloud/followerChain'
 import { RestoreDialog } from './RestoreDialog'
 
 export type Flash = { tone: 'success' | 'warn'; text: string }
@@ -83,7 +84,7 @@ export function SnapshotsDialog({ dialogRef, chain, openTick, onFlash }: {
   const fork = (s: Snapshot) => run(async () => {
     if (!chain!.approach.snapshot) throw new Error(NO_SNAPSHOT)
     const h = await registry.createFrom(s.dump, {
-      name: forkName(s.name), type: chain!.info.type, contracts: s.contracts, assets: s.assets,
+      name: forkName(s.name), type: snapshotType(chain!.info.type), contracts: s.contracts, assets: s.assets,
       source: { kind: 'snapshot', snapshotName: s.name, fromChainName: chain!.info.name, height: s.height },
     })
     await refresh()
@@ -97,6 +98,7 @@ export function SnapshotsDialog({ dialogRef, chain, openTick, onFlash }: {
     await snapshots.remove(s.id)
     load()
   })
+  const ro = chain?.info.follows && readOnly(chain.info.follows.nodeUrl) // a follower's old snapshots fork and export, never restore
   const restored = (s: Snapshot, saved?: Snapshot) => {
     dialogRef.current?.close()
     nav('/chains')
@@ -125,7 +127,7 @@ export function SnapshotsDialog({ dialogRef, chain, openTick, onFlash }: {
               </div>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Button size="sm" variant="ghost" onClick={() => fork(s)}>Open as new chain</Button>
-                <Button size="sm" variant="ghost" onClick={() => setTarget(s)}>Restore this chain…</Button>
+                <Button size="sm" variant="ghost" disabled={!!ro} title={ro || undefined} onClick={() => setTarget(s)}>Restore this chain…</Button>
                 <Button size="sm" variant="ghost" onClick={() => run(() => exportChain(chain!, s))}>Export</Button>
                 <Button size="sm" variant="danger" onClick={() => del(s)}>Delete</Button>
               </div>

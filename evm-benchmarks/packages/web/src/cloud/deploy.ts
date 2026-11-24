@@ -92,7 +92,8 @@ export async function deployChain(o: {
 
 /**
  * A plain chain deployed before deploys converted (it has `deployed`): make it a follower of its cloud chain, signing
- * as the cloud chain's admin (whichever of `accounts` it is). Converts when the local block at `deployed.head` is the
+ * as the cloud chain's admin (whichever of `accounts` it is: `prefer`, the selected account, is asked first; the first
+ * admin found ends the probing). Converts when the local block at `deployed.head` is the
  * cloud's (same hash), is the head, and nothing is pending — or when `force` (the user confirmed). Otherwise
  * `'diverged'`, nothing changed. Without the admin's key it refuses, nothing changed.
  */
@@ -100,6 +101,8 @@ export async function convertDeployed(id: string, o: {
   registry: Pick<ReturnType<typeof createChainRegistry>, 'open' | 'convertToFollower'>
   /** this browser's keys: the admin among them signs the follower */
   accounts: LocalAccount[]
+  /** the selected account: most likely the admin */
+  prefer?: string
   force?: boolean
 }): Promise<'converted' | 'diverged'> {
   const h = await o.registry.open(id)
@@ -108,7 +111,8 @@ export async function convertDeployed(id: string, o: {
   const n = Number(BigInt((await h.request('eth_blockNumber', [])) as string))
   if (!o.force && (n !== d.head || (h.approach.pending?.() ?? 0) > 0)) return 'diverged'
   let admin: LocalAccount | undefined, known: Address | undefined
-  for (const a of o.accounts) {
+  const first = (a: LocalAccount) => (a.address.toLowerCase() === o.prefer?.toLowerCase() ? 0 : 1)
+  for (const a of [...o.accounts].sort((x, y) => first(x) - first(y))) {
     try {
       known = (await new NodeClient(d.nodeUrl, a).info(d.chainId)).admin
       if (known.toLowerCase() === a.address.toLowerCase()) { admin = a; break }

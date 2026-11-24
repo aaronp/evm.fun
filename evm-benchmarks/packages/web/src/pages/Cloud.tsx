@@ -88,7 +88,7 @@ export function Cloud() {
         </div>
       </Panel>
 
-      <JoinForm acct={acct} nodeUrl={link.nodeUrl ?? url} chainId={link.chainId} onJoined={() => pathname !== '/cloud' && nav('/cloud', { replace: true })} />
+      <JoinForm acct={acct} nodeUrl={link.nodeUrl ?? url} usualUrl={url} chainId={link.chainId} onJoined={() => pathname !== '/cloud' && nav('/cloud', { replace: true })} />
 
       {root && !acct && <p className="text-sm text-muted">Select an account to issue codes or deploy chains.</p>}
       {isAdmin && client && signer && <CodesPanel client={client} account={signer} access={root!.access} />}

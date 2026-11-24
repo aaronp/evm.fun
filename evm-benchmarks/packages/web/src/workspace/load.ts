@@ -37,10 +37,10 @@ export async function loadWorkspace(f: WorkspaceFile, env: WriteEnv) {
   const { registry, kv, book, storage } = env
   storage.setItem(ACCOUNTS_KEY, JSON.stringify(f.accounts.map(({ label, address, privateKey }) => ({ label, address, privateKey }))))
   const selected = f.selection?.chain
-  const t0 = Date.now() // createdAt staggered in file order (= the saved list order), so the Chains page keeps it
+  const t0 = Date.now() // each chain keeps its createdAt (as followers do), so the list keeps its order; an older file without them: staggered in file order
   for (const [i, c] of f.chains.entries()) {
     try {
-      await registry.createFrom(c.dump, { createdAt: new Date(t0 + i).toISOString(), id: c.id, name: c.chain.name, type: c.chain.type, contracts: c.contracts, assets: c.assets, source: cleanSource(c.source), deployed: cleanDeployed(c.deployed) })
+      await registry.createFrom(c.dump, { createdAt: c.createdAt ?? new Date(t0 + i).toISOString(), id: c.id, name: c.chain.name, type: c.chain.type, contracts: c.contracts, assets: c.assets, source: cleanSource(c.source), deployed: cleanDeployed(c.deployed) })
     } catch (e) { throw new Error(`Chain "${c.chain.name}": ${message(e)}`) }
     if (c.id !== selected) await registry.close(c.id)
   }

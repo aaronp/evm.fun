@@ -42,23 +42,22 @@ export function FollowerBadge({ chain }: { chain?: ChainHandle }) {
 /** Sync a follower now (every sync-interval mode, Manual included). */
 export const syncNow = (h: ChainHandle) => (h.approach as unknown as { syncNow(): Promise<void> }).syncNow()
 
-/** Status line for a follower's chain card, with what can be done about it. */
-export function FollowerStatusLine({ chain, onDelete }: { chain: ChainHandle; onDelete(): void }) {
+/** Status line for a follower's chain card, with what can be done about it (`onReload`: drop the copy and boot it again from the cloud's state). */
+export function FollowerStatusLine({ chain, onDelete, onReload }: { chain: ChainHandle; onDelete(): void; onReload(): void }) {
   const s = followerStatus(chain)
   const f = chain.info.follows
   if (!s || !f) return null
-  const rejoin = `#/cloud/join?${new URLSearchParams({ node: f.nodeUrl, chain: f.chainId })}`
   if (s.kind === 'following') return <span className="text-xs text-text-2">Block #{s.block} · {s.behind ? `${s.behind} behind` : 'in sync'}</span>
-  const tone = s.kind === 'unreachable' || s.kind === 'clock' || s.kind === 'needs-key' ? 'warn' : 'danger'
   const text = s.kind === 'unreachable' ? `${s.detail}. Retrying.` : s.detail
   const action = s.kind === 'needs-key' ? <a className="shrink-0 text-xs font-medium text-accent underline" href="#/accounts">Import key on Accounts</a>
     : s.kind === 'removed' || s.kind === 'mismatch' || s.kind === 'gone' ? (
       <span className="flex shrink-0 gap-2">
-        {s.kind === 'mismatch' && <a className="text-xs font-medium text-accent underline" href={rejoin}>Re-join</a>}
+        {s.kind === 'mismatch' && <Button variant="ghost" size="sm" onClick={onReload} title="Close this copy and load it again from the cloud (no code needed)">Reload copy</Button>}
+        {s.kind === 'mismatch' && <a className="self-center text-xs font-medium text-accent underline" href={joinLink('', f.nodeUrl, f.chainId)}>Re-join</a>}
         <Button variant="danger" size="sm" onClick={onDelete}>Delete</Button>
       </span>
     ) : undefined
-  return <Notice tone={tone} action={action}>{text}</Notice>
+  return <Notice tone={statusBadge(s).tone} action={action}>{text}</Notice>
 }
 
 /**

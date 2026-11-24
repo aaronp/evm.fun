@@ -5,6 +5,7 @@ import { createKv, kv as appKv, type Kv } from '../src/store/kv'
 import { ACCOUNTS_KEY, type Account } from '../src/store/accounts'
 import { createChainRegistry, LIVE_MAX } from '../src/chain/registry'
 import { createSnapshotStore } from '../src/chain/snapshots'
+import { decodeChainFile, encodeChainFile, snapshotType, toChainFile } from '../src/chain/chainFile'
 import { createContractsRegistry } from '../src/contracts/registry'
 import { createWebAssets } from '../src/assets/registry'
 import { ACTIVE_WALKTHROUGH, RUNS, SELECTED_CHAIN, buildWorkspace, encodeWorkspace, saveWorkspace } from '../src/workspace/build'
@@ -667,8 +668,8 @@ describe('New / Open / Save', () => {
     const src = env()
     await src.registry.create('plain one', 'plain', [])
     const follows = { nodeUrl: 'https://node.example', chainId: crypto.randomUUID(), account: acct.address }
-    const fh = await src.registry.addFollower({ name: 'Joined abc', follows, createdAt: '2026-01-01T00:00:00.000Z' })
-    await src.registry.close(fh.info.id)
+    const fh = { info: { id: crypto.randomUUID() } }
+    await src.registry.putFollower({ id: fh.info.id, name: 'Joined abc', follows, createdAt: '2026-01-01T00:00:00.000Z', contracts: [] })
     await createContractsRegistry(src.kv).add(fh.info.id, rec)
     src.local.set(SELECTED_CHAIN, fh.info.id)
     const f = await buildWorkspace(src.ws)
@@ -696,6 +697,50 @@ describe('New / Open / Save', () => {
     expect(wasmCalls).toBe(1) // the follower's first sync starts here (wasm is fetched right before the worker is)
     await e.disposeAll()
     } finally { globalThis.fetch = realFetch }
+  })
+
+  test("a converted follower's snapshots (its plain-chain history) fork and export as plain chains and survive Save → Open", async () => {
+    const src = env()
+    const plain = await src.registry.create('mine', 'plain', [acct.address])
+    await plain.send(await sign(0))
+    const snap = await createSnapshotStore(src.kv).take(plain, 'before deploy')
+    const info = { ...plain.info }
+    await src.registry.close(info.id)
+    // as convertToFollower leaves it (that needs a worker): the same id, now a follower; its snapshots stay
+    await src.kv.set('chains', info.id, { ...info, type: 'follower', follows: { nodeUrl: 'https://node.example', chainId: 'c1', account: acct.address } })
+    const follower = (await src.registry.list())[0]!
+    // Open as new chain (SnapshotsDialog): a plain chain at the snapshot's height
+    const fork = await src.registry.createFrom(snap.dump, { name: 'fork', type: snapshotType(follower.type), contracts: snap.contracts, assets: snap.assets })
+    expect([fork.info.type, Number(BigInt(await fork.request('eth_blockNumber', []) as string))]).toEqual(['plain', snap.height])
+    await src.registry.remove(fork.info.id)
+    // Export (SnapshotsDialog): the file imports
+    const file = decodeChainFile(encodeChainFile(toChainFile(follower, ENGINE, snap)), { engine: ENGINE, crossEngineOk: false })
+    expect(file.ok && file.file.chain.type).toBe('plain')
+    // Save keeps the snapshot; Open restores it
+    const f = await buildWorkspace(src.ws)
+    expect(f.snapshots.map(s => s.id)).toEqual([snap.id])
+    await src.disposeAll()
+    const e = env()
+    expect(await openWorkspace(encodeWorkspace(f), e.ws)).toEqual({ ok: true })
+    expect((await createSnapshotStore(e.kv).list(info.id)).map(s => s.name)).toEqual(['before deploy'])
+    await e.disposeAll()
+  })
+
+  test('Open keeps the list order with followers among the chains', async () => {
+    const src = env()
+    await src.registry.create('first', 'plain', [])
+    await Bun.sleep(2)
+    await src.registry.putFollower({ id: crypto.randomUUID(), name: 'follower', createdAt: new Date().toISOString(), follows: { nodeUrl: 'https://node.example', chainId: 'c1', account: acct.address }, contracts: [] })
+    await Bun.sleep(2)
+    await src.registry.create('last', 'plain', [])
+    const before = (await src.registry.list()).map(c => c.name)
+    expect(before).toEqual(['first', 'follower', 'last'])
+    const text = (await saveWorkspace(src.ws)).text
+    await src.disposeAll()
+    const e = env()
+    expect(await openWorkspace(text, e.ws)).toEqual({ ok: true })
+    expect((await e.registry.list()).map(c => c.name)).toEqual(before)
+    await e.disposeAll()
   })
 
   test('malformed follower entries refuse the file; files without followers load', async () => {

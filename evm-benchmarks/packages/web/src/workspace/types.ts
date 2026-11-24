@@ -11,8 +11,8 @@ export type WorkspaceFile = {
   format: 'evm.fun/workspace'; version: 1; savedAt: string; engine: string
   accounts: Account[]
   /** each exactly today's chain export, plus the chain's id (kept on Open so links, runs and order-book scopes stay valid) */
-  chains: (ChainFile & { id: string; /** where it was deployed (missing = never) */ deployed?: Deployed })[]
-  /** follower chains (chain type 'follower') as pointers plus their records (no state, no snapshots): they sync when opened; missing in older files = none */
+  chains: (ChainFile & { id: string; /** missing in older files: Open orders those by file position */ createdAt?: string; /** where it was deployed (missing = never) */ deployed?: Deployed })[]
+  /** follower chains (chain type 'follower') as pointers plus their records (no state; their snapshots are in `snapshots`): they sync when opened; missing in older files = none */
   followers?: (Pick<ChainInfo, 'id' | 'name' | 'createdAt'> & { follows: NonNullable<ChainInfo['follows']>; contracts: ContractRecord[]; assets: Asset[] })[]
   /** `chain` is a chain's or a follower's id */
   selection?: { chain?: string; account?: Address }
