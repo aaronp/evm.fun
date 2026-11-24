@@ -12,19 +12,19 @@ import { Panel } from '../../ui/panel'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
-/** Join a cloud chain with an invite code; this browser then follows it, signing as `acct`. Prefilled from a join link (never the code).
+/** Join a cloud chain with an invite code; this browser then follows it, signing as `acct`. Prefilled from a join link (which may carry the code).
  *  `usualUrl`: the node-URL setting; a link pointing elsewhere gets a warning (it could be a lookalike worker). */
-export function JoinForm({ acct, nodeUrl, usualUrl, chainId: initialChain = '', onJoined }: { acct?: Account; nodeUrl: string; usualUrl: string; chainId?: string; onJoined?(): void }) {
+export function JoinForm({ acct, nodeUrl, usualUrl, chainId: initialChain = '', code: initialCode, onJoined }: { acct?: Account; nodeUrl: string; usualUrl: string; chainId?: string; code?: string; onJoined?(): void }) {
   const { refresh, selectChain, setBusy } = useApp()
   const [url, setUrl] = useState(nodeUrl)
   const [urlEdited, setUrlEdited] = useState(false)
   const [chainId, setChainId] = useState(initialChain)
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(initialCode ?? '')
   const [name, setName] = useState('')
   const [running, setRunning] = useState(false)
   const [flash, setFlash] = useState<{ tone: 'success' | 'warn'; text: string }>()
   const id = chainId.trim()
-  useEffect(() => { if (initialChain) { setUrl(nodeUrl); setUrlEdited(false); setChainId(initialChain) } }, [nodeUrl, initialChain]) // another join link
+  useEffect(() => { if (initialChain) { setUrl(nodeUrl); setUrlEdited(false); setChainId(initialChain); setCode(initialCode ?? '') } }, [nodeUrl, initialChain, initialCode]) // another join link
   useEffect(() => { if (!urlEdited) setUrl(nodeUrl) }, [nodeUrl]) // eslint-disable-line react-hooks/exhaustive-deps -- the node-URL setting changed: follow it until edited here
 
   async function join() {

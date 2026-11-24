@@ -10,16 +10,16 @@ export const joinName = (chainId: string) => `Joined ${chainId.slice(0, 8)}`
 const isUrl = (u: string) => { try { return /^https?:$/.test(new URL(u).protocol) } catch { return false } }
 const isChainId = (s: string) => /^[A-Za-z0-9_-]{1,100}$/.test(s)
 
-/** `#/cloud/join?node=…&chain=…`: the worker URL and chain id to prefill, when usable. Never a code (codes aren't put in links). */
-export function joinPrefill(search: string): { nodeUrl?: string; chainId?: string } {
+/** `#/cloud/join?node=…&chain=…&code=…`: the worker URL, chain id and invite code to prefill, when usable (a code is 1-200 chars once trimmed). */
+export function joinPrefill(search: string): { nodeUrl?: string; chainId?: string; code?: string } {
   const p = new URLSearchParams(search)
-  const node = p.get('node')?.trim() ?? '', chain = p.get('chain')?.trim() ?? ''
-  return { ...(isUrl(node) && { nodeUrl: node }), ...(isChainId(chain) && { chainId: chain }) }
+  const node = p.get('node')?.trim() ?? '', chain = p.get('chain')?.trim() ?? '', code = p.get('code')?.trim() ?? ''
+  return { ...(isUrl(node) && { nodeUrl: node }), ...(isChainId(chain) && { chainId: chain }), ...(code && code.length <= 200 && { code }) }
 }
 
-/** The join link for chain `chainId` on `nodeUrl` (`base`: the app's URL without the hash). Never carries a code. */
-export const joinLink = (base: string, nodeUrl: string, chainId: string) =>
-  `${base}#/cloud/join?${new URLSearchParams({ node: nodeUrl, chain: chainId })}`
+/** The join link for chain `chainId` on `nodeUrl` (`base`: the app's URL without the hash); carries `code` only when given and non-blank. */
+export const joinLink = (base: string, nodeUrl: string, chainId: string, code?: string) =>
+  `${base}#/cloud/join?${new URLSearchParams({ node: nodeUrl, chain: chainId, ...(code?.trim() && { code: code.trim() }) })}`
 
 /**
  * Claim `code` on cloud chain `chainId` as `account`, then follow it as a new chain named `name`. A refusal throws

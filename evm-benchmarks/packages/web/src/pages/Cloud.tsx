@@ -49,7 +49,14 @@ export function Cloud() {
   const followed = chains.filter((c) => c.follows)
   const { pathname, search } = useLocation()
   const nav = useNavigate()
-  const link = pathname === '/cloud/join' ? joinPrefill(search) : {} // #/cloud/join?node=…&chain=…
+  const link = pathname === '/cloud/join' ? joinPrefill(search) : {} // #/cloud/join?node=…&chain=…&code=…
+  const [linkCode, setLinkCode] = useState<string>() // held here: the code leaves the address bar below, the form keeps it
+  useEffect(() => {
+    if (!link.code) return
+    setLinkCode(link.code)
+    const p = new URLSearchParams(search); p.delete('code')
+    nav(`${pathname}?${p}`, { replace: true })
+  }, [link.code]) // eslint-disable-line react-hooks/exhaustive-deps
   const [sync, setSync] = useState(() => String(getSyncInterval()))
 
   function save(next: string) {
@@ -88,7 +95,7 @@ export function Cloud() {
         </div>
       </Panel>
 
-      <JoinForm acct={acct} nodeUrl={link.nodeUrl ?? url} usualUrl={url} chainId={link.chainId} onJoined={() => pathname !== '/cloud' && nav('/cloud', { replace: true })} />
+      <JoinForm acct={acct} nodeUrl={link.nodeUrl ?? url} usualUrl={url} chainId={link.chainId} code={linkCode} onJoined={() => pathname !== '/cloud' && nav('/cloud', { replace: true })} />
 
       {root && !acct && <p className="text-sm text-muted">Select an account to issue codes or deploy chains.</p>}
       {isAdmin && client && signer && <CodesPanel client={client} account={signer} access={root!.access} />}

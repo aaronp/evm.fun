@@ -107,8 +107,8 @@ describe('joinChain', () => {
 })
 
 describe('joinPrefill', () => {
-  test('the join link prefills URL and chain id only', () => {
-    expect(joinPrefill('?node=https%3A%2F%2Fnode.example&chain=abc-123&code=apple-river')).toEqual({ nodeUrl: 'https://node.example', chainId: 'abc-123' })
+  test('the join link prefills URL, chain id and code', () => {
+    expect(joinPrefill('?node=https%3A%2F%2Fnode.example&chain=abc-123&code=apple-river')).toEqual({ nodeUrl: 'https://node.example', chainId: 'abc-123', code: 'apple-river' })
     expect(joinPrefill('')).toEqual({})
     // only what a join could use: an http(s) URL that parses, a chain-id token
     expect(joinPrefill('?node=javascript%3Aalert(1)&chain=..%2Fx')).toEqual({})
@@ -119,5 +119,23 @@ describe('joinPrefill', () => {
     const link = joinLink('https://evm.fun/', 'https://node.example', 'abc-123')
     expect(link).toBe('https://evm.fun/#/cloud/join?node=https%3A%2F%2Fnode.example&chain=abc-123')
     expect(joinPrefill(link.slice(link.indexOf('?')))).toEqual({ nodeUrl: 'https://node.example', chainId: 'abc-123' })
+  })
+
+  test('joinLink without a code has no code param', () => {
+    expect(joinLink('https://evm.fun/', 'https://n.example', 'c1')).not.toContain('code')
+    expect(joinLink('https://evm.fun/', 'https://n.example', 'c1', '  ')).not.toContain('code')
+  })
+
+  test('a code round-trips exactly through the link', () => {
+    const code = 'a&b #c=d ü'
+    const link = joinLink('https://evm.fun/', 'https://n.example', 'c1', code)
+    expect(joinPrefill(link.slice(link.indexOf('?')))).toEqual({ nodeUrl: 'https://n.example', chainId: 'c1', code })
+  })
+
+  test('joinPrefill ignores a blank or 201-char code, and trims', () => {
+    expect(joinPrefill('?chain=c1&code=%20%20')).toEqual({ chainId: 'c1' })
+    expect(joinPrefill(`?chain=c1&code=${'x'.repeat(201)}`)).toEqual({ chainId: 'c1' })
+    expect(joinPrefill(`?code=${'x'.repeat(200)}`)).toEqual({ code: 'x'.repeat(200) })
+    expect(joinPrefill('?code=%20apple-river%20')).toEqual({ code: 'apple-river' })
   })
 })
