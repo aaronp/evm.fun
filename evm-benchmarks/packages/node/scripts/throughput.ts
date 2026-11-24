@@ -59,6 +59,7 @@ try {
   await c.submit(cid, await Promise.all(senders.map((s, i) => tx(s, 1, tokens[i], encodeFunctionData({ abi: MintableToken.abi, functionName: 'mint', args: [s.address, 10n ** 24n] })))))
   const sink = privateKeyToAccount(generatePrivateKey()).address
 
+  const first = (await c.state(cid)).head.number
   const rows: string[] = []
   for (const size of SIZES) {
     const lat: number[] = []
@@ -77,6 +78,11 @@ try {
     const wall = lat.reduce((a, b) => a + b, 0) / 1000
     rows.push(`| ${size} | ${total} | ${(total / wall).toFixed(1)} | ${pct(lat, 0.5).toFixed(0)} | ${pct(lat, 0.95).toFixed(0)} | ${(lat.reduce((a, b) => a + b, 0) / lat.length / size).toFixed(1)} |`)
   }
+  // every receipt after setup must be status 1 (a revert is mined and cheaper, which would inflate txs/s)
+  const rec = (await c.blocks(cid, first)).blocks.flatMap((b) => b.receipts)
+  const bad = rec.filter((r) => Number(r.status) !== 1).length
+  if (rec.length !== SIZES.reduce((a, n) => a + n * ROUNDS, 0) || bad) throw new Error(`${bad} of ${rec.length} measured receipts have status 0`)
+  console.log(`receipts: ${rec.length} measured, all status 1`)
   console.log(`target: ${urlArg ?? 'in-process'}; ${SENDERS} senders, ${ROUNDS} rounds per size`)
   console.log('| batch | txs | txs/s | p50 ms | p95 ms | ms/tx |\n|---|---|---|---|---|---|\n' + rows.join('\n'))
 } finally {
