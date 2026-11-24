@@ -1,4 +1,10 @@
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
+import { withParams } from '../links'
+import { registry } from '../chain/revm'
+import { followerTxs, pendingSummary } from '../cloud/followerChain'
+import { useApp } from '../state'
+import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
 import { Segmented } from '../ui/segmented'
 import { useAppBarConfig } from '../state/appBar'
@@ -26,6 +32,7 @@ export function AppBar() {
           </nav>
         )}
         {c.chip && <span className="self-center rounded-md border border-line-strong bg-surface px-2 py-[3px] font-mono text-xs">{c.chip}</span>}
+        <PendingCount />
       </div>
       {c.aside && <div className="text-[13px] text-muted">{c.aside}</div>}
       {!!c.actions?.length && (
@@ -54,4 +61,23 @@ export function AppBar() {
       )}
     </div>
   )
+}
+
+/** "N pending" / "N conflicted" over the running follower chains; each links to the first such chain's Pending panel. */
+function PendingCount() {
+  const app = useApp() as ReturnType<typeof useApp> | undefined
+  const { search } = useLocation()
+  const [, bump] = useState(0)
+  useEffect(() => registry.watch(() => bump(n => n + 1)), [])
+  const live = (app?.chains ?? []).filter(c => c.follows).map(c => ({ id: c.id, ...pendingSummary(followerTxs(registry.peek(c.id))) }))
+  const badge = (kind: 'pending' | 'conflicted', variant: 'neutral' | 'warn') => {
+    const n = live.reduce((s, c) => s + c[kind], 0)
+    const to = live.find(c => c[kind] > 0)
+    return to && (
+      <Link to={withParams(`/chains${search}`, { chain: to.id })} state={{ pending: true }} className="self-center rounded-full focus-visible:outline-2 focus-visible:outline-accent" title="Show pending transactions">
+        <Badge variant={variant}>{n} {kind}</Badge>
+      </Link>
+    )
+  }
+  return <>{badge('pending', 'neutral')}{badge('conflicted', 'warn')}</>
 }

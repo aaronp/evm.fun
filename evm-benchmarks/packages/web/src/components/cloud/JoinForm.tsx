@@ -33,7 +33,7 @@ export function JoinForm({ acct, nodeUrl, usualUrl, chainId: initialChain = '', 
     try {
       const account = privateKeyToAccount(acct.privateKey)
       const h = await joinChain({ client: new NodeClient(url.trim(), account, { name: acct.label }), chainId: id, code, account, name, registry })
-      setFlash({ tone: 'success', text: `Joined. "${h.info.name}" follows chain ${id} as ${acct.label}; it's read-only in this browser.` })
+      setFlash({ tone: 'success', text: `Joined. "${h.info.name}" follows chain ${id} as ${acct.label}.` })
       setCode(''); setName('')
       await refresh()
       await selectChain(h.info.id)

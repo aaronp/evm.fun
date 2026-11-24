@@ -17,8 +17,9 @@ import { NO_FUNDS } from '../chain/snapshotUi'
 import { Explorer } from './Explorer'
 import { DeployDialog } from '../components/cloud/DeployDialog'
 import { DevicesPanel, FollowerBadge, FollowerStatusLine, syncNow } from '../components/cloud/DevicesPanel'
+import { PendingPanel } from '../components/cloud/PendingPanel'
 import { cannotDeploy, convertDeployed, deployedUrl } from '../cloud/deploy'
-import { readOnly } from '../cloud/followerChain'
+import { followsCloud } from '../cloud/followerChain'
 import { useWizardAction, useWizardMark } from '../walkthrough/wizard'
 import { useBlockWindow } from '../explorer/useBlockWindow'
 import { Button } from '../ui/button'
@@ -111,7 +112,7 @@ export function Chains() {
     await convert(chain.info.id, true)
   }
   const none = chain ? undefined : 'Select a chain first'
-  const ro = chain?.info.follows && readOnly(chain.info.follows.nodeUrl) // a follower: no snapshot or export (its snapshots list still opens)
+  const ro = chain?.info.follows && followsCloud(chain.info.follows.nodeUrl) // a follower: no snapshot or export (its snapshots list still opens)
   useAppBar({
     title: 'Chains',
     crumbs: crumbsFor(pathname, chain?.info.name),
@@ -242,6 +243,7 @@ export function Chains() {
               </div>
             </Card>
           )}
+          {chain?.info.follows && <PendingPanel key={chain.info.id} chain={chain} />}
           {chain?.info.follows && <DevicesPanel key={chain.info.id} chain={chain} />}
           {chains.length > 0 && <Explorer win={win} />}
         </section>

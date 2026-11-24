@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { privateKeyToAccount } from 'viem/accounts'
 import { NodeClient, type Member, type NodesView } from '@evmb/node/src/client'
 import type { ChainHandle } from '../../chain/handle'
-import { ago, followerStatus, statusBadge, type FollowerStatus } from '../../cloud/followerChain'
+import { ago, followerStatus, followerTxs, pendingSummary, statusBadge, type FollowerStatus } from '../../cloud/followerChain'
 import { removeDevice } from '../../cloud/devices'
 import { joinLink } from '../../cloud/join'
 import { accounts } from '../../store/accounts'
@@ -37,7 +37,8 @@ export function FollowerStatusLine({ chain, onDelete, onReload }: { chain: Chain
   if (!s || !f) return null
   const note = (chain.approach as unknown as { notice?(): string | undefined }).notice?.()
   const extra = note && <Notice tone="warn">{note}</Notice>
-  if (s.kind === 'following') return <><span className="text-xs text-text-2">Block #{s.block} · {s.behind ? `${s.behind} behind` : 'in sync'}</span>{extra}</>
+  const { pending } = pendingSummary(followerTxs(chain))
+  if (s.kind === 'following') return <><span className="text-xs text-text-2">Block #{s.block} · {s.behind ? `${s.behind} behind` : 'in sync'}{pending > 0 && ` · ${pending} pending`}</span>{extra}</>
   const text = s.kind === 'unreachable' ? `${s.detail}. Retrying.` : s.detail
   const action = s.kind === 'needs-key' ? <a className="shrink-0 text-xs font-medium text-accent underline" href="#/accounts">Import key on Accounts</a>
     : s.kind === 'removed' || s.kind === 'mismatch' || s.kind === 'gone' ? (
@@ -47,7 +48,7 @@ export function FollowerStatusLine({ chain, onDelete, onReload }: { chain: Chain
         <Button variant="danger" size="sm" onClick={onDelete}>Delete</Button>
       </span>
     ) : undefined
-  return <><Notice tone={statusBadge(s).tone} action={action}>{text}</Notice>{extra}</>
+  return <><Notice tone={statusBadge(s).tone} action={action}>{pending > 0 ? `${text} ${pending} pending.` : text}</Notice>{extra}</>
 }
 
 /**

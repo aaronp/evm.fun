@@ -1,8 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, jest, test } from 'bun:test'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
-import type { LocalAccount } from 'viem'
+import { keccak256, type LocalAccount } from 'viem'
 import { ChainHost, handle, type ChainHandleLike } from '@evmb/node/src/router'
-import { GRANT_READER, NodeClient, accessTx, claimTx, generateCode, inviteTx, setupTxs } from '@evmb/node/src/client'
+import { GRANT_READER, GRANT_WRITER, NodeClient, accessTx, claimTx, generateCode, inviteTx, setupTxs } from '@evmb/node/src/client'
 import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { Follower } from '@evmb/node/src/follower'
@@ -11,7 +11,7 @@ import { createKv } from '../src/store/kv'
 import { createChainRegistry, LIVE_MAX } from '../src/chain/registry'
 import { createContractsRegistry } from '../src/contracts/registry'
 import { createWebAssets } from '../src/assets/registry'
-import type { FollowerStatus } from '../src/cloud/followerChain'
+import { pendingSummary, type FollowerStatus } from '../src/cloud/followerChain'
 import { getSyncInterval, setSyncInterval } from '../src/cloud/node'
 
 // The worker stand-in (as cloud-deploy.test.ts): packages/node's router over in-process ChainHosts on bun:sqlite.
@@ -102,11 +102,10 @@ describe('follower chains', () => {
     expect(await registry.list()).toEqual([])
   })
 
-  test('send on a follower throws the read-only reason; mine and snapshot too', async () => {
+  test('mine, snapshot and restore on a follower throw: its blocks come from the cloud', async () => {
     const { registry } = env()
     const h = await addFollower(registry, { name: 'd', follows: follows() })
-    const why = `Read-only until B: this chain lives on ${url}`
-    await expect(h.send('0x00')).rejects.toThrow(why)
+    const why = `Follows ${url}: its blocks come from there`
     await expect(h.mine(1)).rejects.toThrow(why)
     await expect(h.approach.snapshot!()).rejects.toThrow(why)
     await expect(h.approach.restore!({})).rejects.toThrow(why)
@@ -323,13 +322,15 @@ describe('follower chains', () => {
   })
 })
 
-test('signAndSend on a follower refuses with the read-only reason, before any balance check', async () => {
+test('signAndSend on a follower signs and sends like any chain', async () => {
   const { signAndSend } = await import('../src/tx/send')
-  const nodeUrl = 'https://node.example'
-  const h = { info: { id: 'f', name: 'f', type: 'follower', createdAt: '', follows: { nodeUrl, chainId: 'c', account: admin.address } }, request: async () => '0x0', send: async () => { throw new Error('sent') } } as any
+  const sent: string[] = []
+  const h = { info: { id: 'f', name: 'f', type: 'follower', createdAt: '', follows: { nodeUrl: 'https://node.example', chainId: 'c', account: admin.address } },
+    request: async (m: string) => (m === 'eth_getBalance' ? `0x${(10n ** 24n).toString(16)}` : '0x0'),
+    send: async (raw: string) => (sent.push(raw), { hash: '0x01', status: 'success', settledAt: 0 }) } as any
   const acct = { label: 'phone', address: phone.address, privateKey: generatePrivateKey() }
-  await expect(signAndSend(h, acct, { to: admin.address, value: 1n })).rejects.toThrow(`Read-only until B: this chain lives on ${nodeUrl}`)
-
+  expect((await signAndSend(h, acct, { to: admin.address, value: 1n })).status).toBe('success')
+  expect(sent).toHaveLength(1)
 })
 
 describe('follower store and writing tab', () => {
@@ -458,5 +459,121 @@ describe('follower store and writing tab', () => {
     expect(await unsentChanges(kv, [{ id, name: 'phone chain' }, { id: 'other', name: 'x' }])).toEqual([{ name: 'phone chain', count: 1 }])
     expect(unsentWarning([{ name: 'a', count: 2 }, { name: 'b', count: 1 }])).toBe('3 unsent changes on a, b will be lost.')
     expect(unsentWarning([])).toBeUndefined()
+  })
+})
+
+describe('writing from a follower', () => {
+  const ap = (h: { approach: unknown }) => h.approach as any
+  const nonceOf = async (h: { request(m: string, p?: unknown[]): Promise<unknown> }, a: string) => Number(BigInt((await h.request('eth_getTransactionCount', [a, 'latest'])) as string))
+  const sign = (from: LocalAccount, nonce: number, to = phone.address) =>
+    from.signTransaction({ type: 'eip1559', chainId: 31337, nonce, to, value: 0n, gas: 30_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+  const until = async (ok: () => boolean) => { for (let i = 0; !ok(); i++) { if (i > 400) throw new Error('timed out'); await Bun.sleep(5) } }
+  const down = () => { globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch }
+  /** a fresh key joined to the chain with `grants` */
+  async function member(grants: number) {
+    const k = privateKeyToAccount(generatePrivateKey()), c = adminClient(), code = generateCode()
+    await c.submit(cid, [await inviteTx(admin, await c.nonce(cid), access, code, 600, 1, grants)])
+    await new NodeClient(url, k).join(cid, await claimTx(k, 0, code, access))
+    return k
+  }
+  const withKey = (k: LocalAccount) => (a: `0x${string}`) => (a === k.address ? { account: k, label: 'tablet' } : keys.get(a))
+
+  test("a writer follower's send returns the local receipt at once and counts as pending", async () => {
+    const { registry } = env({ lock: () => true })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    const raw = await sign(admin, await nonceOf(h, admin.address))
+    // a sync stuck on a dead network
+    const held: (() => void)[] = []
+    globalThis.fetch = ((...a: Parameters<typeof fetch>) => new Promise((res, rej) => held.push(() => void realFetch(...a).then(res, rej)))) as typeof fetch
+    const stuck = syncNow(h)
+    await until(() => held.length > 0)
+    const t0 = performance.now()
+    const r = await h.send(raw)
+    expect(performance.now() - t0).toBeLessThan(1000)
+    expect(r).toMatchObject({ hash: keccak256(raw), status: 'success' })
+    expect(h.approach.pending!()).toBe(1)
+    expect(ap(h).pendingTxs().map((t: any) => t.status)).toEqual(['pending'])
+    globalThis.fetch = realFetch
+    held.forEach((f) => f())
+    await stuck
+    await registry.remove(h.info.id)
+  })
+
+  test('settled records update pending() and notify', async () => {
+    const { registry, events } = env({ lock: () => true })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    const n = events.length
+    await h.send(await sign(admin, await nonceOf(h, admin.address)))
+    expect(events.length).toBeGreaterThan(n) // the new pending record
+    const m = events.length
+    await syncNow(h)
+    await syncNow(h) // after the one the send started
+    expect(h.approach.pending!()).toBe(0)
+    expect(ap(h).pendingTxs().map((t: any) => t.status)).toEqual(['confirmed'])
+    expect(events.length).toBeGreaterThan(m)
+    await registry.remove(h.info.id)
+  })
+
+  test('a reader follower\'s send throws "This device can only read <name>."', async () => {
+    const reader = await member(GRANT_READER)
+    const { registry } = env({ lock: () => true, account: withKey(reader) })
+    const h = await addFollower(registry, { name: 'Shop', follows: follows(reader.address) })
+    expect(ap(h).canWrite()).toBe('This device can only read Shop.')
+    expect(ap(h).notice()).toBe('This device can only read Shop.')
+    await expect(h.send(await sign(reader, 0))).rejects.toThrow('This device can only read Shop.')
+    expect(h.approach.pending!()).toBe(0)
+    await registry.remove(h.info.id)
+  })
+
+  test('a writer removed from the write list: its send is refused by the cloud, then the device knows it can only read', async () => {
+    const w = await member(GRANT_WRITER | GRANT_READER)
+    const { registry } = env({ lock: () => true, account: withKey(w) })
+    const h = await addFollower(registry, { name: 'Shop', follows: follows(w.address) })
+    expect(ap(h).canWrite()).toBeUndefined()
+    const c = adminClient()
+    await c.submit(cid, [await accessTx(admin, await c.nonce(cid), access, 'removeWriter', w.address)])
+    await h.send(await sign(w, await nonceOf(h, w.address)))
+    await syncNow(h)
+    await syncNow(h)
+    expect(ap(h).pendingTxs()[0]).toMatchObject({ status: 'refused', reason: `${w.address} is not a writer on this chain` })
+    expect(ap(h).canWrite()).toBe('This device can only read Shop.')
+    await registry.remove(h.info.id)
+  })
+
+  test("a refused nonce re-sign uses the browser account's key", async () => {
+    const k = privateKeyToAccount(generatePrivateKey()) // a page's account, not the device key
+    let asked = 0
+    const { registry } = env({ lock: () => true, account: (a) => (a === k.address ? (asked++, { account: k, label: 'k' }) : keys.get(a)) })
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    down()
+    const raw = await sign(k, 0)
+    await h.send(raw)
+    await syncNow(h) // offline: still pending
+    globalThis.fetch = realFetch
+    await adminClient().submit(cid, [await sign(k, 0, admin.address)]) // k's nonce 0 used on another device first
+    await syncNow(h)
+    const [t] = ap(h).pendingTxs()
+    expect(t).toMatchObject({ status: 'confirmed', nonce: 1 })
+    expect(t.hash).not.toBe(keccak256(raw))
+    expect(asked).toBeGreaterThan(0)
+    await registry.remove(h.info.id)
+  })
+
+  test('dismiss clears a conflicted record', async () => {
+    const kv = createKv()
+    const id = crypto.randomUUID()
+    const { registry, events } = env({ kv, lock: () => true })
+    await registry.putFollower({ id, name: 'd', createdAt: new Date().toISOString(), follows: follows(), contracts: [] })
+    const hash = `0x${'cd'.repeat(32)}` as const
+    await kvFollowerStore(kv).putPending(id, { hash, raw: '0x00', from: admin.address, nonce: 0, seq: 0, status: 'conflicted', block: 1, settledAt: 1,
+      first: { status: 'success', logs: [] }, cloud: { status: 'reverted', logs: [] } })
+    const h = await registry.open(id)
+    expect(pendingSummary(ap(h).pendingTxs())).toEqual({ pending: 0, conflicted: 1 })
+    const n = events.length
+    await ap(h).dismiss(hash)
+    expect(ap(h).pendingTxs()).toEqual([])
+    expect(events.length).toBeGreaterThan(n)
+    expect(await kvFollowerStore(kv).listPending(id)).toEqual([])
+    await registry.remove(id)
   })
 })

@@ -11,7 +11,7 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Notice } from '../ui/notice'
 import { exportChain } from './exportFile'
-import { readOnly } from '../cloud/followerChain'
+import { followsCloud } from '../cloud/followerChain'
 import { RestoreDialog } from './RestoreDialog'
 
 export type Flash = { tone: 'success' | 'warn'; text: string }
@@ -98,7 +98,7 @@ export function SnapshotsDialog({ dialogRef, chain, openTick, onFlash }: {
     await snapshots.remove(s.id)
     load()
   })
-  const ro = chain?.info.follows && readOnly(chain.info.follows.nodeUrl) // a follower's old snapshots fork and export, never restore
+  const ro = chain?.info.follows && followsCloud(chain.info.follows.nodeUrl) // a follower's old snapshots fork and export, never restore
   const restored = (s: Snapshot, saved?: Snapshot) => {
     dialogRef.current?.close()
     nav('/chains')

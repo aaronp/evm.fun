@@ -29,7 +29,7 @@ export function createChainRegistry(deps: {
   host: (chainId: string) => ApproachHost
   /** delete the chain's persisted state */
   purge?: (chainId: string) => Promise<void>
-  /** what follower chains need: the compiled revm wasm, and the key (and label, sent as the device name) of an account in this browser */
+  /** what follower chains need: the compiled revm wasm, and the key (and label) of an account in this browser: the follow account's (signs requests to the cloud; its label is the device name) or a pending tx sender's (re-signs it after a nonce refusal) */
   follower?: {
     wasm(): Promise<NodeConfig['wasm']>
     /** the writing-tab lock (default: Web Locks) */
@@ -53,7 +53,8 @@ export function createChainRegistry(deps: {
     const { account, wasm, onAccountsChange, lock } = deps.follower, follows = info.follows
     return makeHandle(info, followerApproach({
       follows, name: () => info.name, id: info.id, store: followerStore, lock, persistent: () => deps.kv.persistent, key: () => account(follows.account), wasm, onKeysChange: onAccountsChange,
-      onStatus: () => emit(info.id), onHead: () => emit(info.id),
+      signer: (from) => account(from)?.account,
+      onStatus: () => emit(info.id), onHead: () => emit(info.id), onChange: () => emit(info.id),
     }))
   }
   /** Open a follower handle (it never throws for cloud errors: they become its status) and make it live. */
@@ -267,7 +268,7 @@ export function createChainRegistry(deps: {
       opening.set(id, p)
       return p
     },
-    /** `cb(id)` when a follower's head or status changes; returns the unsubscribe. */
+    /** `cb(id)` when a follower's head, status, pending list or ability to write changes; returns the unsubscribe. */
     watch(cb: (id: string) => void) {
       watchers.add(cb)
       return () => void watchers.delete(cb)

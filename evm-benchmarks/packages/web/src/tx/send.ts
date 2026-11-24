@@ -3,7 +3,6 @@ import { signTx, type Receipt } from '@evmb/core'
 import { decodeFunctionResult, encodeFunctionData, getAddress, type Abi, type Address, type Hex } from 'viem'
 import type { ChainHandle } from '../chain/handle'
 import type { Account } from '../store/accounts'
-import { readOnly } from '../cloud/followerChain'
 
 const MAX_FEE = 2_000_000_000n // signTx's maxFeePerGas
 
@@ -16,7 +15,6 @@ export async function signAndSend(
   /** called once the tx has settled, e.g. to refresh balances */
   onSent?: () => void,
 ): Promise<Receipt> {
-  if (handle.info.follows) throw new Error(readOnly(handle.info.follows.nodeUrl)) // not "needs ETH": funding can't help
   const nonce = Number(BigInt((await handle.request('eth_getTransactionCount', [account.address, 'pending'])) as string))
   let gas = 3_000_000n
   try {

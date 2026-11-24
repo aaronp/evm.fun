@@ -1,9 +1,10 @@
-// A follower chain's Approach: reads from a local copy of a cloud chain (packages/node Follower), sends refused, polled.
-import type { LocalAccount } from 'viem'
+// A follower chain's Approach: a local copy of a cloud chain (packages/node Follower). Sends run locally at once and stay
+// pending until a sync confirms them; polled.
+import type { Address, LocalAccount } from 'viem'
 import type { ChainInfo } from '../chain/handle'
-import type { Approach } from '@evmb/core'
+import type { Approach, Hex, Receipt } from '@evmb/core'
 import { NodeClient, NodeError, type BlockSummary } from '@evmb/node/src/client'
-import type { FollowerStore } from '@evmb/node/src/followerStore'
+import type { FollowerStore, PendingTx } from '@evmb/node/src/followerStore'
 import { Follower, FollowerMismatch, FollowerRemoved } from '@evmb/node/src/follower'
 import type { NodeConfig } from '@evmb/node/src/node'
 import { getSyncInterval, onSyncIntervalChange } from './node'
@@ -17,7 +18,10 @@ export type FollowerStatus =
 const MAX_BACKOFF_MS = 60_000
 /** No point retrying: only Delete / Re-join / Import key help. */
 const final = (s: FollowerStatus) => s.kind === 'removed' || s.kind === 'mismatch' || s.kind === 'needs-key' || s.kind === 'gone'
-export const readOnly = (nodeUrl: string) => `Read-only until B: this chain lives on ${nodeUrl}`
+/** Why a follower can't mine, snapshot or restore. */
+export const followsCloud = (nodeUrl: string) => `Follows ${nodeUrl}: its blocks come from there`
+export const readerOnly = (name: string) => `This device can only read ${name}.`
+const NOT_WRITER = 'is not a writer on this chain' // the Follower's refusal after a submit 403
 export const otherTab = 'Open in another tab: changes are made there.'
 export const notSaving = "This browser isn't saving data: pending changes are lost if you close the tab."
 
@@ -50,6 +54,8 @@ export function followerApproach(o: {
   name?(): string
   /** the follow account's key in this browser and its label (sent as the device name); looked up on every sync until found */
   key(): { account: LocalAccount; label: string } | undefined
+  /** a pending tx sender's key in this browser, to re-sign it after a nonce refusal */
+  signer?(from: Address): LocalAccount | undefined
   /** called just before the first open, so a failed compile is retried on the next sync */
   wasm(): Promise<NodeConfig['wasm']>
   /** the accounts store changed (e.g. Import key): a needs-key follower tries again; returns the unsubscribe */
@@ -62,13 +68,17 @@ export function followerApproach(o: {
   /** false when the browser can't keep data (kv fell back to memory) */
   persistent?(): boolean
   onStatus(s: FollowerStatus): void; onHead(h: BlockSummary): void
-}): Approach & { status(): FollowerStatus; syncNow(): Promise<void>; canWrite(): string | undefined; notice(): string | undefined } {
+  /** the pending list, the device's role or the writing tab changed */
+  onChange?(): void
+}): Approach & { status(): FollowerStatus; syncNow(): Promise<void>; canWrite(): string | undefined; notice(): string | undefined; pendingTxs(): PendingTx[]; dismiss(hash: Hex): Promise<void> } {
   const { nodeUrl, chainId, account: address } = o.follows
-  const why = readOnly(nodeUrl)
   const lockName = `evmb-follower:${o.id ?? chainId}`
   let holding = false
   let release: (() => void) | undefined
-  const refuse = async (): Promise<never> => { throw new Error(o.store && !holding ? otherTab : why) }
+  const refuse = async (): Promise<never> => { throw new Error(followsCloud(nodeUrl)) }
+  let role: 'admin' | 'writer' | 'reader' | undefined // from GET /nodes; unknown (offline) → writes allowed, the cloud decides
+  let roleDue = true // fetch the role on the next good sync: on open, and after a submit 403
+  const receipts = new Map<Hex, Receipt>() // submitted here, not yet taken by awaitSettled
   /** try to become this chain's writing tab (once held, kept until dispose) */
   const acquire = async () => {
     if (holding || !o.store) return
@@ -84,6 +94,19 @@ export function followerApproach(o: {
   let fStore = false // the open follower has the store
   let stopped = false
   let unsubs: (() => void)[] | undefined
+  let client: NodeClient | undefined
+
+  /** this device's role on the chain; a failure leaves it as it was (tried again next sync) */
+  const fetchRole = async () => {
+    try {
+      const { members } = await client!.nodes(chainId)
+      const next = members.find((m) => m.address.toLowerCase() === address.toLowerCase())?.role ?? 'reader' // not a member: reads only (readOpen)
+      roleDue = false
+      if (next !== role) { role = next; o.onChange?.() }
+    } catch { /* offline: keep the last known role */ }
+  }
+  /** why this tab can't write now (undefined: it can) */
+  const cantWrite = () => (o.store && f && !fStore ? otherTab : role === 'reader' ? readerOnly(o.name?.() ?? `chain ${chainId}`) : undefined)
 
   const set = (s: FollowerStatus) => {
     if (JSON.stringify(s) === JSON.stringify(status)) return
@@ -130,7 +153,12 @@ export function followerApproach(o: {
       if (!f || takeover) {
         const key = o.key()
         if (!key) return set({ kind: 'needs-key', detail: `Needs ${address}'s key` })
-        const next = await Follower.open(new NodeClient(nodeUrl, key.account, { name: key.label }), chainId, await o.wasm(), o.store && holding ? { store: o.store, key: o.id } : {})
+        const onPending = (txs: PendingTx[]) => {
+          if (txs.some((t) => t.status === 'refused' && t.reason?.endsWith(NOT_WRITER))) roleDue = true
+          o.onChange?.()
+        }
+        client = new NodeClient(nodeUrl, key.account, { name: key.label })
+        const next = await Follower.open(client, chainId, await o.wasm(), { signer: o.signer, onPending, ...(o.store && holding && { store: o.store, key: o.id }) })
         if (stopped) return void (await next.dispose())
         const old = f
         f = next
@@ -139,6 +167,7 @@ export function followerApproach(o: {
       }
       const before = f.head.hash
       await f.sync()
+      if (roleDue) await fetchRole()
       backoff = undefined
       set({ kind: 'following', block: f.head.number, behind: Math.max(0, f.cloudHead.number - f.head.number) })
       if (first || f.head.hash !== before) o.onHead(f.head)
@@ -158,11 +187,11 @@ export function followerApproach(o: {
   return {
     meta: {
       id: 'follower', title: `follows ${chainId} on ${nodeUrl}`, runsIn: ['browser', 'bun'], engine: 'webevm@0.9.1+revm',
-      tradeoffs: { evm: true, stateRoot: 'per-block', log: 'memory', sigVerify: 'inline', execution: 'serial', notes: 'read-only copy of a cloud chain' },
+      tradeoffs: { evm: true, stateRoot: 'per-block', log: 'memory', sigVerify: 'inline', execution: 'serial', notes: 'local copy of a cloud chain; sends stay pending until the cloud mines them' },
     },
     status: () => status,
-    canWrite: () => (o.store && !holding ? otherTab : undefined),
-    notice: () => (o.store && !holding ? otherTab : o.store && o.persistent && !o.persistent() ? notSaving : undefined),
+    canWrite: cantWrite,
+    notice: () => cantWrite() ?? (o.store && o.persistent && !o.persistent() ? notSaving : undefined),
     syncNow,
     async open() {
       if (!unsubs) {
@@ -180,8 +209,30 @@ export function followerApproach(o: {
     async getBalance(addr) {
       return BigInt((await this.request!('eth_getBalance', [addr, 'latest'])) as string)
     },
-    setup: refuse, submit: refuse, awaitSettled: refuse, mine: refuse, snapshot: refuse, restore: refuse,
-    pending: () => 0,
+    /** Runs each tx on the local copy now (stored pending before it returns); never waits on the network. */
+    async submit(raws) {
+      const no = cantWrite()
+      if (no) throw new Error(no)
+      const follower = local()
+      for (const raw of raws) {
+        const r = await follower.send(raw)
+        receipts.set(r.transactionHash, { hash: r.transactionHash, status: r.status === '0x1' ? 'success' : 'reverted', settledAt: performance.now(), contractAddress: r.contractAddress ?? undefined })
+      }
+      if (getSyncInterval() !== 'manual') void syncNow() // send it soon; never awaited
+    },
+    /** The local receipts of txs submitted here (they settle with the cloud later: see pendingTxs). */
+    async awaitSettled(hashes) {
+      return hashes.map((h) => {
+        const r = receipts.get(h)
+        if (!r) throw new Error(`tx ${h} was not sent from this tab`)
+        receipts.delete(h)
+        return r
+      })
+    },
+    setup: refuse, mine: refuse, snapshot: refuse, restore: refuse,
+    pending: () => f?.pending().filter((t) => t.status === 'pending').length ?? 0,
+    pendingTxs: () => f?.pending() ?? [],
+    dismiss: (hash) => local().dismiss(hash),
     async dispose() {
       stopped = true
       clearTimeout(timer)
@@ -191,6 +242,13 @@ export function followerApproach(o: {
     },
   }
 }
+
+/** What the app bar counts: txs still pending, and conflicted ones not dismissed. */
+export const pendingSummary = (txs: PendingTx[]) => ({ pending: txs.filter((t) => t.status === 'pending').length, conflicted: txs.filter((t) => t.status === 'conflicted').length })
+
+/** A live follower handle's pending and undismissed settled txs ([] for other chains). */
+export const followerTxs = (h?: { approach: unknown }): PendingTx[] =>
+  (h?.approach as { pendingTxs?(): PendingTx[] } | undefined)?.pendingTxs?.() ?? []
 
 /** A live follower handle's status (undefined for other chains, or a follower not opened yet). */
 export const followerStatus = (h?: { approach: unknown }): FollowerStatus | undefined =>
