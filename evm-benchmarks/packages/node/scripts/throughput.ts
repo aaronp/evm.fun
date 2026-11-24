@@ -1,7 +1,7 @@
 // Submit throughput: batches of 1/10/100 ERC-20 transfers, 20 rounds each (t-132).
 //   bun packages/node/scripts/throughput.ts               in-process (router over bun:sqlite, served on a local port)
 //   bun packages/node/scripts/throughput.ts --url <worker>  against a worker; root admin key from .env.local
-// Senders: 10 fresh keys, each owns a MintableToken and is a writer (the admin signs every request, as the ChainService checks both today).
+// Senders: 10 fresh keys, each owns a MintableToken and is a writer; the admin signs every request (the service checks only the request signer).
 import { join } from 'node:path'
 import { encodeDeployData, encodeFunctionData, type Hex, type LocalAccount } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
@@ -53,7 +53,7 @@ try {
   const tokens: Hex[] = []
   const nonce = senders.map(() => 2)
   const head = await Promise.all(senders.map(async (s) => tx(s, 0, undefined, encodeDeployData({ abi: MintableToken.abi, bytecode: MintableToken.bytecode, args: ['T', 'T'] }), 3_000_000n)))
-  for (const h of head) await c.submit(cid, [h]) // a deploy is ~10 KB hex; the submit cap is 64 KiB today
+  await c.submit(cid, head) // 10 deploys of ~10 KB hex each, well under the 1 MiB submit cap
   const { getContractAddress } = await import('viem')
   for (const s of senders) tokens.push(getContractAddress({ from: s.address, nonce: 0n }))
   await c.submit(cid, await Promise.all(senders.map((s, i) => tx(s, 1, tokens[i], encodeFunctionData({ abi: MintableToken.abi, functionName: 'mint', args: [s.address, 10n ** 24n] })))))

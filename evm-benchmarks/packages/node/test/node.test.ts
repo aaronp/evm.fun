@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import type { Hex } from 'viem'
+import { keccak256, type Hex } from 'viem'
 import type { SerializedState } from 'webevm'
 import { ChainNode, ChainStore, diffState, HEADERS_KEPT, type SerializedBlock } from '../src'
 import { bunSql } from './bunSql'
@@ -32,14 +32,14 @@ describe('ChainNode over 350 workload blocks', () => {
     for (let i = 1; i <= 351; i++) {
       const holder = empties[i]
       const slotBefore = holder && store.stateDump().storage[token]?.[balanceSlot(holder)]
-      const blk = await live.apply(w.timestamp(i), blocks[i]!)
+      const blk = (await live.apply(w.timestamp(i), blocks[i]!)).block!
       if (pending) boots.push({ ...pending, liveNext: blk.header }), (pending = undefined)
       if (holder) zeroed.push({ h: i, holder, before: slotBefore, after: store.stateDump().storage[token]?.[balanceSlot(holder)] })
       if (BOOT_AT.includes(i)) {
         // boot from a copy of the store, so the booted node can commit the next block too
         const booted = await ChainNode.boot(new ChainStore(bunSql(Database.deserialize(db.serialize()))), cfg)
         const [liveRoot, bootRoot] = [await live.stateRoot(), await booted.stateRoot()]
-        const bootNext = (await booted.apply(w.timestamp(i + 1), blocks[i + 1]!)).header
+        const bootNext = (await booted.apply(w.timestamp(i + 1), blocks[i + 1]!)).block!.header
         pending = { h: i, liveRoot, bootRoot, bootNext }
       }
     }
@@ -70,26 +70,59 @@ describe('ChainNode over 350 workload blocks', () => {
   })
 })
 
-test('a rejected block changes nothing', async () => {
+const signed = (from: (typeof SENDERS)[number], nonce: number, extra: object = {}) =>
+  from.signTransaction({ type: 'eip1559', chainId: 777, nonce, to: SENDERS[2]!.address, value: 1n, gas: 21_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n, ...extra })
+
+/** Two nodes on one genesis, five workload blocks in: `a` under test, `ref` the reference. */
+async function pair() {
   const w = workload()
   const genesis = await w.genesis()
-  const storeA = new ChainStore(bunSql())
-  const a = await ChainNode.create(storeA, genesis, cfg)
+  const store = new ChainStore(bunSql())
+  const a = await ChainNode.create(store, genesis, cfg)
   const ref = await ChainNode.create(new ChainStore(bunSql()), genesis, cfg)
   for (let i = 1; i <= 5; i++) {
     const txs = await w.nextBlock(i)
     await a.apply(w.timestamp(i), txs)
     await ref.apply(w.timestamp(i), txs)
   }
+  return { w, store, a, ref, nonce: async (i: number) => Number(await a.read((n) => n.request({ method: 'eth_getTransactionCount', params: [SENDERS[i]!.address, 'latest'] }))) }
+}
+
+test('apply mines valid txs and reports a bad-nonce tx without failing the block', async () => {
+  const { w, a, ref, nonce } = await pair()
   const good = await w.nextBlock(6)
-  // nonce 0 of a sender that has already sent: too low, rejected at send
-  const bad = await SENDERS[1]!.signTransaction({ type: 'eip1559', chainId: 777, nonce: 0, to: SENDERS[2]!.address, value: 1n, gas: 21_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
-  const [head, root, dump] = [a.head(), await a.stateRoot(), storeA.stateDump()]
-  await expect(a.apply(w.timestamp(6), [...good, bad])).rejects.toThrow()
+  const n3 = await nonce(3)
+  // webevm (manual mining) accepts these at send and refuses them only at mine, taking the whole batch down
+  const low = await signed(SENDERS[3]!, n3 - 1)
+  const gap = await signed(SENDERS[3]!, n3 + 1)
+  const broke = await signed(SENDERS[3]!, n3, { value: 10n ** 30n })
+  const { block, results } = await a.apply(w.timestamp(6), [low, ...good, gap, broke])
+  const theirs = (await ref.apply(w.timestamp(6), good)).block!
+  expect(block!.header.hash).toBe(theirs.header.hash)
+  expect(block!.txs).toEqual(good)
+  expect(results.map((r) => r.ok)).toEqual([false, ...good.map(() => true), false, false])
+  expect(results.map((r) => r.hash)).toEqual([low, ...good, gap, broke].map((t) => keccak256(t)))
+  const errors = results.flatMap((r) => (r.ok ? [] : [r.error]))
+  expect(errors[0]).toMatch(/^nonce too low/)
+  expect(errors[1]).toMatch(/^nonce too high/)
+  expect(errors[2]).toMatch(/^insufficient funds/)
+}, 30_000)
+
+test('apply with only bad txs mines nothing', async () => {
+  const { w, store, a, ref, nonce } = await pair()
+  const n1 = await nonce(1)
+  const [head, root, dump] = [a.head(), await a.stateRoot(), store.stateDump()]
+  // too low and too high (refused at mine by webevm), intrinsic gas too low (refused at send), not a tx
+  const bad = [await signed(SENDERS[1]!, n1 - 1), await signed(SENDERS[1]!, n1 + 1), await signed(SENDERS[1]!, n1, { gas: 100n }), '0x1234' as Hex]
+  const { block, results } = await a.apply(w.timestamp(6), bad)
+  expect(block).toBeUndefined()
+  expect(results.map((r) => r.ok)).toEqual([false, false, false, false])
   expect(a.head()).toEqual(head)
   expect(await a.stateRoot()).toBe(root)
-  expect(storeA.stateDump()).toEqual(dump)
-  const [mine, theirs] = [await a.apply(w.timestamp(6), good), await ref.apply(w.timestamp(6), good)]
+  expect(store.stateDump()).toEqual(dump)
+  // nothing left behind in the node: the next block is exactly the reference's
+  const good = await w.nextBlock(6)
+  const [mine, theirs] = [(await a.apply(w.timestamp(6), good)).block!, (await ref.apply(w.timestamp(6), good)).block!]
   expect(mine.header.hash).toBe(theirs.header.hash)
 }, 30_000)
 
@@ -100,7 +133,7 @@ test('concurrent applies run one at a time; each block holds exactly its own txs
   const n = await ChainNode.create(store, await w.genesis(), cfg)
   const t = [[], await w.nextBlock(1), await w.nextBlock(2), await w.nextBlock(3)] as Hex[][]
   await n.apply(w.timestamp(1), t[1]!)
-  const [b2, b3] = await Promise.all([n.apply(w.timestamp(2), t[2]!), n.apply(w.timestamp(3), t[3]!)])
+  const [b2, b3] = (await Promise.all([n.apply(w.timestamp(2), t[2]!), n.apply(w.timestamp(3), t[3]!)])).map((r) => r.block!)
   for (const [b, i] of [[b2, 2], [b3, 3]] as const) {
     expect(b.header.number).toBe(i)
     expect(b.txs).toEqual(t[i]!)

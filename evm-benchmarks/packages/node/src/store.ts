@@ -32,6 +32,10 @@ export class ChainStore {
       'CREATE TABLE IF NOT EXISTS code (addr TEXT PRIMARY KEY, v TEXT)',
       'CREATE TABLE IF NOT EXISTS storage (addr TEXT, slot TEXT, v TEXT, PRIMARY KEY (addr, slot))',
       'CREATE TABLE IF NOT EXISTS blocks (number INTEGER PRIMARY KEY, hash TEXT, header TEXT, txs TEXT, receipts TEXT)',
+      // tx hash (lowercase) -> its block, for every stored block
+      'CREATE TABLE IF NOT EXISTS txs (hash TEXT PRIMARY KEY, block INTEGER)',
+      // a chain stored before this index existed: fill it once from the stored blocks
+      "INSERT OR IGNORE INTO txs SELECT lower(j.value), b.number FROM blocks b, json_each(b.header, '$.transactions') j WHERE NOT EXISTS (SELECT 1 FROM txs)",
     ]) sql.exec(ddl)
   }
 
@@ -64,6 +68,12 @@ export class ChainStore {
       this.applyDiff(diff)
       this.putBlock(block)
     })
+  }
+
+  /** The block that mined tx `hash`, if this store holds it (a chain created from a dump holds only the dump's blocks). */
+  blockOf(hash: Hex): number | undefined {
+    const [row] = this.sql.exec('SELECT block FROM txs WHERE hash = ?', hash.toLowerCase())
+    return row ? Number(row.block) : undefined
   }
 
   head(): SerializedBlock {
@@ -114,6 +124,7 @@ export class ChainStore {
       JSON.stringify(b.txs),
       JSON.stringify(b.receipts),
     )
+    for (const h of b.header.transactions) this.sql.exec('INSERT OR IGNORE INTO txs VALUES (?, ?)', h.toLowerCase(), b.header.number)
   }
 
   private applyDiff(d: StateDiff) {

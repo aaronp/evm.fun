@@ -1,7 +1,10 @@
 import { createNode, type SerializedState, type SlimNode } from 'webevm'
 import { createRevmEngine } from 'webevm/revm'
-import type { Hex } from 'viem'
+import { keccak256, parseTransaction, recoverTransactionAddress, type Hex } from 'viem'
 import { nonZero, type ChainStore, type SerializedBlock, type StateDiff, type StoredBlock } from './store'
+
+/** One tx of an `apply`: accepted into the block, or refused by the node (and in no block). */
+export type TxOutcome = { ok: true; hash: Hex } | { ok: false; hash: Hex; error: string }
 
 export interface NodeConfig {
   wasm: WebAssembly.Module | ArrayBufferView
@@ -92,21 +95,57 @@ export class ChainNode {
 
   /**
    * Execute `txs` as one block at `timestamp` and commit it; queued behind any other `apply`/`read`.
-   * The block must hold exactly `txs`, in order. On any failure the node is rebuilt from the store and the error rethrown.
+   * Each tx is checked and sent on its own: one the node refuses is reported in `results` (same order as `txs`) and
+   * left out; the block holds exactly the accepted ones, in order. No accepted tx → no block, nothing committed.
+   * On any other failure the node is rebuilt from the store and the error rethrown.
    */
-  apply(timestamp: number, txs: Hex[]): Promise<StoredBlock> {
+  apply(timestamp: number, txs: Hex[]): Promise<{ block?: StoredBlock; results: TxOutcome[] }> {
     return this.#serial(() => this.#apply(timestamp, txs))
   }
 
-  async #apply(timestamp: number, txs: Hex[]): Promise<StoredBlock> {
+  /**
+   * Refuse a tx that would fail webevm's mine-time sender checks (nonce, funds): in manual mining it accepts such a
+   * tx at send and then refuses the whole batch at `mine()`. Same rules, read against the queued txs. Returns its cost.
+   */
+  async #admit(raw: Hex, spent: Map<string, bigint>): Promise<[string, bigint]> {
+    const tx = parseTransaction(raw)
+    const from = (await recoverTransactionAddress({ serializedTransaction: raw as never })).toLowerCase()
+    const ask = (method: string, tag: string) => this.#node.request({ method, params: [from, tag] }).then((v) => BigInt(v as string))
+    // 'pending' counts this block's queued txs from `from`, so it is the nonce `from` will have when this one runs
+    const [nonce, balance] = await Promise.all([ask('eth_getTransactionCount', 'pending'), ask('eth_getBalance', 'latest')])
+    if (BigInt(tx.nonce ?? 0) !== nonce)
+      throw new Error(`nonce too ${BigInt(tx.nonce ?? 0) < nonce ? 'low' : 'high'}: address ${from}, tx: ${tx.nonce ?? 0}, state: ${nonce}`)
+    // ponytail: funds against the latest balance less this block's earlier txs from `from`, ignoring what earlier txs
+    // pay in; it can refuse a tx a same-block transfer would fund (it mines next block), never fail the batch.
+    const cost = (tx.value ?? 0n) + (tx.gas ?? 0n) * (tx.maxFeePerGas ?? tx.gasPrice ?? 0n)
+    const want = (spent.get(from) ?? 0n) + cost
+    if (balance < want) throw new Error(`insufficient funds for gas * price + value: address ${from} have ${balance} want ${want}`)
+    return [from, want]
+  }
+
+  async #apply(timestamp: number, txs: Hex[]): Promise<{ block?: StoredBlock; results: TxOutcome[] }> {
     // a due rebuild runs here, before any tx is sent, so a committed block is never reported as failed
     if (this.blocksSinceRebuild >= (this.cfg.rebuildEvery ?? 1000)) await this.rebuild()
+    const results: TxOutcome[] = []
+    const sent: string[] = []
     try {
       this.#env.timestamp = BigInt(timestamp)
-      const hashes: string[] = []
-      for (const raw of txs) hashes.push((await this.#node.request({ method: 'eth_sendRawTransaction', params: [raw] })) as string)
+      const spent = new Map<string, bigint>()
+      for (const raw of txs) {
+        const hash = keccak256(raw)
+        try {
+          const [from, want] = await this.#admit(raw, spent)
+          // a tx refused here (bad encoding, signature, gas limit) is never queued
+          sent.push((await this.#node.request({ method: 'eth_sendRawTransaction', params: [raw] })) as string)
+          spent.set(from, want)
+          results.push({ ok: true, hash })
+        } catch (e) {
+          results.push({ ok: false, hash, error: e instanceof Error ? e.message : String(e) })
+        }
+      }
+      if (!sent.length) return { results }
       const mined = await this.#node.mine()
-      if (mined.txHashes.join() !== hashes.join()) throw new Error(`mined txs [${mined.txHashes.join(', ')}] are not the sent txs [${hashes.join(', ')}]`)
+      if (mined.txHashes.join() !== sent.join()) throw new Error(`mined txs [${mined.txHashes.join(', ')}] are not the sent txs [${sent.join(', ')}]`)
       const after = await this.#node.dumpState()
       const header = after.blocks.at(-1)!
       // txs and receipts both from the mined header, so they always match it
@@ -118,7 +157,7 @@ export class ChainNode {
       this.store.commit(block, diffState(this.#dump, after))
       this.#dump = after
       this.blocksSinceRebuild++
-      return block
+      return { block, results }
     } catch (e) {
       try {
         await this.rebuild()

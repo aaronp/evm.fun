@@ -15,9 +15,15 @@ export const GRANT_CREATE_CHAIN = 4
  * leaves room for both hops and the DO's 128 MB memory. evm.fun refuses a larger chain before spending a code.
  */
 export const MAX_CREATE_BYTES = 8 * 1024 * 1024
+/** Largest POST /chains/:id/submit body the worker takes (413 above it; checked before auth). Other routes take 64 KiB. */
+export const MAX_SUBMIT_BYTES = 1024 * 1024
 const tx = { type: 'eip1559', maxFeePerGas: 0n, maxPriorityFeePerGas: 0n } as const
 
 export interface BlockSummary { number: number; hash: string; stateRoot: string }
+/** One submitted tx's outcome. `refused` txs are not on chain: `nonce` = wrong nonce for its sender now, `invalid` = anything else. */
+export type TxResult = { hash: Hex; result: 'mined'; block: number } | { hash: Hex; result: 'refused'; code: 'nonce' | 'invalid'; reason: string }
+/** Submit reply: the head after the request, and one result per tx in request order. */
+export interface SubmitResult { head: BlockSummary; results: TxResult[] }
 export interface CreateChainRequest { dump: SerializedState; setup: [Hex, Hex]; claim?: Hex }
 export interface CreateChainResult { chainId: string; url: string; head: BlockSummary; dump: SerializedState }
 export interface RemoteChainInfo { chainId: string; head: BlockSummary; admin: Address; access: Address; aliases: Address }
@@ -97,7 +103,7 @@ export class NodeClient {
   blocks(chainId: string, after: number) { return this.req<{ head: BlockSummary; blocks: BlockRecord[] }>('GET', `/chains/${chainId}/blocks?after=${after}`) }
   nodes(chainId: string) { return this.req<NodesView>('GET', `/chains/${chainId}/nodes`) }
   join(chainId: string, claim: Hex) { return this.req<{ head: BlockSummary; role: 'reader' | 'writer' }>('POST', `/chains/${chainId}/join`, { claim }) }
-  submit(chainId: string, txs: Hex[]) { return this.req<{ head: BlockSummary }>('POST', `/chains/${chainId}/submit`, { txs }) }
+  submit(chainId: string, txs: Hex[]) { return this.req<SubmitResult>('POST', `/chains/${chainId}/submit`, { txs }) }
   createChain(r: CreateChainRequest) { return this.req<CreateChainResult>('POST', '/chains', r) }
   codes() { return this.req<CodeRecord[]>('GET', '/chains/root/codes') }
 }

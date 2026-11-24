@@ -54,7 +54,7 @@ test('state() boots a fresh node to the same root', async () => {
 })
 
 test('blocks(after) pages at 100 and returns head', async () => {
-  while ((await head()).number < 105) await s.submit(me, [], next())
+  while ((await head()).number < 105) await adminTx('setReadOpen', [false])
   const h = await head()
   const first = s.blocks(0)
   expect(first.head).toEqual(h)

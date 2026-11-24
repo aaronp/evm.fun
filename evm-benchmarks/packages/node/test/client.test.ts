@@ -42,7 +42,7 @@ describe('set-up txs on a fresh node', () => {
   test('one block, both succeed, admin and aliases wired; invite then claim once', async () => {
     const node = await fresh()
     const [a, b] = await setupTxs(admin, 0, 31337)
-    const blk = await node.apply(1_700_000_100, [a, b])
+    const blk = (await node.apply(1_700_000_100, [a, b])).block!
     expect(blk.receipts.map((r: any) => r.status)).toEqual([1, 1])
     const access = (blk.receipts[0] as any).contractAddress as Hex
     const aliases = (blk.receipts[1] as any).contractAddress as Hex
@@ -50,11 +50,11 @@ describe('set-up txs on a fresh node', () => {
     expect(await call(node, aliases, Aliases.abi, 'access')).toBe(getAddress(access))
 
     const code = generateCode()
-    const inv = await node.apply(1_700_000_101, [await inviteTx(admin, 2, access, code, 3600, 1)])
+    const inv = (await node.apply(1_700_000_101, [await inviteTx(admin, 2, access, code, 3600, 1)])).block!
     expect((inv.receipts[0] as any).status).toBe(1)
-    const ok = await node.apply(1_700_000_102, [await claimTx(joiner, 0, code, access)])
+    const ok = (await node.apply(1_700_000_102, [await claimTx(joiner, 0, code, access)])).block!
     expect((ok.receipts[0] as any).status).toBe(1)
-    const again = await node.apply(1_700_000_103, [await claimTx(joiner, 1, code, access)])
+    const again = (await node.apply(1_700_000_103, [await claimTx(joiner, 1, code, access)])).block!
     expect((again.receipts[0] as any).status).toBe(0)
     await node.dispose()
   })

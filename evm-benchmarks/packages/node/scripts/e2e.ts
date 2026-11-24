@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { encodeDeployData, type Hex, type LocalAccount } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { MintableToken } from '@evmb/contracts'
-import { GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, MAX_CREATE_BYTES, NodeClient, NodeError, accessTx, claimTx, codeHash, generateCode, inviteTx, setupTxs, type CreateChainResult } from '../src/client'
+import { GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, MAX_CREATE_BYTES, MAX_SUBMIT_BYTES, NodeClient, NodeError, accessTx, claimTx, codeHash, generateCode, inviteTx, setupTxs, type CreateChainResult } from '../src/client'
 import { signRequest } from '../src/auth'
 import { Follower, FollowerRemoved } from '../src/follower'
 import { ensureKey, freshDump, wasm } from './bootstrap'
@@ -93,8 +93,12 @@ try {
   check(unsigned.headers.get('access-control-allow-origin') === null, 'no CORS origin for a request without Origin')
   const big = await fetch(new URL('/chains', URL_), { method: 'POST', body: 'x'.repeat(MAX_CREATE_BYTES + 1) })
   check(big.status === 413, `POST /chains over ${MAX_CREATE_BYTES} bytes → ${big.status} (before auth)`)
-  const bigSubmit = await fetch(new URL('/chains/root/submit', URL_), { method: 'POST', body: 'x'.repeat(64 * 1024 + 1) })
-  check(bigSubmit.status === 413, `POST /chains/root/submit over 64 KiB → ${bigSubmit.status}`)
+  const bigSubmit = await fetch(new URL('/chains/root/submit', URL_), { method: 'POST', body: 'x'.repeat(MAX_SUBMIT_BYTES + 1) })
+  check(bigSubmit.status === 413, `POST /chains/root/submit over ${MAX_SUBMIT_BYTES} bytes → ${bigSubmit.status}`)
+  const okSubmit = await fetch(new URL('/chains/root/submit', URL_), { method: 'POST', body: 'x'.repeat(64 * 1024 + 1) })
+  check(okSubmit.status === 401, `unsigned POST /chains/root/submit over 64 KiB (under the cap) → ${okSubmit.status}`)
+  const bigJoin = await fetch(new URL('/chains/root/join', URL_), { method: 'POST', body: 'x'.repeat(64 * 1024 + 1) })
+  check(bigJoin.status === 413, `POST /chains/root/join over 64 KiB → ${bigJoin.status}`)
   const pre = await fetch(new URL('/chains', URL_), { method: 'OPTIONS', headers: { origin: 'http://localhost:5173', 'access-control-request-method': 'POST' } })
   check(pre.status === 204 && pre.headers.get('access-control-allow-origin') === 'http://localhost:5173', `CORS preflight from localhost → ${pre.status}`)
 

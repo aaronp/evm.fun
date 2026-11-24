@@ -1,12 +1,12 @@
 // One chain's logic, independent of Durable Objects: create from a dump + set-up block, submit, redeem codes, info.
-import { decodeFunctionData, decodeFunctionResult, encodeFunctionData, getAddress, parseEventLogs, parseTransaction, recoverTransactionAddress, type Abi, type Address, type Hex } from 'viem'
+import { decodeFunctionData, decodeFunctionResult, encodeFunctionData, getAddress, isHex, keccak256, parseEventLogs, parseTransaction, recoverTransactionAddress, type Abi, type Address, type Hex } from 'viem'
 import type { SerializedState } from 'webevm'
 import { ChainAccess } from '@evmb/contracts'
 import type { Sql } from './sql'
 import { chainAcl, type ACL } from './acl'
 import { ChainStore, type SerializedBlock } from './store'
 import { ChainNode, type NodeConfig } from './node'
-import { codeHash, GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, type BlockRecord, type BlockSummary, type CodeRecord, type Member, type NodesView, type RemoteChainInfo } from './client'
+import { codeHash, GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, type BlockRecord, type BlockSummary, type CodeRecord, type Member, type NodesView, type RemoteChainInfo, type SubmitResult, type TxResult } from './client'
 
 export class ServiceError extends Error {
   constructor(readonly status: number, message: string) { super(message) }
@@ -33,7 +33,7 @@ function initTables(sql: Sql) {
 
 /** Drop every row, so a refused create leaves no chain behind and a retry starts clean. */
 function wipe(sql: Sql) {
-  sql.tx(() => { for (const t of ['meta', 'accounts', 'code', 'storage', 'blocks', 'redeems', 'cursors']) sql.exec(`DELETE FROM ${t}`) })
+  sql.tx(() => { for (const t of ['meta', 'accounts', 'code', 'storage', 'blocks', 'txs', 'redeems', 'cursors']) sql.exec(`DELETE FROM ${t}`) })
 }
 
 /** The stateless set-up checks (exactly two contract creations sent by `signer`); the root runs them before spending a code. */
@@ -87,7 +87,9 @@ export class ChainService {
     let node: ChainNode | undefined
     try {
       node = await ChainNode.create(store, opts.dump, { wasm })
-      const blk = await node.apply(opts.timestamp, setup).catch((e) => { throw new ServiceError(400, `setup block rejected: ${msg(e)}`) })
+      const { block: blk, results } = await node.apply(opts.timestamp, setup).catch((e) => { throw new ServiceError(400, `setup block rejected: ${msg(e)}`) })
+      const no = results.flatMap((r) => (r.ok ? [] : [r.error]))[0]
+      if (no !== undefined || !blk) throw new ServiceError(400, `setup block rejected: ${no}`)
       const receipts = blk.receipts as { status: number; contractAddress: Address }[]
       if (receipts.some((r) => r.status !== 1)) throw new ServiceError(400, 'a setup tx reverted')
       const [access, aliases] = receipts.map((r) => getAddress(r.contractAddress)) as [Address, Address]
@@ -127,8 +129,11 @@ export class ChainService {
     return Number(await this.node.read((n) => n.request({ method: 'eth_getTransactionCount', params: [addr, 'latest'] })))
   }
 
-  /** Mine `txs` as one block; the signer must be a writer; tx senders are not checked. */
-  submit(signer: string, txs: Hex[], timestamp: number): Promise<BlockSummary> {
+  /**
+   * Mine `txs` as one block and answer each in order: a tx already on chain answers its block (a resend is
+   * idempotent), the rest are mined or refused by the node. The signer must be a writer; tx senders are not checked.
+   */
+  submit(signer: string, txs: Hex[], timestamp: number): Promise<SubmitResult> {
     return this.#write(() => this.#submit(signer, txs, timestamp))
   }
 
@@ -139,13 +144,25 @@ export class ChainService {
     return run
   }
 
-  async #submit(signer: string, txs: Hex[], timestamp: number): Promise<BlockSummary> {
+  async #submit(signer: string, txs: Hex[], timestamp: number): Promise<SubmitResult> {
+    if (!txs.every((t) => isHex(t))) throw new ServiceError(400, 'bad tx: txs must be hex strings')
     // only the submitting key is checked; what a tx's own sender may do is up to the contracts
-    await Promise.all(txs.map(sender)).catch((e) => { throw new ServiceError(400, `bad tx: ${msg(e)}`) })
     const a = signer.toLowerCase()
     if (!(await this.canWrite(a))) throw new ServiceError(403, `${a} is not a writer on this chain`)
-    const blk = await this.node.apply(timestamp, txs).catch((e) => { throw new ServiceError(400, `block rejected: ${msg(e)}`) })
-    return summary(blk.header)
+    const hashes = txs.map((t) => keccak256(t))
+    const fresh = txs.filter((_, i) => this.store.blockOf(hashes[i]!) === undefined)
+    const { results } = fresh.length ? await this.node.apply(timestamp, fresh).catch((e) => { throw new ServiceError(400, `block rejected: ${msg(e)}`) }) : { results: [] }
+    const errors = new Map(results.flatMap((r) => (r.ok ? [] : [[r.hash, r.error] as const])))
+    return {
+      head: summary(this.node.head()),
+      // looked up after the block, so a tx sent twice in one request answers mined for both copies
+      results: hashes.map((hash): TxResult => {
+        const block = this.store.blockOf(hash)
+        if (block !== undefined) return { hash, result: 'mined', block }
+        const reason = errors.get(hash)!
+        return { hash, result: 'refused', code: /nonce/i.test(reason) ? 'nonce' : 'invalid', reason }
+      }),
+    }
   }
 
   /**
@@ -208,7 +225,8 @@ export class ChainService {
   }
 
   async #claim(claim: Hex, timestamp: number): Promise<BlockSummary> {
-    const blk = await this.node.apply(timestamp, [claim]).catch((e) => { throw new ServiceError(400, `claim rejected: ${msg(e)}`) })
+    const { block: blk, results: [r] } = await this.node.apply(timestamp, [claim]).catch((e) => { throw new ServiceError(400, `claim rejected: ${msg(e)}`) })
+    if (!blk) throw new ServiceError(400, `claim rejected: ${r && !r.ok ? r.error : 'not mined'}`)
     if ((blk.receipts[0] as { status: number }).status !== 1) throw new ServiceError(403, BAD_CODE)
     return summary(blk.header)
   }

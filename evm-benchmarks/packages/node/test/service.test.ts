@@ -86,13 +86,14 @@ describe('root chain: codes', () => {
   test('submit by a writer of a tx signed by a key with no chain role is mined', async () => {
     const fresh = await create() // own chain: mining here must not shift the shared one's block numbers
     const { access, head } = await fresh.info()
-    expect((await fresh.submit(me, [await inviteTx(joiner, 0, access, 'x', 60, 1)], T0 + 101)).number).toBe(head.number + 1)
+    expect((await fresh.submit(me, [await inviteTx(joiner, 0, access, 'x', 60, 1)], T0 + 101)).head.number).toBe(head.number + 1)
   })
 
   test('invite via submit, redeem once; again → 403; after expiry → 403; refused redeems keep no block', async () => {
     const { access } = await s.info()
     const blk = await s.submit(me, [await inviteTx(admin, 2, access, 'one-two-three-four', 3600, 1), await inviteTx(admin, 3, access, 'short-lived-code-x', 10, 2)], T0 + 200)
-    expect(blk.number).toBe(2)
+    expect(blk.head.number).toBe(2)
+    expect(blk.results.map((r) => r.result)).toEqual(['mined', 'mined'])
     expect(await s.redeem(joiner.address, await claimTx(joiner, 0, 'one-two-three-four', access), T0 + 201)).toEqual({ codeHash: codeHash('one-two-three-four') })
     s.recordRedeem(codeHash('one-two-three-four'), joiner.address, 'chain-1', T0 + 202)
     // claim's require is block.timestamp <= expiry: the expiry second itself still redeems
@@ -176,6 +177,61 @@ describe('root chain: codes', () => {
     expect(await s.info()).toEqual(before)
     const again = await open(sql)
     expect(await again!.info()).toEqual(before)
+  })
+})
+
+describe('submit answers per tx', () => {
+  let s: ChainService, access: Hex
+  beforeAll(async () => {
+    s = await create()
+    access = (await s.info()).access
+  })
+  const send = (nonce: number, data: Hex = '0x', gas = 100_000n) => other.signTransaction({ ...tx, nonce, to: access, data, gas })
+
+  test('submit [ok, gap, ok-after-gap] → mined, refused nonce, refused nonce', async () => {
+    const n = await s.nonceOf(other.address)
+    const head = (await s.info()).head.number
+    const txs = [await send(n), await send(n + 2), await send(n + 3)]
+    const r = await s.submit(me, txs, T0 + 700)
+    expect(r.head.number).toBe(head + 1)
+    expect(r.results.map((x) => x.hash)).toEqual(txs.map((t) => keccak256(t)))
+    expect(r.results[0]).toEqual({ hash: keccak256(txs[0]!), result: 'mined', block: head + 1 })
+    for (const x of r.results.slice(1)) expect(x).toMatchObject({ result: 'refused', code: 'nonce', reason: expect.stringMatching(/^nonce too high/) })
+  })
+
+  test('resending a mined batch answers mined with the same block and adds no block', async () => {
+    const n = await s.nonceOf(other.address)
+    const txs = [await send(n), await send(n + 1)]
+    const first = await s.submit(me, txs, T0 + 710)
+    expect(first.results.map((x) => x.result)).toEqual(['mined', 'mined'])
+    const again = await s.submit(me, txs, T0 + 711)
+    expect(again).toEqual(first)
+    // a resend mixed with a fresh tx: the old ones answer their old block, the new one a new block
+    const more = await s.submit(me, [...txs, await send(n + 2)], T0 + 712)
+    expect(more.head.number).toBe(first.head.number + 1)
+    expect(more.results.map((x) => x.result === 'mined' && x.block)).toEqual([first.head.number, first.head.number, first.head.number + 1])
+  })
+
+  test('the same tx twice in one batch is mined once', async () => {
+    const t = await send(await s.nonceOf(other.address))
+    const r = await s.submit(me, [t, t], T0 + 720)
+    expect(r.results).toEqual([0, 1].map(() => ({ hash: keccak256(t), result: 'mined', block: r.head.number })))
+  })
+
+  test('a tx the node refuses at send is refused invalid; no accepted txs → no block', async () => {
+    const head = await s.info()
+    const r = await s.submit(me, [await send(await s.nonceOf(other.address), '0x', 100n)], T0 + 730)
+    expect(r.head).toEqual(head.head)
+    expect(r.results[0]).toMatchObject({ result: 'refused', code: 'invalid', reason: expect.stringMatching(/^intrinsic gas too low/) })
+    expect((await refused(s.submit(me, ['nope' as Hex], T0 + 731))).status).toBe(400)
+  })
+
+  test('a reverting tx is mined with status 0', async () => {
+    // claim() of a code never issued reverts
+    const r = await s.submit(me, [await send(await s.nonceOf(other.address), encodeFunctionData({ abi: ChainAccess.abi, functionName: 'claim', args: ['never-issued'] }))], T0 + 740)
+    expect(r.results[0]).toMatchObject({ result: 'mined', block: r.head.number })
+    const [blk] = s.blocks(r.head.number - 1).blocks
+    expect((blk!.receipts[0] as { status: number }).status).toBe(0)
   })
 })
 

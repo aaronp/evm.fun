@@ -115,6 +115,17 @@ describe('ChainStore', () => {
     expect(() => s.head()).toThrow('no chain: call create first')
   })
 
+  test('blockOf finds txs from create and from later blocks', () => {
+    const sql = bunSql()
+    const s = new ChainStore(sql)
+    s.create(fixture(10))
+    s.commit({ header: header(11, ['0xT3']), txs: ['0xraw3'], receipts: [{ r: 3 }] }, empty())
+    expect([s.blockOf('0xt1'), s.blockOf('0xt2'), s.blockOf('0xt3'), s.blockOf('0xt4')]).toEqual([5, 5, 11, undefined])
+    // a chain stored before the index existed is indexed when its store is opened
+    sql.exec('DELETE FROM txs')
+    expect(new ChainStore(sql).blockOf('0xt3')).toBe(11)
+  })
+
   test('exists is false before create, true after; create twice throws', () => {
     const s = new ChainStore(bunSql())
     expect(s.exists()).toBe(false)

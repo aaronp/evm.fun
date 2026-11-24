@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { keccak256, toBytes } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { ChainHost, handle, type ChainHandleLike } from '../src/router'
-import { NodeClient, NodeError, accessTx, claimTx, codeHash, inviteTx, setupTxs, GRANT_READER, GRANT_WRITER, GRANT_CREATE_CHAIN } from '../src/client'
+import { MAX_SUBMIT_BYTES, NodeClient, NodeError, accessTx, claimTx, codeHash, inviteTx, setupTxs, GRANT_READER, GRANT_WRITER, GRANT_CREATE_CHAIN } from '../src/client'
 import { bunSql } from './bunSql'
 import { wasm } from './workload'
 import { createNode } from 'webevm'
@@ -77,6 +77,16 @@ describe('device routes', () => {
     await a.submit(cid, [await accessTx(admin, await a.nonce(cid), access, 'removeReader', phone.address)])
     expect(await status(p.blocks(cid, 0))).toBe(403)
     expect((await a.nodes(cid)).members.some((x) => x.address.toLowerCase() === phone.address.toLowerCase())).toBe(false)
+  })
+
+  test('router accepts a 900 KiB submit, 413 above 1 MiB, 413 above 64 KiB on other routes', async () => {
+    const a = as(admin)
+    // zero-byte calldata: hex is 2 chars a byte, so 450 KiB of data is a ~900 KiB body
+    const big = async (bytes: number) => admin.signTransaction({ type: 'eip1559', chainId: 31337, nonce: await a.nonce(cid), to: stranger.address, data: `0x${'00'.repeat(bytes)}`, gas: 25_000_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    const ok = await a.submit(cid, [await big(450 * 1024)])
+    expect(ok.results[0]!.result).toBe('mined')
+    expect(await status(a.submit(cid, [await big(MAX_SUBMIT_BYTES / 2 + 1024)]))).toBe(413)
+    expect(await status(a.join(cid, `0x${'00'.repeat(33 * 1024)}`))).toBe(413)
   })
 
   test('404s: unknown chain, unknown route', async () => {

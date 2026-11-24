@@ -50,10 +50,10 @@ try {
       const booted = await ChainNode.boot(new ChainStore(bunSql(Database.deserialize(db.serialize()))), cfg)
       const [a, b] = [await live.stateRoot(), await booted.stateRoot()]
       if (a !== b) failures.push(`height ${i - 1}: boot root ${b} != live ${a}`)
-      bootNext = (await booted.apply(w.timestamp(i), txs)).header
+      bootNext = (await booted.apply(w.timestamp(i), txs)).block!.header
       await booted.dispose() // a booted node left alive keeps its wasm heap
     }
-    const blk = await live.apply(w.timestamp(i), txs)
+    const blk = (await live.apply(w.timestamp(i), txs)).block!
     if (bootNext && (bootNext.hash !== blk.header.hash || bootNext.stateRoot !== blk.header.stateRoot))
       failures.push(`height ${i}: boot next block ${bootNext.hash} != live ${blk.header.hash}`)
     if (i % 1000 === 0) {
@@ -71,7 +71,7 @@ try {
     const [a, b] = [await live.stateRoot(), await booted.stateRoot()]
     if (a !== b) failures.push(`height ${BLOCKS}: boot root ${b} != live ${a}`)
     const txs = await w.nextBlock(BLOCKS + 1)
-    const [x, y] = [await booted.apply(w.timestamp(BLOCKS + 1), txs), await live.apply(w.timestamp(BLOCKS + 1), txs)]
+    const [x, y] = [(await booted.apply(w.timestamp(BLOCKS + 1), txs)).block!, (await live.apply(w.timestamp(BLOCKS + 1), txs)).block!]
     await booted.dispose()
     if (x.header.hash !== y.header.hash) failures.push(`height ${BLOCKS + 1}: boot next block ${x.header.hash} != live ${y.header.hash}`)
   }

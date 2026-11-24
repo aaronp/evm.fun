@@ -7,7 +7,7 @@ import { recoverSigner, SKEW_S } from './auth'
 import type { Sql } from './sql'
 import { ChainService, ServiceError, checkSetup } from './service'
 import type { NodeConfig } from './node'
-import { MAX_CREATE_BYTES, type CreateChainRequest } from './client'
+import { MAX_CREATE_BYTES, MAX_SUBMIT_BYTES, type CreateChainRequest } from './client'
 
 /** A request as a chain sees it (plain data, so it crosses a Durable Object RPC boundary). */
 export interface ChainRequest { method: string; url: string; body: string; ts: string; nonce: string; sig: string; ip: string; name?: string }
@@ -24,7 +24,7 @@ export interface ChainHandleLike {
 
 export interface RouterDeps { chain(id: string): ChainHandleLike }
 
-/** Body cap for every route but POST /chains (submit, signed GETs): a few txs. */
+/** Body cap for every route but POST /chains and submit (join, signed GETs). */
 const MAX_BODY_BYTES = 64 * 1024
 
 const ORIGINS = [/^https:\/\/mychain\.dev$/, /^https:\/\/aaronp\.github\.io$/, /^http:\/\/localhost(:\d+)?$/]
@@ -46,7 +46,8 @@ export async function handle(req: Request, deps: RouterDeps): Promise<Response> 
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers })
   const url = new URL(req.url)
   // size caps before auth or parsing, so an oversize body never reaches a Durable Object
-  const max = req.method === 'POST' && url.pathname === '/chains' ? MAX_CREATE_BYTES : MAX_BODY_BYTES
+  const post = req.method === 'POST'
+  const max = post && url.pathname === '/chains' ? MAX_CREATE_BYTES : post && /^\/chains\/[^/]+\/submit$/.test(url.pathname) ? MAX_SUBMIT_BYTES : MAX_BODY_BYTES
   const tooBig = { status: 413, body: { error: `body over ${max} bytes` } }
   if (Number(req.headers.get('content-length') ?? 0) > max) return json(tooBig)
   try {
@@ -154,7 +155,7 @@ export class ChainHost implements ChainHandleLike {
       case 'POST submit': {
         const { txs } = parse<{ txs: Hex[] }>(r.body)
         if (!Array.isArray(txs) || !txs.length) throw new ServiceError(400, 'txs must be a non-empty array')
-        return { status: 200, body: { head: await s.submit(signer, txs, now()) } }
+        return { status: 200, body: await s.submit(signer, txs, now()) }
       }
       case 'GET state':
         await this.#reader(s, signer)
