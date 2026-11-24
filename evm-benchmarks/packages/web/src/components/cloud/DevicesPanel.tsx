@@ -1,23 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { privateKeyToAccount } from 'viem/accounts'
-import { NodeClient, generateCode, type Member, type NodesView } from '@evmb/node/src/client'
+import { NodeClient, type Member, type NodesView } from '@evmb/node/src/client'
 import type { ChainHandle } from '../../chain/handle'
 import { followerStatus, statusBadge, type FollowerStatus } from '../../cloud/followerChain'
-import { inviteDevice, multiUseWriterWarning, removeDevice, type DeviceRole } from '../../cloud/devices'
+import { removeDevice } from '../../cloud/devices'
 import { joinLink } from '../../cloud/join'
 import { accounts } from '../../store/accounts'
 import { useApp } from '../../state'
 import { Badge } from '../../ui/badge'
 import { Button } from '../../ui/button'
 import { CopyIcon } from '../../ui/icons'
-import { Input, fieldLabel } from '../../ui/input'
 import { Notice } from '../../ui/notice'
+import { InviteWizard } from './InviteWizard'
 import { Panel } from '../../ui/panel'
-import { Segmented } from '../../ui/segmented'
 import { Table, td, th } from '../../ui/table'
 
-const TTLS = [{ value: '300', content: '5 min' }, { value: '3600', content: '1 h' }, { value: '86400', content: '1 day' }]
-const ROLES = [{ value: 'reader', content: 'Reader' }, { value: 'writer', content: 'Writer' }]
 const short = (s: string) => `${s.slice(0, 6)}…${s.slice(-4)}`
 const message = (e: unknown) => (e && typeof e === 'object' && 'error' in e ? String(e.error) : e instanceof Error ? e.message : String(e))
 const same = (a?: string, b?: string) => !!a && !!b && a.toLowerCase() === b.toLowerCase()
@@ -95,7 +92,7 @@ export function DevicesPanel({ chain }: { chain: ChainHandle }) {
       actions={<Button variant="ghost" size="sm" disabled={syncing} onClick={sync}>{syncing ? 'Syncing…' : 'Sync now'}</Button>}>
       {err && <div className="p-4"><Notice>{`Couldn't list devices: ${err}`}</Notice></div>}
       {view && <Members view={view} me={f.account} admin={isAdmin && client && signer ? { client, signer, chainId: f.chainId, after: load } : undefined} />}
-      {isAdmin && client && signer && <Invite client={client} signer={signer} nodeUrl={f.nodeUrl} chainId={f.chainId} />}
+      {isAdmin && client && signer && <InviteWizard client={client} signer={signer} nodeUrl={f.nodeUrl} chainId={f.chainId} />}
     </Panel>
   )
 }
@@ -169,76 +166,5 @@ function Members({ view, me, admin }: { view: NodesView; me: string; admin?: Adm
         </div>
       )}
     </>
-  )
-}
-
-function Invite({ client, signer, nodeUrl, chainId }: { client: NodeClient; signer: Admin['signer']; nodeUrl: string; chainId: string }) {
-  const [code, setCode] = useState(generateCode)
-  const [ttl, setTtl] = useState('3600')
-  const [uses, setUses] = useState('1')
-  const [role, setRole] = useState<DeviceRole>('reader')
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string>()
-  const [issued, setIssued] = useState<string>() // shown once, until dismissed or the next invite
-  const n = Number(uses)
-  const valid = code.trim().length > 0 && Number.isInteger(n) && n >= 1 && n <= 1000
-  const warning = multiUseWriterWarning(role, n)
-  const link = joinLink(location.origin + location.pathname, nodeUrl, chainId)
-
-  async function invite() {
-    setBusy(true); setErr(undefined); setIssued(undefined)
-    try {
-      await inviteDevice({ client, chainId, admin: signer, code, ttlS: Number(ttl), uses: n, role })
-      setIssued(code.trim())
-      setCode(generateCode())
-    } catch (e) {
-      setErr(`Couldn't create the invite: ${message(e)}`)
-    } finally { setBusy(false) }
-  }
-
-  return (
-    <form className="space-y-3 border-t border-line p-4" onSubmit={(e) => { e.preventDefault(); invite() }}>
-      <h3 className="font-medium">Invite a device</h3>
-      <label className={fieldLabel}>
-        Code
-        <div className="flex gap-2">
-          <Input aria-label="Invite code" className="min-w-0 flex-1 font-mono" autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} />
-          <Button type="button" variant="ghost" onClick={() => setCode(generateCode())}>Generate</Button>
-        </div>
-      </label>
-      <div className="flex flex-wrap items-end gap-4">
-        <div className={fieldLabel}>
-          Valid for
-          <Segmented label="Valid for" name="invite-ttl" value={ttl} onChange={setTtl} options={TTLS} className="flex gap-1" itemClassName="px-2.5 py-1 text-xs" />
-        </div>
-        <div className={fieldLabel}>
-          Role
-          <Segmented label="Role" name="invite-role" value={role} onChange={(v) => setRole(v as DeviceRole)} options={ROLES} className="flex gap-1" itemClassName="px-2.5 py-1 text-xs" />
-        </div>
-        <label className={fieldLabel}>
-          Uses
-          <Input type="number" min={1} max={1000} className="w-24" value={uses} onChange={(e) => setUses(e.target.value)} />
-        </label>
-        <Button type="submit" disabled={busy || !valid}>{busy ? 'Inviting…' : 'Invite'}</Button>
-      </div>
-      {warning && <Notice>{warning}</Notice>}
-      <p className="text-xs text-muted">Readers get a read-only copy. Only the code's hash goes on chain.</p>
-      {err && <Notice onDismiss={() => setErr(undefined)}>{err}</Notice>}
-      {issued && (
-        <div role="status" className="space-y-2 rounded-lg border border-success bg-success-soft px-3 py-2 text-sm text-success-text">
-          <p>Send this code to the other device. It's shown only once.</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="break-all font-mono font-medium">{issued}</span>
-            <Button type="button" variant="ghost" size="sm" onClick={() => navigator.clipboard?.writeText(issued)}><CopyIcon className="mr-1" />Copy code</Button>
-          </div>
-          <p>On that device, open this link and enter the code:</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="min-w-0 break-all font-mono text-xs">{link}</span>
-            <Button type="button" variant="ghost" size="sm" onClick={() => navigator.clipboard?.writeText(link)}><CopyIcon className="mr-1" />Copy link</Button>
-          </div>
-          <Button type="button" variant="ghost" size="sm" onClick={() => setIssued(undefined)}>Done</Button>
-        </div>
-      )}
-    </form>
   )
 }

@@ -64,7 +64,8 @@ device through the cloud node) comes next.
   - **Remove** on each member except the admin → signed removal tx.
 - **Join a chain** (Cloud page, any account): worker URL (prefilled), chain id, code → `claimTx` signed by the acting
   account → `POST /join` → on success the chain is added as a follower and opened. A join link
-  (`#/cloud/join?node=…&chain=…`) prefills the first two fields; the code is never in the link.
+  (`#/cloud/join?node=…&chain=…`) prefills the first two fields; the code is in the link only when the owner chooses it (a single join link; see
+  `2026-11-24-invite-wizard-design.md`).
 - **The device's name** is the acting account's label, sent as `x-node-name`.
 
 ## Non-goals (B and later)
@@ -76,7 +77,8 @@ device through the cloud node) comes next.
 
 - A follower whose state differs from the cloud's without saying so.
 - A removed device that can still read the chain.
-- A device joining without a valid code, or a code in a URL.
+- A device joining without a valid code, or a code in a URL the owner did not choose to create (a single join link is opt-in; see
+  `2026-11-24-invite-wizard-design.md`).
 
 ## Approaches considered
 

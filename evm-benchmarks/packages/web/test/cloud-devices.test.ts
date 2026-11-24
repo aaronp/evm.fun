@@ -6,8 +6,8 @@ import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry } from '../src/chain/registry'
-import { joinChain } from '../src/cloud/join'
-import { inviteDevice, multiUseWriterWarning, removeDevice } from '../src/cloud/devices'
+import { joinChain, joinPrefill } from '../src/cloud/join'
+import { inviteDevice, inviteShare, multiUseWriterWarning, removeDevice, singleLinkWarning } from '../src/cloud/devices'
 
 // The worker stand-in, as in cloud-join.test.ts: packages/node's router over in-process ChainHosts on bun:sqlite.
 const admin = privateKeyToAccount(generatePrivateKey())
@@ -103,4 +103,21 @@ test('follower status badges', async () => {
   expect(statusBadge({ kind: 'following', block: 9, behind: 3 })).toEqual({ text: '3 behind', tone: 'warn' })
   expect(statusBadge({ kind: 'removed', detail: '' })).toEqual({ text: 'removed', tone: 'danger' })
   expect(statusBadge({ kind: 'unreachable', detail: '' })).toEqual({ text: 'unreachable', tone: 'warn' })
+})
+
+const share = { base: 'https://x.test/app', nodeUrl: 'https://n.test', chainId: '0xabc', code: 'a&b #c' }
+test('inviteShare single link carries the code and returns no separate code', () => {
+  const r = inviteShare({ ...share, singleLink: true })
+  expect(r.code).toBeUndefined()
+  expect(joinPrefill(r.link.slice(r.link.indexOf('?')))).toEqual({ nodeUrl: 'https://n.test', chainId: '0xabc', code: 'a&b #c' })
+})
+test('inviteShare default returns a code-free link and the code', () => {
+  const r = inviteShare({ ...share, singleLink: false })
+  expect(r.code).toBe('a&b #c')
+  expect(r.link).not.toContain('code')
+  expect(r.link).not.toContain('%23c')
+})
+test('singleLinkWarning names the role', () => {
+  expect(singleLinkWarning('writer')).toBe("Anyone with this link can join as writer until it's used up or expires. Share it only somewhere private.")
+  expect(singleLinkWarning('reader')).toContain('join as reader')
 })

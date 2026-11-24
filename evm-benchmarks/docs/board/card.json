@@ -7,7 +7,7 @@
     "tone": "neutral"
   },
   "heading": {
-    "primary": "2/73",
+    "primary": "3/74",
     "label": "tasks done"
   },
   "legend": [
@@ -36,11 +36,11 @@
     "Backlog": 58,
     "Next": 13,
     "Doing": 0,
-    "Done": 2
+    "Done": 3
   },
   "source": {
     "label": "docs/board/board.md",
     "url": "https://aaronp.github.io/agile/?src=docs/board/board.md"
   },
-  "updated": "2026-11-23"
+  "updated": "2026-11-24"
 }

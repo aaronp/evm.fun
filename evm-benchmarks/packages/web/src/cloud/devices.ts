@@ -1,5 +1,6 @@
 // The Devices panel's admin actions on a cloud chain: invite a device with a code, remove a member.
 import type { Hex, LocalAccount } from 'viem'
+import { joinLink } from './join'
 import { GRANT_READER, GRANT_WRITER, accessTx, inviteTx, type Member, type NodeClient } from '@evmb/node/src/client'
 
 export type DeviceRole = 'reader' | 'writer'
@@ -7,6 +8,14 @@ export type DeviceRole = 'reader' | 'writer'
 /** Shown when a writer code can be used more than once (risk R55). */
 export const multiUseWriterWarning = (role: DeviceRole, uses: number): string | undefined =>
   role === 'writer' && uses > 1 ? 'Anyone who can read this chain could see a multi-use writer code once it is used. Prefer single-use.' : undefined
+
+/** The warning beside the "single join link" checkbox. */
+export const singleLinkWarning = (role: DeviceRole) =>
+  `Anyone with this link can join as ${role} until it's used up or expires. Share it only somewhere private.`
+
+/** What the invite wizard shows: a single link carries the code; otherwise a code-free link plus the code to send separately. */
+export const inviteShare = (o: { base: string; nodeUrl: string; chainId: string; code: string; singleLink: boolean }): { link: string; code?: string } =>
+  o.singleLink ? { link: joinLink(o.base, o.nodeUrl, o.chainId, o.code) } : { link: joinLink(o.base, o.nodeUrl, o.chainId), code: o.code.trim() }
 
 /** Commit an invite for `code` on chain `chainId`; `client` signs as `admin`. Only the code's hash goes on chain. */
 export async function inviteDevice(o: { client: NodeClient; chainId: string; admin: LocalAccount; code: string; ttlS: number; uses: number; role: DeviceRole }) {

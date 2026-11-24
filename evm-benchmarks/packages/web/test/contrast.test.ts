@@ -58,3 +58,13 @@ for (const theme of cssThemes) {
     }
   })
 }
+
+test('qr-fg on qr-bg is at least 7:1 and both tokens are the same in every theme', () => {
+  const ref = themeMap(cssThemes[0]!)
+  for (const theme of cssThemes) {
+    const t = themeMap(theme)
+    expect(t['qr-fg'] && t['qr-bg'], `${theme}: missing qr tokens`).toBeTruthy()
+    expect(ratio(t['qr-fg']!, t['qr-bg']!)).toBeGreaterThanOrEqual(7)
+    expect([t['qr-fg'], t['qr-bg']]).toEqual([ref['qr-fg'], ref['qr-bg']])
+  }
+})

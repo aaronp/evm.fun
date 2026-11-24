@@ -1050,3 +1050,23 @@ Each signed `GET /blocks` poll writes a request nonce and runs EVM `canRead` (pl
 | evm.fun followers poll every 5 (default), 15 or 60 s, or only on Sync now (Manual); polling pauses while the tab is hidden and backs off after failures (plan 18) | Preventive | Partial |
 | Cursor writes at most once a minute when idle; pages capped at 100 blocks | Preventive | Partial |
 | Cap or stream `state` (later) | Preventive | Partial |
+
+## R58 · A single join link leaks
+- impact: 3
+- likelihood: 2
+- target: 1x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+A join link made with "Create a single join link" carries the invite code, so anyone who gets the link (chat history, a shared screen, a photographed QR code) can join as the invited role until the code is used up or expires. (plan 19)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Off by default, with a warning naming the role beside the checkbox | Preventive | Partial |
+| The code is in the link's fragment (after `#`), so it never reaches a server or its logs | Preventive | Partial |
+| Invites default to reader with one use, and have an expiry (5 min, 1 h or 1 day) | Preventive | Partial |
+| The Join form removes the code from the address bar and history once read; opening a link never joins | Preventive | Partial |
+| The admin can revoke an unused code and remove a member | Corrective | Partial |
