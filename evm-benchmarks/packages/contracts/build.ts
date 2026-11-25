@@ -6,7 +6,7 @@ const root = import.meta.dir
 // Resolve OZ wherever bun hoisted it.
 const ozRoot = dirname(dirname(dirname(Bun.resolveSync('@openzeppelin/contracts/package.json', root))))
 
-const names = ['MintableToken', 'AtomicSwap', 'AssetToken', 'Swap', 'OrderBook', 'Settlement', 'Pool', 'HashLock', 'ChainAccess', 'Aliases']
+const names = ['MintableToken', 'AtomicSwap', 'AssetToken', 'Swap', 'OrderBook', 'Settlement', 'Pool', 'HashLock', 'ChainAccess', 'Aliases', 'AllowList', 'Onboarding']
 const sources = Object.fromEntries(
   names.map((n) => [`${n}.sol`, {content: readFileSync(join(root, 'src', `${n}.sol`), 'utf8')}]),
 )
@@ -21,12 +21,14 @@ const input = {
   },
 }
 
+// OZ imports resolve under ozRoot, local ones (e.g. "./IAllows.sol") under src
 const findImport = (path: string) => {
-  try {
-    return {contents: readFileSync(join(ozRoot, path), 'utf8')}
-  } catch {
-    return {error: `not found: ${path}`}
+  for (const dir of [ozRoot, join(root, 'src')]) {
+    try {
+      return {contents: readFileSync(join(dir, path), 'utf8')}
+    } catch {}
   }
+  return {error: `not found: ${path}`}
 }
 
 const out = JSON.parse(solc.compile(JSON.stringify(input), {import: findImport}))

@@ -9,6 +9,8 @@ import PoolJson from './artifacts/Pool.json'
 import HashLockJson from './artifacts/HashLock.json'
 import ChainAccessJson from './artifacts/ChainAccess.json'
 import AliasesJson from './artifacts/Aliases.json'
+import AllowListJson from './artifacts/AllowList.json'
+import OnboardingJson from './artifacts/Onboarding.json'
 
 export type Contract = {abi: Abi; bytecode: Hex}
 export const MintableToken = MintableTokenJson as Contract
@@ -21,3 +23,5 @@ export const Pool = PoolJson as Contract
 export const HashLock = HashLockJson as Contract
 export const ChainAccess = ChainAccessJson as Contract
 export const Aliases = AliasesJson as Contract
+export const AllowList = AllowListJson as Contract
+export const Onboarding = OnboardingJson as Contract
