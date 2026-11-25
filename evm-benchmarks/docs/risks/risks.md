@@ -1153,7 +1153,7 @@ A typed code (`let-sue-in`) or a generated 6-digit one can be guessed within its
 | Control | Type | Effectiveness |
 |---|---|---|
 | Valid for 1 hour by default (1 minute to 1 week), `uses` 1-1000; revoke at any time | Preventive | Partial |
-| 10 failed redeems per IP per chain per 10 minutes then `429`; every redeem and grant is on root | Detective | Partial |
+| 10 failed redeems per IP per 10 minutes then `429`; every redeem and grant is on root | Detective | Partial |
 | Root reads are closed to all but the root admin and readers it adds | Preventive | Partial |
 | Vouch code: 1 use, 10 minutes | Preventive | Partial |
 
@@ -1172,10 +1172,12 @@ Known limits (plan 24):
 - Two passphrase prompts at once hang the first. The startup "Read root" prompt (isIssuer) can overlap a deploy or follow prompt and stall root reads.
 - A returning user is asked for the passphrase on every load, because isIssuer reads root; cancelling leaves issuer=false without a message.
 - "Deployed and syncing" is shown even when follow is down.
+- Two tabs opened on first run can each set a different passphrase (the first-ever passphrase is accepted as is), leaving keys under two passphrases.
 
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
 | Encrypted at rest (WebCrypto only); a wrong passphrase throws `Wrong passphrase` and leaves storage untouched | Preventive | Strong |
 | The grant and plaintext key exist only inside a callback; Lock drops the in-memory signer | Preventive | Partial |
+| Auto-lock after 15 minutes idle drops the in-memory signer | Preventive | Partial |
 | Keep a copy of the key elsewhere: there is no recovery by design | Corrective | None yet |

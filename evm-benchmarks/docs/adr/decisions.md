@@ -1432,7 +1432,6 @@ Claude's call: outcomes are compared by status and logs (not state), so a tx tha
 - The chain ACL has three roles (t-152): read, write and deploy. Deploy (`GRANT_DEPLOY`, `ChainAccess.canDeploy`: a deployer or the admin) lets the submitting key create contracts. The worker checks it on the submitter, per tx, and refuses a creation (a tx with no `to`) from a submitter without it (`invalid`, "<signer> can't deploy contracts on this chain"). Factories are not checked: a contract may create contracts for any caller; apps govern that. `addDeployer` also adds a writer, and `removeWriter` also drops deploy. A chain whose `ChainAccess` predates the role has no `canDeploy`; there writers deploy (the fallback applies only when the function is absent, not on any other failure). evm.fun refuses a creation locally from a device without deploy.
 - Risks R59 and R60.
 
-
 ---
 id: ADR-0026
 title: "Deploy codes live in root's Onboarding contract; the worker asks root, and only root vouches"

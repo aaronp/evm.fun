@@ -11,3 +11,6 @@ Known limits (risk R63):
 - A returning user is asked for the passphrase on every load, because `isIssuer` reads root.
 - "Deployed and syncing" is shown even when follow is down.
 - `?code=` is lost if no key or workspace exists yet (passphrase cancelled on first run).
+- Two tabs opened on first run can each set a different passphrase.
+
+Keys lock after 15 minutes idle, or on Lock in the profile menu (the in-memory signer is dropped).

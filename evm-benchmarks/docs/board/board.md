@@ -1089,7 +1089,7 @@ See t-152 (ADR-0025): no deployer list; the deploy role is checked on the submit
 ```md
 Admins issue access codes on root (an `Onboarding` contract with an `AllowList` of issuers); anyone with a live code, or an issuer vouching, creates a chain on the worker, which asks root `isDeployAllowed`. First slice of the new app (`@evmb/app`, over `@evmb/workspace` and `@evmb/keys`). Design: [onboarding codes](docs/superpowers/specs/2026-11-25-onboarding-codes-design.md); ADR-0026; risks R62, R63. Aaron, 2026-11-25.
 
-**Known limits to fix:** two passphrase prompts at once hang the first (the startup isIssuer "Read root" prompt can overlap a deploy or follow prompt and stall root reads); a returning user is asked for the passphrase on every load; "Deployed and syncing" is shown even when follow is down (needs an `onState` and copy); `?code=` is lost if no key or workspace exists; a rename saved during Retry is overwritten.
+**Known limits to fix:** two passphrase prompts at once hang the first (the startup isIssuer "Read root" prompt can overlap a deploy or follow prompt and stall root reads); a returning user is asked for the passphrase on every load; "Deployed and syncing" is shown even when follow is down (needs an `onState` and copy); `?code=` is lost if no key or workspace exists; two tabs opened on first run can each set a different passphrase.
 ```
 
 ```dod
