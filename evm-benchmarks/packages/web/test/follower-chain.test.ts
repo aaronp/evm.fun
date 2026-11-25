@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, jest, test } from 'bu
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { keccak256, type LocalAccount } from 'viem'
 import { ChainHost, handle, type ChainHandleLike } from '@evmb/node/src/router'
-import { GRANT_READER, GRANT_WRITER, NodeClient, accessTx, claimTx, generateCode, inviteTx, setupTxs } from '@evmb/node/src/client'
+import { GRANT_DEPLOY, GRANT_READER, GRANT_WRITER, NodeClient, accessTx, claimTx, generateCode, inviteTx, setupTxs } from '@evmb/node/src/client'
 import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { Follower } from '@evmb/node/src/follower'
@@ -13,6 +13,20 @@ import { createContractsRegistry } from '../src/contracts/registry'
 import { createWebAssets } from '../src/assets/registry'
 import { pendingSummary, type FollowerStatus } from '../src/cloud/followerChain'
 import { getSyncInterval, setSyncInterval } from '../src/cloud/node'
+
+/** A socket that never reaches a server: tests open/close/drop it by hand. */
+class FakeWS {
+  static all: FakeWS[] = []
+  closed?: number
+  #l: Record<string, ((e: any) => void)[]> = {}
+  constructor(public url: string) { FakeWS.all.push(this) }
+  addEventListener(t: string, f: (e: any) => void) { (this.#l[t] ??= []).push(f) }
+  send() {}
+  close(code = 1000) { this.closed ??= code }
+  emit(t: string, e: any = {}) { for (const f of this.#l[t] ?? []) f(e) }
+}
+const open = () => FakeWS.all.filter((w) => w.closed === undefined)
+const until = async (c: () => boolean) => { for (let i = 0; i < 600 && !c(); i++) await new Promise((r) => setTimeout(r, 5)); expect(c()).toBe(true) }
 
 // The worker stand-in (as cloud-deploy.test.ts): packages/node's router over in-process ChainHosts on bun:sqlite.
 const admin = privateKeyToAccount(generatePrivateKey())
@@ -56,11 +70,13 @@ afterAll(() => {
 afterEach(() => {
   globalThis.fetch = realFetch
   jest.useRealTimers()
-  setSyncInterval(5)
+  setSyncInterval('live')
+  FakeWS.all = []
 })
 
 const keys = new Map<string, { account: LocalAccount; label: string }>([[admin.address, { account: admin, label: 'laptop' }], [phone.address, { account: phone, label: 'phone' }]])
-function env(o: { kv?: ReturnType<typeof createKv>; lock?: () => boolean; wasm?: () => Promise<any>; account?: (a: `0x${string}`) => { account: LocalAccount; label: string } | undefined } = {}) {
+function env(o: { kv?: ReturnType<typeof createKv>; lock?: () => boolean; lockWait?: (name: string, fn: () => Promise<void>, signal: AbortSignal) => void; wasm?: () => Promise<any>; account?: (a: `0x${string}`) => { account: LocalAccount; label: string } | undefined } = {}) {
+  FakeWS.all = []
   const kv = o.kv ?? createKv()
   const keySubs = new Set<() => void>()
   const stores = new Map<string, any>()
@@ -69,7 +85,7 @@ function env(o: { kv?: ReturnType<typeof createKv>; lock?: () => boolean; wasm?:
     kv,
     host: (id: string) => ({ persistence: { load: async () => stores.get(id) ?? null, save: async (s: any) => void stores.set(id, structuredClone(s)) } }),
     purge: async (id: string) => void stores.delete(id),
-    follower: { lock: o.lock, wasm: o.wasm ?? (async () => wasm), account: o.account ?? ((a) => keys.get(a)), onAccountsChange: (cb) => (keySubs.add(cb), () => void keySubs.delete(cb)) },
+    follower: { lock: o.lock, lockWait: o.lockWait, WebSocket: FakeWS as never, wasm: o.wasm ?? (async () => wasm), account: o.account ?? ((a) => keys.get(a)), onAccountsChange: (cb) => (keySubs.add(cb), () => void keySubs.delete(cb)) },
   })
   registry.watch((id) => events.push(id))
   return { kv, stores, registry, events, keysChanged: () => keySubs.forEach((cb) => cb()) }
@@ -178,26 +194,6 @@ describe('follower chains', () => {
     await registry.remove(h.info.id)
   })
 
-  test('hiding the tab drops the timer; showing it re-arms', async () => {
-    let state = 'visible', listener: (() => void) | undefined
-    g.document = { get visibilityState() { return state }, addEventListener: (_: string, f: () => void) => (listener = f), removeEventListener: () => (listener = undefined) }
-    try {
-      const { registry } = env()
-      jest.useFakeTimers()
-      const h = await addFollower(registry, { name: 'd', follows: follows() })
-      expect(jest.getTimerCount()).toBe(1)
-      state = 'hidden'
-      listener!()
-      expect(jest.getTimerCount()).toBe(0)
-      state = 'visible'
-      listener!()
-      expect(jest.getTimerCount()).toBe(1)
-      jest.useRealTimers()
-      await registry.remove(h.info.id)
-      expect(listener).toBeUndefined()
-    } finally { delete g.document }
-  })
-
   test('missing account → needs-key, no request sent', async () => {
     const { registry } = env()
     let calls = 0
@@ -224,34 +220,98 @@ describe('follower chains', () => {
     await registry.remove(h.info.id)
   })
 
-  test('the sync interval setting re-arms a running follower; manual stops the timer and syncNow still works', async () => {
-    expect(getSyncInterval()).toBe(5)
+  test('default setting is live and opens one socket', async () => {
+    expect(getSyncInterval()).toBe('live')
     const { registry } = env()
-    // the timer's syncs are seen as fetches (submits can't run under fake timers: the worker stand-in uses timers)
-    let calls = 0
-    globalThis.fetch = ((...a: Parameters<typeof fetch>) => (calls++, realFetch(...a))) as typeof fetch
-    jest.useFakeTimers()
     const h = await addFollower(registry, { name: 'd', follows: follows() })
-    expect(jest.getTimerCount()).toBe(1)
-    setSyncInterval(15)
-    expect(getSyncInterval()).toBe(15)
-    expect(jest.getTimerCount()).toBe(1)
-    const n = calls
-    jest.advanceTimersByTime(5_000) // the old 5 s timer was replaced: still pending, nothing ran
-    expect(jest.getTimerCount()).toBe(1)
-    jest.advanceTimersByTime(10_000)
-    expect(jest.getTimerCount()).toBe(0) // fired; re-armed once the sync lands
-    await syncNow(h) // joins the timer's sync
-    expect(calls).toBe(n + 1) // one GET /blocks
-    expect(jest.getTimerCount()).toBe(1)
+    await until(() => FakeWS.all.length === 1)
+    expect(FakeWS.all[0].url).toContain(`/chains/${cid}/subscribe`)
+    await syncNow(h)
+    expect(FakeWS.all.length).toBe(1)
+    await registry.remove(h.info.id)
+  })
+
+  test('a stored 15 reads as live', () => {
+    for (const v of ['5', '15', '60', 'junk']) { g.localStorage.setItem('evmb.syncInterval', v); expect(getSyncInterval()).toBe('live') }
+    g.localStorage.setItem('evmb.syncInterval', 'manual')
+    expect(getSyncInterval()).toBe('manual')
+    g.localStorage.removeItem('evmb.syncInterval')
+  })
+
+  test('manual opens no socket; Sync now still syncs', async () => {
     setSyncInterval('manual')
-    expect(jest.getTimerCount()).toBe(0)
-    jest.useRealTimers()
+    const { registry } = env()
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
     await mineBlocks(1)
     await syncNow(h)
+    expect(FakeWS.all).toEqual([])
     expect(await bn(h)).toBe((await cloudHead()).number)
     expect(status(h)).toMatchObject({ kind: 'following', behind: 0 })
     await registry.remove(h.info.id)
+  })
+
+  test('switching manual → live connects, live → manual closes it', async () => {
+    setSyncInterval('manual')
+    const { registry } = env()
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    expect(FakeWS.all).toEqual([])
+    setSyncInterval('live')
+    await until(() => open().length === 1)
+    setSyncInterval('manual')
+    expect(open()).toEqual([])
+    setSyncInterval('live')
+    await until(() => open().length === 1)
+    expect(FakeWS.all.length).toBe(2)
+    await registry.remove(h.info.id)
+  })
+
+  test('socket down shows offline with lastSynced and keeps pending txs; back up resyncs', async () => {
+    const { registry } = env()
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    await until(() => FakeWS.all.length === 1)
+    const ws = FakeWS.all[0]
+    ws.emit('open')
+    await until(() => status(h).kind === 'following')
+    const raw = await admin.signTransaction({ type: 'eip1559', chainId: 31337, nonce: Number(BigInt((await h.request('eth_getTransactionCount', [admin.address, 'latest'])) as string)), to: phone.address, value: 0n, gas: 30_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
+    await (h.approach as any).submit([raw]) // runs locally; its sync can't reach the cloud
+    expect((h.approach as any).pendingTxs().map((t: any) => t.status)).toEqual(['pending'])
+    ws.emit('close', { code: 1006 })
+    const off = status(h) as Extract<FollowerStatus, { kind: 'offline' }>
+    expect(off.kind).toBe('offline')
+    expect(typeof off.lastSynced).toBe('number')
+    expect(off.detail).toContain('Offline — last synced')
+    expect(off.detail).toContain('Changes are kept')
+    expect((h.approach as any).pendingTxs().map((t: any) => t.status)).toEqual(['pending'])
+    globalThis.fetch = realFetch
+    await until(() => FakeWS.all.length === 2) // backoff, then a fresh socket
+    FakeWS.all[1].emit('open')
+    await until(() => status(h).kind === 'following')
+    await registry.remove(h.info.id)
+  })
+
+  test('socket never opens but HTTP works: stays offline, no flap on retries', async () => {
+    const { registry } = env()
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    await until(() => FakeWS.all.length === 1)
+    FakeWS.all[0].emit('error') // failed connect: liveSync syncs, then backs off
+    await syncNow(h)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(status(h).kind).toBe('offline')
+    await until(() => FakeWS.all.length === 2)
+    FakeWS.all[1].emit('error')
+    await syncNow(h)
+    expect(status(h).kind).toBe('offline')
+    FakeWS.all[2]?.emit('open')
+    await registry.remove(h.info.id)
+  })
+
+  test('dispose closes the socket', async () => {
+    const { registry } = env()
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    await until(() => open().length === 1)
+    await registry.remove(h.info.id)
+    expect(open()).toEqual([])
   })
 
   test('a 401 → clock; a 404 → gone', async () => {
@@ -441,6 +501,24 @@ describe('follower store and writing tab', () => {
     await registry.close(id)
   })
 
+  test('a queued lock request takes over the moment the other tab lets go, with no sync asked for', async () => {
+    const kv = createKv()
+    const id = crypto.randomUUID()
+    await leavePending(kv, id)
+    const waits: { fn: () => Promise<void>; signal: AbortSignal }[] = []
+    const { registry } = env({ kv, lock: () => false, lockWait: (_n, fn, signal) => void waits.push({ fn, signal }) })
+    const h = await registry.open(id)
+    const ap = h.approach as any
+    expect(ap.canWrite()).toBe('Open in another tab: changes are made there.')
+    await syncNow(h); await syncNow(h)
+    expect(waits.length).toBe(1) // one waiting request, however many syncs
+    void waits[0]!.fn() // the browser grants the lock
+    for (let i = 0; i < 100 && ap.canWrite(); i++) await new Promise((r) => setTimeout(r, 50))
+    expect(ap.canWrite()).toBeUndefined()
+    await registry.close(id)
+    expect(waits[0]!.signal.aborted).toBe(true) // released on dispose
+  })
+
   test('a rejected locks.request is treated as not granted and does not hang sync', async () => {
     const nav = globalThis.navigator as any
     Object.defineProperty(nav, 'locks', { configurable: true, value: { request: () => Promise.reject(new Error('SecurityError')) } })
@@ -569,6 +647,63 @@ describe('writing from a follower', () => {
     expect(ap(h).notice()).toBe('This device can only read Shop.')
     await expect(h.send(await sign(reader, 0))).rejects.toThrow('This device can only read Shop.')
     expect(h.approach.pending!()).toBe(0)
+    await registry.remove(h.info.id)
+  })
+
+  test("a device without deploy: a creation send throws the local message, a call goes through", async () => {
+    const w = await member(GRANT_WRITER | GRANT_READER)
+    const { registry } = env({ lock: () => true, account: withKey(w) })
+    const h = await addFollower(registry, { name: 'Shop', follows: follows(w.address) })
+    const create = await w.signTransaction({ type: 'eip1559', chainId: 31337, nonce: 1, data: '0x00', value: 0n, gas: 100_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    await expect(h.send(create)).rejects.toThrow("This device can't deploy contracts on Shop.")
+    expect(h.approach.pending!()).toBe(0)
+    await h.send(await sign(w, 1))
+    expect(h.approach.pending!()).toBe(1)
+    await registry.remove(h.info.id)
+  })
+
+  test('a deploy refused locally is re-read: after the admin grants deploy, the next creation goes through', async () => {
+    const w = await member(GRANT_WRITER | GRANT_READER)
+    const { registry } = env({ lock: () => true, account: withKey(w) })
+    const h = await addFollower(registry, { name: 'Shop', follows: follows(w.address) })
+    const create = (nonce: number) => w.signTransaction({ type: 'eip1559', chainId: 31337, nonce, data: '0x00', value: 0n, gas: 100_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    await expect(h.send(await create(1))).rejects.toThrow("can't deploy contracts on Shop")
+    const c = adminClient()
+    await c.submit(cid, [await accessTx(admin, await c.nonce(cid), access, 'addDeployer', w.address)])
+    await syncNow(h)
+    await h.send(await create(1))
+    expect(h.approach.pending!()).toBe(1)
+    await registry.remove(h.info.id)
+  })
+
+  test('a malformed raw tx is not refused by the local deploy check', async () => {
+    const w = await member(GRANT_WRITER | GRANT_READER)
+    const { registry } = env({ lock: () => true, account: withKey(w) })
+    const h = await addFollower(registry, { name: 'Shop', follows: follows(w.address) })
+    await syncNow(h) // deploy === false is known before the malformed send
+    await h.send(await sign(w, 1)).catch(() => {})
+    await expect(h.send('0xdeadbeef' as never)).rejects.toThrow(/invalid RLP/) // the local node's refusal, not the pre-check's parse error
+    await registry.remove(h.info.id)
+  })
+
+  test('deploy removed with a creation pending: it settles refused with the reason, the call is unaffected', async () => {
+    const w = await member(GRANT_WRITER | GRANT_READER | GRANT_DEPLOY)
+    const { registry } = env({ lock: () => true, account: withKey(w) })
+    const h = await addFollower(registry, { name: 'Shop', follows: follows(w.address) })
+    const c = adminClient()
+    await c.submit(cid, [await accessTx(admin, await c.nonce(cid), access, 'removeDeployer', w.address)])
+    const create = await w.signTransaction({ type: 'eip1559', chainId: 31337, nonce: 1, data: '0x00', value: 0n, gas: 100_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    await h.send(create)
+    await h.send(await sign(w, 2))
+    await syncNow(h)
+    await syncNow(h)
+    const txs = ap(h).pendingTxs()
+    expect(txs.find((t: any) => t.status === 'refused')).toMatchObject({ status: 'refused', reason: `${w.address.toLowerCase()} can't deploy contracts on this chain` })
+    expect(txs.filter((t: any) => t.status === 'refused')).toHaveLength(1)
+    expect(txs.map((t: any) => t.status)).toContain('confirmed') // the call, re-signed at the nonce the refusal freed
+    expect(ap(h).canWrite()).toBeUndefined() // still a writer
+    const create2 = await w.signTransaction({ type: 'eip1559', chainId: 31337, nonce: 3, data: '0x00', value: 0n, gas: 100_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    await expect(h.send(create2)).rejects.toThrow("This device can't deploy contracts on Shop.") // learned from the refusal
     await registry.remove(h.info.id)
   })
 

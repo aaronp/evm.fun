@@ -73,10 +73,11 @@ test('an expired code is refused', () => setup(async ({acc, blockEnv}) => {
   expect((await acc(joiner, 'claim', [code])).status).toBe('reverted')
 }), 60_000)
 
-test('invite with grants 0 or 8 reverts; 7 is fine', () => setup(async ({acc}) => {
+test('invite with grants 0 or 16 reverts; 7 and 15 are fine', () => setup(async ({acc}) => {
   expect((await acc(admin, 'invite', [hash, 60n, 1, 0])).status).toBe('reverted')
-  expect((await acc(admin, 'invite', [hash, 60n, 1, 8])).status).toBe('reverted')
+  expect((await acc(admin, 'invite', [hash, 60n, 1, 16])).status).toBe('reverted')
   expect((await acc(admin, 'invite', [hash, 60n, 1, 7])).status).toBe('success')
+  expect((await acc(admin, 'invite', [hash, 60n, 1, 15])).status).toBe('success')
 }), 60_000)
 
 test('Aliases: only the ChainAccess admin can register', () => setup(async ({send, aliases, access}) => {
@@ -104,4 +105,51 @@ test('expiry boundary: claim at expiry succeeds, at expiry+1 is refused', () => 
   expect((await acc(joiner, 'claim', [code])).status).toBe('success')
   blockEnv.timestamp += 1n
   expect((await acc(joiner, 'claim', [code])).status).toBe('reverted')
+}), 60_000)
+
+test('deploy invite adds writer and deployer', () => setup(async ({acc, read}) => {
+  await acc(admin, 'invite', [hash, 3600n, 1, 8])
+  expect((await acc(joiner, 'claim', [code])).status).toBe('success')
+  expect(await read('writers')).toEqual([joiner.address])
+  expect(await read('deployers')).toEqual([joiner.address])
+  expect(await read('canDeploy', [joiner.address])).toBe(true)
+  expect(await read('readers')).toEqual([])
+}), 60_000)
+
+test('a writer or reader invite never grants deploy', () => setup(async ({acc, read}) => {
+  await acc(admin, 'invite', [hash, 3600n, 1, 7])
+  await acc(joiner, 'claim', [code])
+  expect(await read('canDeploy', [joiner.address])).toBe(false)
+}), 60_000)
+
+test('removeDeployer keeps writer', () => setup(async ({acc, read}) => {
+  await acc(admin, 'addWriter', [joiner.address])
+  await acc(admin, 'addDeployer', [joiner.address])
+  expect(await read('canDeploy', [joiner.address])).toBe(true)
+  expect((await acc(joiner, 'removeDeployer', [joiner.address])).status).toBe('reverted')
+  await acc(admin, 'removeDeployer', [joiner.address])
+  expect(await read('canDeploy', [joiner.address])).toBe(false)
+  expect(await read('canWrite', [joiner.address])).toBe(true)
+}), 60_000)
+
+test('admin canDeploy without being listed', () => setup(async ({read}) => {
+  expect(await read('canDeploy', [admin.address])).toBe(true)
+  expect(await read('deployers')).toEqual([])
+}), 60_000)
+
+test('removeWriter also drops deploy; a plain writer invite does not bring it back', () => setup(async ({acc, read}) => {
+  await acc(admin, 'invite', [hash, 3600n, 1, 8])
+  await acc(joiner, 'claim', [code])
+  await acc(admin, 'removeWriter', [joiner.address])
+  expect(await read('canDeploy', [joiner.address])).toBe(false)
+  expect(await read('deployers')).toEqual([])
+  await acc(admin, 'invite', [hash, 3600n, 1, 2])
+  await acc(joiner, 'claim', [code])
+  expect(await read('canWrite', [joiner.address])).toBe(true)
+  expect(await read('canDeploy', [joiner.address])).toBe(false)
+}), 60_000)
+
+test('addDeployer also makes the key a writer', () => setup(async ({acc, read}) => {
+  await acc(admin, 'addDeployer', [joiner.address])
+  expect(await read('canWrite', [joiner.address])).toBe(true)
 }), 60_000)

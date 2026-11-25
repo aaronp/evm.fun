@@ -3,6 +3,7 @@ import { keccak256, toBytes } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { ChainHost, handle, type ChainHandleLike } from '../src/router'
 import { MAX_SUBMIT_BYTES, NodeClient, NodeError, accessTx, claimTx, codeHash, inviteTx, setupTxs, GRANT_READER, GRANT_WRITER, GRANT_CREATE_CHAIN } from '../src/client'
+import { signRequest } from '../src/auth'
 import { bunSql } from './bunSql'
 import { wasm } from './workload'
 import { createNode } from 'webevm'
@@ -162,5 +163,62 @@ describe('device routes', () => {
     expect((await find()).name).toBe('Café tablet ☕')
     const res = await fetch(new URL(`/chains/${cid}/nodes`, url), { headers: { 'x-node-name': '%E0%A4%A' } })
     expect(res.status).toBe(401) // unsigned, but the router must not 500 on a bad escape
+  })
+})
+
+describe('live subscribe', () => {
+  const heads: number[] = []
+  const lh = new ChainHost(bunSql(), wasm, { rootAdmin: admin.address, chain: chainHost, onHead: (h) => heads.push(h.number) })
+  let lcid = '', lAccess: `0x${string}`
+  const send = async (who: typeof admin, method: string, path: string, body = '') => {
+    const u = new URL(path, 'http://x')
+    const s = await signRequest(who, method, u, body)
+    return lh.serve({ method, url: u.href, body, ...s, ip: 'x' })
+  }
+  const sub = (who: typeof admin, p = `/chains/${lcid}/subscribe`) => send(who, 'GET', p)
+  beforeAll(async () => {
+    lcid = 'live-chain'
+    const out = await lh.create(lcid, admin.address.toLowerCase(), dump, await setupTxs(admin, 0, 31337))
+    expect(out.status).toBe(201)
+    lAccess = lh.service!.access
+  })
+
+  test('subscribe without upgrade → 426', async () => {
+    const res = await handle(new Request(`http://x/chains/${lcid}/subscribe`), { chain: chainHost })
+    expect(res.status).toBe(426)
+    expect(await res.json()).toEqual({ error: 'expected a websocket upgrade' })
+  })
+
+  test('host GET subscribe: reader → 200 {tag, head}; non-reader 403; replay 401; unknown chain 404', async () => {
+    const r = await sub(admin)
+    expect(r.status).toBe(200)
+    expect(r.body).toEqual({ tag: admin.address.toLowerCase(), head: lh.service!.head() })
+    expect((await sub(stranger)).status).toBe(403)
+    const u = new URL(`http://x/chains/${lcid}/subscribe`), s = await signRequest(admin, 'GET', u, '')
+    const q = { method: 'GET', url: u.href, body: '', ...s, ip: 'x' }
+    expect((await lh.serve(q)).status).toBe(200)
+    expect((await lh.serve(q)).status).toBe(401)
+    const other = new ChainHost(bunSql(), wasm, { rootAdmin: admin.address, chain: chainHost })
+    const u2 = new URL('http://x/chains/nope/subscribe')
+    expect(await other.serve({ method: 'GET', url: u2.href, body: '', ...(await signRequest(admin, 'GET', u2, '')), ip: 'x' })).toEqual({ status: 404, body: { error: 'no such chain' } })
+  })
+
+  test('onHead fires once after a submit mines a block, not after GET blocks; and after join', async () => {
+    const n0 = heads.length
+    await send(admin, 'GET', `/chains/${lcid}/blocks?after=0`)
+    await sub(admin)
+    expect(heads.length).toBe(n0)
+    const nonce = await lh.service!.nonceOf(admin.address)
+    const tx = await accessTx(admin, nonce, lAccess, 'setReadOpen', false)
+    expect((await send(admin, 'POST', `/chains/${lcid}/submit`, JSON.stringify({ txs: [tx] }))).status).toBe(200)
+    expect(heads.length).toBe(n0 + 1)
+    expect(heads.at(-1)).toBe(lh.service!.head().number)
+    const n1 = heads.length
+    const code = 'live-join'
+    await send(admin, 'POST', `/chains/${lcid}/submit`, JSON.stringify({ txs: [await inviteTx(admin, nonce + 1, lAccess, code, 600, 1, GRANT_READER)] }))
+    expect(heads.length).toBe(n1 + 1)
+    const j = await send(other, 'POST', `/chains/${lcid}/join`, JSON.stringify({ claim: await claimTx(other, 0, code, lAccess) }))
+    expect(j.status).toBe(200)
+    expect(heads.length).toBe(n1 + 2)
   })
 })

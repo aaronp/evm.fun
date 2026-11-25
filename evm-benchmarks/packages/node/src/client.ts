@@ -9,6 +9,7 @@ import { WORDS } from './words'
 export const GRANT_READER = 1
 export const GRANT_WRITER = 2
 export const GRANT_CREATE_CHAIN = 4
+export const GRANT_DEPLOY = 8
 /**
  * Largest POST /chains body the worker takes (413 above it; checked before auth). The root DO forwards the dump to the
  * new chain's DO over RPC and the 201 carries the new dump back (Workers RPC messages are capped at 32 MiB), so 8 MiB
@@ -39,8 +40,8 @@ export interface RemoteChainInfo { chainId: string; head: BlockSummary; admin: A
 export interface CodeRecord { hash: Hex; expiry: number; usesLeft: number; redeemed: { by: Address; chainId: string; at: number }[] }
 /** A block as GET /chains/:id/blocks serves it: header, raw txs, receipts. */
 export type BlockRecord = StoredBlock
-export interface Member { address: Address; role: 'admin' | 'writer' | 'reader'; name?: string; block?: number; behind?: number; seenAt?: number }
-export interface NodesView { head: BlockSummary; admin: Address; readOpen: boolean; members: Member[] }
+export interface Member { address: Address; role: 'admin' | 'writer' | 'reader'; deploy: boolean; name?: string; block?: number; behind?: number; seenAt?: number }
+export interface NodesView { head: BlockSummary; admin: Address; readOpen: boolean; /** false on a chain whose ChainAccess predates the deploy role (writers deploy) */ deployRole: boolean; members: Member[] }
 type RootInfo = { chainId: 'root'; admin: Address; access: Address; head: number }
 
 export const codeHash = (code: string): Hex => keccak256(toBytes(code))
@@ -70,7 +71,7 @@ export const claimTx = (account: LocalAccount, nonce: number, code: string, acce
 export const inviteTx = (account: LocalAccount, nonce: number, access: Address, code: string, ttlS: number, uses: number, grants = GRANT_CREATE_CHAIN) =>
   call(account, nonce, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: 'invite', args: [codeHash(code), BigInt(ttlS), uses, grants] }))
 
-export const accessTx = (account: LocalAccount, nonce: number, access: Address, fn: 'removeReader' | 'removeWriter' | 'setReadOpen' | 'revokeInvite', arg: Address | boolean | Hex) =>
+export const accessTx = (account: LocalAccount, nonce: number, access: Address, fn: 'removeReader' | 'removeWriter' | 'addDeployer' | 'removeDeployer' | 'setReadOpen' | 'revokeInvite', arg: Address | boolean | Hex) =>
   call(account, nonce, access, encodeFunctionData({ abi: ChainAccess.abi, functionName: fn, args: [arg] } as never))
 
 export class NodeError extends Error {
@@ -101,6 +102,16 @@ export class NodeClient {
     } finally { clearTimeout(timer) }
     if (!res.ok) throw new NodeError(res.status, (out as { error?: string }).error ?? res.statusText)
     return out as T
+  }
+
+  /** A `ws(s):` URL for GET /chains/:id/subscribe, signed in its query (a socket can't carry headers). */
+  async subscribeUrl(chainId: string) {
+    if (!this.account) throw new Error('this request needs a signing account')
+    const url = new URL(`/chains/${chainId}/subscribe`, this.baseUrl)
+    const s = await signRequest(this.account, 'GET', url, '')
+    for (const [k, v] of Object.entries(s)) url.searchParams.set(k, v)
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    return url.href
   }
 
   health() { return this.req<{ ok: true; root: null | RootInfo }>('GET', '/health', undefined, false) }

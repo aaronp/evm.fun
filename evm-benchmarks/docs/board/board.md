@@ -10,26 +10,67 @@ effects.complete: random
 
 ## Backlog
 
-### Followers: streaming instead of polling
-- id: t-144
-- parent: t-112
-- tags: chains, cloudflare, size-M
+### Chain workspace: an app for people, not developers
+- id: t-151
+- tags: outcome, chains, web, size-L
 - history:
-  - Backlog @ 2026-11-23T20:46:23Z
+  - Backlog @ 2026-11-24T20:43:30Z
 
 ```md
-Followers pull new blocks on demand: the cloud node pushes each new head over a hibernating WebSocket (proved in the t-128 spike), so devices stop polling. Until then polling is configurable per browser (5 s / 15 s / 60 s / Manual, plus Sync now) — plan 18. Cuts the per-poll nonce write and read check (risk R57). Aaron, 2026-11-23.
+A separate app (not evm.fun; evm.fun stays the developer playground) where people create chains, deploy them, give people, groups and devices read/write/deploy access, add contracts from a marketplace, and read their data over REST: a programmable database with easy reads. Design: [Chain workspace](https://claude.ai/code/artifact/76120764-ecd9-4317-a5ee-f6fde6920bdf) (chains list, chain dashboard, contract studio, chain settings, deploy with a one-time code, access picker, contacts & groups). Aaron, 2026-11-24.
+
+Order: deploy role (t-152) → followers by subscription (t-144) → governance allow-lists and contacts (t-147, t-143) → indexer (t-153) → the app (t-154). SpacetimeDB: the spike (t-155) says viable; not built until per-database cost is measured on a paid account (Aaron, 2026-11-25). Where it lives (e.g. mychain.dev) to settle with t-142.
+```
+
+```dod
+- [ ] t-152, t-147, t-143, t-153 and t-154 done
+- [ ] Someone who isn't a developer creates, deploys and shares a chain and reads a contract's data over REST, unaided
+```
+
+### Indexer: REST reads with their own access
+- id: t-153
+- parent: t-151
+- tags: chains, views, size-M
+- history:
+  - Backlog @ 2026-11-24T20:43:30Z
+
+```md
+Serve chain data as plain REST JSON at named routes (`/chains/:id/<alias>/…`), each with its own read rules, separate from chain reads. Port the views spike (`docs/spikes/cf-views.md`: aliases, recipes, `access-controls/latest`) into `packages/node`; recipes for the self-describing contract, ERC20 and the key/value store. t-139 (the key/value contract and its view) is its first use.
+```
+
+```dod
+- [ ] Aliases and their routes served by the worker; a key without access is refused, open reads make it a plain GET
+- [ ] Recipes: self-describing, ERC20, key/value
+- [ ] Docs (t-137)
+```
+
+### Chain workspace screens
+- id: t-154
+- parent: t-151
+- tags: web, size-L
+- history:
+  - Backlog @ 2026-11-24T20:43:30Z
+
+```md
+Build the [Chain workspace design](https://claude.ai/code/artifact/76120764-ecd9-4317-a5ee-f6fde6920bdf) as its own app on `packages/node` and `packages/contracts` (shared parts of `packages/web` where they fit): chains list, chain dashboard, contract studio (marketplace + create your own), chain settings (chain access, contract permissions, devices, deployment), deploy with a one-time code, access picker, contacts & groups. Follow the mockups faithfully.
+```
+
+```dod
+- [ ] Every board in the design works against a local worker
+- [ ] Tokens only, three themes (or the design's), phone width, contrast tests
 ```
 
 ### Device bookkeeping contract
 - id: t-143
-- parent: t-112
+- parent: t-151
 - tags: chains, access, size-M
 - history:
   - Backlog @ 2026-11-23T19:08:02Z
 
 ```md
 Users record what and where each device key is ("my work computer", "the family tablet") in a contract on the chain itself, so every device and view sees the same names. Until then a device's name is the `x-node-name` its follower sends, kept with its cursor on the cloud node (devices design). Idea from Aaron, 2026-11-23.
+
+**Chain workspace (t-151):** this becomes the design's **Contacts** contract: people and devices with their public keys (added by hand or fetched from a URL), which the access picker resolves.
 ```
 
 ### Move evm.fun to mychain.dev
@@ -40,7 +81,7 @@ Users record what and where each device key is ("my work computer", "the family 
   - Backlog @ 2026-11-23T18:00:00Z
 
 ```md
-evm.fun is served at `aaronp.github.io/evm.fun/`. Serve it at `mychain.dev` (the worker's CORS already allows `https://mychain.dev`).
+evm.fun is served at `aaronp.github.io/evm.fun/`. Serve it at `mychain.dev` (the worker's CORS already allows `https://mychain.dev`). **Open (2026-11-24):** the Chain workspace app (t-151) is separate from evm.fun and may be the better fit for mychain.dev; decide which goes where before doing this.
 
 Aaron's DNS steps: in Cloudflare (once `mychain.dev` is a zone, t-134), add a `CNAME` record `mychain.dev` (or `www`) → `aaronp.github.io` (DNS only), then repo Settings → Pages → Custom domain `mychain.dev`, and tick Enforce HTTPS once the certificate is issued. The Pages build adds a `CNAME` file containing `mychain.dev` to the published folder (e.g. `packages/web/public/CNAME`) so each deploy keeps the setting.
 
@@ -96,13 +137,15 @@ Also found in the access spike (129e7fd): webevm 0.9.1 `loadState` keeps account
 
 ### Governance.sol: a self-governed allow-list as ChainAccess admin
 - id: t-147
-- parent: t-112
+- parent: t-151
 - tags: chains, contracts, size-M
 - history:
   - Backlog @ 2026-11-24T12:00:00Z
 
 ```md
 The chain ACL checks only the submitting key; what a tx's sender may do is up to the contracts (ADR-0025). A `Governance.sol` that holds an allow-list and votes members in and out, and is itself the `ChainAccess` admin, so the owner key is no longer the single authority.
+
+**Chain workspace (t-151):** allow-lists are reusable: other contracts (key/value store, ERC20, escrow) point at a governance allow-list for who may act, instead of keeping their own; the design's "groups" are these allow-lists.
 ```
 
 ```dod
@@ -1017,6 +1060,8 @@ Proven in the CF spike: base fee 0, a 0-ETH key transacts ([docs/spikes/cf-acces
 
 ```md
 Contract creation is refused unless the sender is on the chain's deployer list (held in chain state, enforced at admission on approaches 01 and 02). Done when a non-listed account's deploy is refused with a clear error and a listed one succeeds.
+
+Superseded by t-152 (ADR-0025): there is no deployer list in chain state; the deploy role is checked on the submitter.
 ```
 
 ### Chain owner admin view
@@ -1028,9 +1073,53 @@ Contract creation is refused unless the sender is on the chain's deployer list (
 
 ```md
 The owner sees and edits the chain's policy: gas mode, deployers. Done when the owner can add/remove a deployer from the Chains page and the change applies immediately.
+
+See t-152 (ADR-0025): no deployer list; the deploy role is checked on the submitter, and the Devices panel grants and removes it.
 ```
 
 ## Doing
+
+### Followers: streaming instead of polling
+- id: t-144
+- parent: t-112
+- tags: chains, cloudflare, size-M
+- history:
+  - Backlog @ 2026-11-23T20:46:23Z
+  - Doing @ 2026-11-25T09:07:26Z
+
+```md
+Followers pull new blocks on demand: the cloud node pushes each new head over a hibernating WebSocket (proved in the t-128 spike), so devices stop polling. Until then polling is configurable per browser (5 s / 15 s / 60 s / Manual, plus Sync now) — plan 18. Cuts the per-poll nonce write and read check (risk R57). Aaron, 2026-11-23.
+
+**Next (Aaron, 2026-11-25):** after the SpacetimeDB spike (t-155) showed subscription followers working, adopt the subscription model on Cloudflare now: the same push-a-block shape a SpacetimeDB destination would use later.
+```
+
+```dod
+- [x] Worker pushes heads (e2e)
+- [x] liveSync (Bun follower, e2e)
+- [x] evm.fun Live/Manual, polling removed
+- [x] Tests pass (`bun test packages/node`, follower-chain, web:build)
+- [ ] Checked in a browser (two browsers live; offline and back; Manual shows no socket; switching back without reload; removed device; three themes, phone width)
+```
+
+### Deploy role: read, write and deploy
+- id: t-152
+- parent: t-151
+- tags: chains, access, size-S
+- history:
+  - Backlog @ 2026-11-24T20:43:30Z
+  - Doing @ 2026-11-24T21:39:34Z
+
+```md
+The chain ACL gains a third role: **deploy** = may create contracts (a tx with no `to`). Read = read chain data; write = submit txs; deploy = submit contract creations. `ChainAccess` gets `deployers()`/`canDeploy`, invites grant it (`GRANT_DEPLOY`), the worker refuses a creation tx from a submitter without it, the Follower refuses it locally, and the `ACL` interface reports it.
+```
+
+```dod
+- [x] A writer without deploy is refused a contract creation (cloud and locally); with deploy it is mined
+- [x] Invites and the Devices panel can grant deploy
+- [x] ADR-0025 updated
+- [x] Tests pass (packages/node 149, follower-chain 44, cloud-devices 14; web:build ok)
+- [ ] Checked in a browser: invite as Writer shows "Can deploy contracts" (hidden for Reader); join and deploy a contract works; a writer invited without it sees the local refusal while a normal send works; the Devices table shows the deploy badge; Remove deploy drops the badge and the device still writes; three themes and phone width (actions cell wraps)
+```
 
 ### Get started: filter walkthroughs by text and tag
 - id: t-146
@@ -1107,6 +1196,24 @@ Browser checklist (Aaron; also in `.superpowers/sdd/2026-11-24-plan21-follow-and
 ```
 
 ## Done
+
+### Spike: SpacetimeDB as a deploy destination
+- id: t-155
+- parent: t-151
+- tags: chains, spike, size-S
+- history:
+  - Backlog @ 2026-11-24T20:43:30Z
+  - Done @ 2026-11-25T12:00:00Z
+
+```md
+Can a chain deploy to SpacetimeDB as well as Cloudflare? Find out whether revm can run inside a SpacetimeDB module (wasm) or whether SpacetimeDB only stores chain data with execution elsewhere; cost, limits, auth model, and how followers would sync. Throwaway, local only.
+
+**Result (2026-11-25, branch `spike-spacetimedb` b427bb4, report `docs/spikes/stdb.md` there):** viable. revm runs in a reducer (TS module on revm-wasm 0.3.1, or Rust on revm 43); block hashes and state roots match `nodeOptions` over 83 blocks; a subscribed client gets blocks pushed and verifies them, no polling. webevm itself (async) can't run in a reducer, so `ChainNode` isn't reused as is. Access: EIP-191 checks work in a reducer; device identity linked to its address once, roles from `ChainAccess`; closed reads need private tables + views. ~5 ms/tx, ~20–29 ms per 25-tx block locally. **Decision (Aaron):** not built yet — finish the Cloudflare path (t-152…t-154), adopt the subscription model now (t-144), revisit after measuring per-database cost on a paid maincloud account. Found R61 (block hash doesn't commit to txs/state).
+```
+
+```dod
+- [x] Spike report in `docs/spikes/` with a recommendation
+```
 
 ### web: static deploy (GitHub Pages)
 - id: t-16

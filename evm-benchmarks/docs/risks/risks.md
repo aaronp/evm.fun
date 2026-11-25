@@ -1043,12 +1043,13 @@ Every chain uses chainId 31337, so a tx an admin signs on one chain is valid on 
 - driver: Claude
 - approver: Aaron
 
-Each signed `GET /blocks` poll writes a request nonce and runs EVM `canRead` (plus a membership check) in the chain's Durable Object, so many devices polling often add up. `GET /state` returns the whole state with no size cap. (plan 17)
+Each signed `GET /blocks` writes a request nonce and runs EVM `canRead` (plus a membership check) in the chain's Durable Object, so many devices polling often add up; live followers (plan 23) fetch only per new block. `GET /state` returns the whole state with no size cap. The signed subscribe URL is single-use (nonce) and expires with the 300 s skew window. (plan 17)
 
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
-| evm.fun followers poll every 5 (default), 15 or 60 s, or only on Sync now (Manual); polling pauses while the tab is hidden and backs off after failures (plan 18) | Preventive | Partial |
+| evm.fun followers poll every 5 (default), 15 or 60 s, or only on Sync now (Manual); polling pauses while the tab is hidden and backs off after failures (plan 18); replaced by Live (below) | Preventive | Partial |
+| Live followers: no idle polls; a GET /blocks only per new block (plan 23) | Preventive | Partial |
 | Cursor writes at most once a minute when idle; pages capped at 100 blocks | Preventive | Partial |
 | Cap or stream `state` (later) | Preventive | Partial |
 
@@ -1115,3 +1116,20 @@ The cloud mines txs in arrival order. A tx that is still valid after another dev
 | Outcomes are compared by status and logs, so a tx whose result changed shows as conflicted | Detective | Partial |
 | A tx that depends on an earlier conflicted one is marked `dependsOn` | Detective | Partial |
 | Contracts that need it check a version or expected value and revert on a mismatch | Preventive | Partial |
+
+## R61 · A block hash doesn't commit to its txs or state
+- impact: 3
+- likelihood: 2
+- target: 3x1
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+webevm hashes a block's header before executing it, so the block hash covers neither the txs nor the resulting state root. A follower that only compared hashes would accept a block with altered txs. Found in the SpacetimeDB spike (t-155); applies to the Cloudflare node too.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Followers replay every block and compare the state root (and per-tx outcomes) with the cloud's | Detective | Strong |
+| Include a tx root and the post-state root in the header before hashing (webevm change or our own header) | Preventive | Strong |

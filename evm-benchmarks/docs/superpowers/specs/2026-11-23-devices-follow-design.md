@@ -10,6 +10,8 @@ the chain and keeps up with it, and everyone can see which devices there are and
 take a device out again. This is "A: follow and show" (Aaron, 2026-11-23); "B: follow and use" (writing from any
 device through the cloud node) comes next.
 
+> Roles: a device is a reader, writer, or writer with deploy (may create contracts); see ADR-0025 and the [deploy role design](2026-11-25-deploy-role-design.md).
+
 ## Decided with Aaron
 
 - **Scope A now, B next.** In A, devices follow and show; no playground page writes to a deployed chain. B (follow and use) is now done in evm.fun.

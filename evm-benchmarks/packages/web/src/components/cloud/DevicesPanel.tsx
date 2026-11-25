@@ -3,7 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { NodeClient, type Member, type NodesView } from '@evmb/node/src/client'
 import type { ChainHandle } from '../../chain/handle'
 import { ago, followerStatus, followerTxs, pendingSummary, statusBadge, type FollowerStatus } from '../../cloud/followerChain'
-import { removeDevice } from '../../cloud/devices'
+import { grantDeploy, removeDeploy, removeDevice } from '../../cloud/devices'
 import { joinLink } from '../../cloud/join'
 import { accounts } from '../../store/accounts'
 import { useApp } from '../../state'
@@ -27,7 +27,7 @@ export function FollowerBadge({ chain }: { chain?: ChainHandle }) {
   return <Badge variant={b.tone} title={s.kind === 'following' ? `Block #${s.block}` : s.detail}>{b.text}</Badge>
 }
 
-/** Sync a follower now (every sync-interval mode, Manual included). */
+/** Sync a follower now (Live and Manual alike). */
 export const syncNow = (h: ChainHandle) => (h.approach as unknown as { syncNow(): Promise<void> }).syncNow()
 
 /** Status line for a follower's chain card, with what can be done about it (`onReload`: drop the copy and boot it again from the cloud's state). */
@@ -53,8 +53,7 @@ export function FollowerStatusLine({ chain, onDelete, onReload }: { chain: Chain
 
 /**
  * Devices on a follower's cloud chain: each member's name, role and position. The chain's admin (this browser's follow
- * account) can invite a device and remove members. Refreshes when the follower's head or status changes (its sync
- * interval) and on Sync now: no polling of its own.
+ * account) can invite a device and remove members. Refreshes when the follower's head or status changes (live updates) and on Sync now: no polling of its own.
  */
 export function DevicesPanel({ chain }: { chain: ChainHandle }) {
   const { balanceTick } = useApp()
@@ -86,7 +85,7 @@ export function DevicesPanel({ chain }: { chain: ChainHandle }) {
       actions={<Button variant="ghost" size="sm" disabled={syncing} onClick={sync}>{syncing ? 'Syncing…' : 'Sync now'}</Button>}>
       {err && <div className="p-4"><Notice>{`Couldn't list devices: ${err}`}</Notice></div>}
       {view && <Members view={view} me={f.account} admin={isAdmin && client && signer ? { client, signer, chainId: f.chainId, after: load } : undefined} />}
-      {isAdmin && client && signer && <InviteWizard client={client} signer={signer} nodeUrl={f.nodeUrl} chainId={f.chainId} />}
+      {isAdmin && client && signer && <InviteWizard deployRole={view.deployRole} client={client} signer={signer} nodeUrl={f.nodeUrl} chainId={f.chainId} />}
     </Panel>
   )
 }
@@ -113,6 +112,18 @@ function Members({ view, me, admin }: { view: NodesView; me: string; admin?: Adm
     } finally { setBusy(false) }
   }
 
+  async function setDeploy(m: Member, grant: boolean) {
+    if (!admin) return
+    setBusy(true); setFlash(undefined)
+    try {
+      await (grant ? grantDeploy : removeDeploy)({ client: admin.client, chainId: admin.chainId, admin: admin.signer, member: m })
+      setFlash({ tone: 'success', text: `${label(m)} ${grant ? 'can now' : 'can no longer'} deploy contracts.` })
+      await admin.after()
+    } catch (e) {
+      setFlash({ tone: 'warn', text: `Couldn't ${grant ? 'grant' : 'remove'} deploy ${grant ? 'to' : 'from'} ${label(m)}: ${message(e)}` })
+    } finally { setBusy(false) }
+  }
+
   return (
     <>
       <Table>
@@ -129,11 +140,15 @@ function Members({ view, me, admin }: { view: NodesView; me: string; admin?: Adm
                   <span title={m.address}>{short(m.address)}</span>
                   <button type="button" className="ml-1 align-middle text-muted hover:text-text focus-visible:outline-2 focus-visible:outline-accent" aria-label={`Copy ${m.address}`} title="Copy address" onClick={() => navigator.clipboard?.writeText(m.address)}><CopyIcon /></button>
                 </td>
-                <td className={td}><Badge variant={m.role === 'admin' ? 'accent' : 'neutral'}>{m.role}</Badge></td>
+                <td className={td}><Badge variant={m.role === 'admin' ? 'accent' : 'neutral'}>{m.role}</Badge>{view.deployRole && m.role === 'writer' && m.deploy && <Badge variant="neutral" className="ml-1">deploy</Badge>}</td>
                 <td className={td}>{m.block === undefined ? <span className="text-muted">—</span> : `#${m.block}`}</td>
                 <td className={td}>{m.behind === undefined ? <span className="text-muted">not synced yet</span> : m.behind ? `${m.behind} behind` : 'in sync'}</td>
                 <td className={`${td} whitespace-nowrap text-xs text-muted`}>{m.seenAt === undefined ? '—' : <span title={new Date(m.seenAt * 1000).toLocaleString()}>{ago(m.seenAt)}</span>}</td>
-                {admin && <td className={td}>{m.role !== 'admin' && <Button variant="danger-outline" size="sm" disabled={busy} onClick={() => { setRemoving(m); setCloseReads(false); setFlash(undefined) }}>Remove</Button>}</td>}
+                {admin && <td className={td}><div className="flex flex-wrap justify-end gap-1">
+                  {view.deployRole && m.role === 'writer' && m.deploy && <Button variant="ghost" size="sm" aria-label={`Remove deploy from ${label(m)}`} disabled={busy} onClick={() => setDeploy(m, false)}>Remove deploy</Button>}
+                  {view.deployRole && m.role === 'writer' && !m.deploy && <Button variant="ghost" size="sm" aria-label={`Grant deploy to ${label(m)}`} disabled={busy} onClick={() => setDeploy(m, true)}>Grant deploy</Button>}
+                  {m.role !== 'admin' && <Button variant="danger-outline" size="sm" aria-label={`Remove ${label(m)}`} disabled={busy} onClick={() => { setRemoving(m); setCloseReads(false); setFlash(undefined) }}>Remove</Button>}
+                </div></td>}
               </tr>
             ))}
           </tbody>

@@ -1,12 +1,13 @@
 // A follower chain's Approach: a local copy of a cloud chain (packages/node Follower). Sends run locally at once and stay
-// pending until a sync confirms them; polled.
-import type { Address, LocalAccount } from 'viem'
+// pending until a sync confirms them; live over a WebSocket (or Manual).
+import { parseTransaction, type Address, type LocalAccount } from 'viem'
 import type { ChainInfo } from '../chain/handle'
 import type { Approach, Hex, Receipt } from '@evmb/core'
 import { NodeClient, NodeError, type BlockSummary } from '@evmb/node/src/client'
 import type { FollowerStore, PendingTx } from '@evmb/node/src/followerStore'
 import { Follower, FollowerGone, FollowerMismatch, FollowerRemoved, noSuchChain } from '@evmb/node/src/follower'
 import type { NodeConfig } from '@evmb/node/src/node'
+import { liveSync } from '@evmb/node/src/live'
 import { getSyncInterval, onSyncIntervalChange } from './node'
 
 export type Follows = NonNullable<ChainInfo['follows']>
@@ -15,13 +16,16 @@ export type FollowerStatus =
   | { kind: 'offline'; lastSynced?: number; detail: string }
   | { kind: 'removed' | 'mismatch' | 'needs-key' | 'unreachable' | 'clock' | 'gone'; detail: string }
 
-const MAX_BACKOFF_MS = 60_000
 /** No point retrying: only Delete / Re-join / Import key help. */
 const final = (s: FollowerStatus) => s.kind === 'removed' || s.kind === 'mismatch' || s.kind === 'needs-key' || s.kind === 'gone'
 /** Why a follower can't mine, snapshot or restore. */
 export const followsCloud = (nodeUrl: string) => `Follows ${nodeUrl}: its blocks come from there`
 export const readerOnly = (name: string) => `This device can only read ${name}.`
 const NOT_WRITER = 'is not a writer on this chain' // the Follower's refusal after a submit 403
+const NO_DEPLOY = "can't deploy contracts on this chain" // the worker's refusal of a creation
+/** A creation (no `to`); a malformed raw is not one, as in the worker. */
+const isCreation = (raw: Hex) => { try { return !parseTransaction(raw).to } catch { return false } }
+export const noDeploy = (name: string) => `This device can't deploy contracts on ${name}.`
 export const otherTab = 'Open in another tab: changes are made there.'
 export const notSaving = "This browser isn't saving data: pending changes are lost if you close the tab."
 
@@ -41,11 +45,16 @@ const webLock = (name: string, fn: () => Promise<void>): Promise<boolean> => {
   return new Promise((res) => void locks.request(name, { ifAvailable: true }, (l) => { res(!!l); return l ? fn() : undefined })
     .catch((e) => { console.warn(`Can't take the writing-tab lock (${name}); following read-only`, e); res(false) }))
 }
-const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden'
+
+/** Queue for the lock (no ifAvailable): the browser grants it the moment the holding tab lets go. No Locks API: nothing to wait for. */
+const webWait = (name: string, fn: () => Promise<void>, signal: AbortSignal) => {
+  const locks = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks
+  void locks?.request(name, { signal }, fn).catch(() => {}) // aborted on dispose, or refused: nothing more to do
+}
 
 /**
- * `open` (or the first `syncNow`) boots the Follower once (from a stored copy, `open` returns before the first sync's network part) and starts polling at the sync-interval setting: paused while
- * the tab is hidden, backing off ×2 up to 60 s on errors. `dispose` stops it. Never throws for cloud errors: they become
+ * `open` (or the first `syncNow`) boots the Follower once (from a stored copy, `open` returns before the first sync's network part) and keeps one liveSync socket while the setting is Live (and the
+ * status isn't final); Manual has none. `dispose` closes it. Never throws for cloud errors: they become
  * the status (`onStatus`); reads throw that status's detail until the follower is open.
  */
 export function followerApproach(o: {
@@ -65,6 +74,10 @@ export function followerApproach(o: {
   /** where the copy and pending txs are kept; without it nothing is stored and there is no lock */
   store?: FollowerStore
   lock?(name: string, fn: () => Promise<void>): boolean | Promise<boolean>
+  /** queue a request for the lock when it isn't granted: `fn` runs once it is (default: a waiting Web Locks request; `signal` aborts it on dispose) */
+  lockWait?(name: string, fn: () => Promise<void>, signal: AbortSignal): void
+  /** the socket class (tests) */
+  WebSocket?: typeof WebSocket
   /** false when the browser can't keep data (kv fell back to memory) */
   persistent?(): boolean
   onStatus(s: FollowerStatus): void; onHead(h: BlockSummary): void
@@ -74,23 +87,33 @@ export function followerApproach(o: {
   const { nodeUrl, chainId, account: address } = o.follows
   const lockName = `evmb-follower:${o.id ?? chainId}`
   let holding = false
-  let release: (() => void) | undefined
+  let release!: () => void
+  const held = new Promise<void>((r) => (release = r)) // the lock is held until dispose
+  let waiting: AbortController | undefined // the one queued lock request
   const refuse = async (): Promise<never> => { throw new Error(followsCloud(nodeUrl)) }
   let role: 'admin' | 'writer' | 'reader' | undefined // from GET /nodes; unknown (offline) → writes allowed, the cloud decides
+  let deploy: boolean | undefined // from GET /nodes (already reflects old chains, where writers deploy); unknown → the cloud decides
   let roleDue = true // fetch the role on the next good sync: on open, and after a submit 403
   const receipts = new Map<Hex, Receipt>() // submitted here, not yet taken by awaitSettled
   /** try to become this chain's writing tab (once held, kept until dispose) */
   const acquire = async () => {
     if (holding || !o.store) return
-    const held = new Promise<void>((r) => (release = r))
     holding = await (o.lock ?? webLock)(lockName, () => held)
-    if (!holding) release = undefined
+    if (holding || waiting || stopped) return
+    // another tab writes: queue once, so the lock is taken the moment it frees, even on an idle chain
+    const ac = (waiting = new AbortController())
+    ;(o.lockWait ?? webWait)(lockName, () => {
+      if (ac.signal.aborted || stopped) return Promise.resolve()
+      holding = true
+      void syncNow() // reopens with the store
+      return held
+    }, ac.signal)
   }
   let status: FollowerStatus = { kind: 'unreachable', detail: `Connecting to ${nodeUrl}` }
   let f: Follower | undefined
   let running: Promise<void> | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let backoff: number | undefined // ms, after an error
+  let stopLive: (() => void) | undefined
+  let liveDown = false // the socket is down: even a good HTTP sync reads as offline
   let fStore = false // the open follower has the store
   let stopped = false
   let unsubs: (() => void)[] | undefined
@@ -102,9 +125,10 @@ export function followerApproach(o: {
   const fetchRole = async () => {
     try {
       const { members } = await client!.nodes(chainId)
-      const next = members.find((m) => m.address.toLowerCase() === address.toLowerCase())?.role ?? 'reader' // not a member: reads only (readOpen)
+      const me = members.find((m) => m.address.toLowerCase() === address.toLowerCase())
+      const next = me?.role ?? 'reader' // not a member: reads only (readOpen)
       roleDue = false
-      if (next !== role) { role = next; o.onChange?.() }
+      if (next !== role || me?.deploy !== deploy) { role = next; deploy = me?.deploy; o.onChange?.() }
     } catch { /* offline: keep the last known role */ }
   }
   /** why this tab can't write now (undefined: it can) */
@@ -114,6 +138,10 @@ export function followerApproach(o: {
     if (JSON.stringify(s) === JSON.stringify(status)) return
     status = s
     o.onStatus(s)
+  }
+  const offline = (): FollowerStatus => {
+    const at = f?.lastSynced
+    return { kind: 'offline', lastSynced: at, detail: `Offline${at ? ` — last synced ${ago(at / 1000)}` : ''}.${fStore ? " Changes are kept and sent when you're back." : ''}` }
   }
   const classify = (e: unknown): FollowerStatus => {
     const detail = e instanceof Error ? e.message : String(e)
@@ -125,27 +153,27 @@ export function followerApproach(o: {
     // error (Bun), or a 5xx/429 ("retrying"); engine or store bugs stay "unreachable"
     const name = (e as { name?: unknown })?.name
     const network = e instanceof TypeError || name === 'TimeoutError' || name === 'AbortError' || (e instanceof NodeError ? e.status >= 500 || e.status === 429 : typeof (e as { code?: unknown })?.code === 'string')
-    if (f && network) {
-      const at = f.lastSynced
-      return { kind: 'offline', lastSynced: at, detail: `Offline${at ? ` — last synced ${ago(at / 1000)}` : ''}.${fStore ? " Changes are kept and sent when you're back." : ''}` }
-    }
+    if (f && network) return offline()
     // a store or engine failure says what it is, not "Can't reach"
     return { kind: 'unreachable', detail: e instanceof NodeError ? `${nodeUrl}: ${e.error}` : network ? `Can't reach ${nodeUrl}` : detail }
   }
 
-  const arm = () => {
-    clearTimeout(timer)
-    timer = undefined
-    const every = getSyncInterval()
-    if (stopped || final(status) || every === 'manual' || hidden()) return
-    timer = setTimeout(() => { timer = undefined; void syncNow() }, backoff ?? every * 1000)
+  /** one socket while Live and not final; none otherwise. Runs after every sync and on a setting change. */
+  const reconcile = () => {
+    const want = !stopped && getSyncInterval() === 'live' && !final(status)
+    if (!want) { stopLive?.(); stopLive = undefined; liveDown = false; return }
+    stopLive ??= liveSync({ sync: syncNow, get head() { return f?.head ?? { number: 0 } } }, () => (client ? client.subscribeUrl(chainId) : Promise.reject(new Error('no key yet'))), {
+      WebSocket: o.WebSocket,
+      onState: (s) => { // removed/gone come from the sync's own errors
+        liveDown = s === 'down'
+        if (liveDown && f && (status.kind === 'following' || status.kind === 'offline')) set(offline()) // not over clock/unreachable
+      },
+    })
   }
-  /** hidden: drop the pending timer; visible: arm again (sync() re-arms itself when it lands) */
-  const onVisibility = () => { if (hidden()) { clearTimeout(timer); timer = undefined } else if (!running) arm() }
   const onKeys = () => { if (status.kind === 'needs-key') void syncNow() }
 
   function syncNow(): Promise<void> {
-    return (running ??= sync().finally(() => { running = undefined; arm() }))
+    return (running ??= sync().finally(() => { running = undefined; reconcile() }))
   }
   async function sync() {
     try {
@@ -160,7 +188,7 @@ export function followerApproach(o: {
         const key = o.key()
         if (!key) return set({ kind: 'needs-key', detail: `Needs ${address}'s key` })
         const onPending = (txs: PendingTx[]) => {
-          if (txs.some((t) => t.status === 'refused' && t.reason?.endsWith(NOT_WRITER))) roleDue = true
+          if (txs.some((t) => t.status === 'refused' && (t.reason?.endsWith(NOT_WRITER) || t.reason?.endsWith(NO_DEPLOY)))) roleDue = true
           o.onChange?.()
         }
         client = new NodeClient(nodeUrl, key.account, { name: key.label })
@@ -175,14 +203,11 @@ export function followerApproach(o: {
       const before = f.head.hash
       await f.sync()
       if (roleDue) await fetchRole()
-      backoff = undefined
-      set({ kind: 'following', block: f.head.number, behind: Math.max(0, f.cloudHead.number - f.head.number) })
+      set(liveDown ? offline() : { kind: 'following', block: f.head.number, behind: Math.max(0, f.cloudHead.number - f.head.number) })
       if (first || f.head.hash !== before) o.onHead(f.head)
     } catch (e) {
       if (stopped) return
       set(classify(e))
-      const every = getSyncInterval()
-      backoff = Math.min((backoff ?? (every === 'manual' ? 5 : every) * 1000) * 2, MAX_BACKOFF_MS)
     }
   }
 
@@ -202,8 +227,7 @@ export function followerApproach(o: {
     syncNow,
     async open() {
       if (!unsubs) {
-        globalThis.document?.addEventListener('visibilitychange', onVisibility)
-        unsubs = [onSyncIntervalChange(arm), o.onKeysChange?.(onKeys) ?? (() => {}), () => globalThis.document?.removeEventListener('visibilitychange', onVisibility)]
+        unsubs = [onSyncIntervalChange(reconcile), o.onKeysChange?.(onKeys) ?? (() => {})]
       }
       // with a stored copy: return once the Follower is booted from it (no network), leaving its first sync to run on
       await Promise.race([syncNow(), bootedOnce])
@@ -222,6 +246,7 @@ export function followerApproach(o: {
       const no = cantWrite()
       if (no) throw new Error(no)
       const follower = local()
+      if (deploy === false && raws.some(isCreation)) { roleDue = true; throw new Error(noDeploy(o.name?.() ?? `chain ${chainId}`)) } // re-read the role on the next sync: deploy may be granted meanwhile
       // a throw part-way leaves the earlier raws pending (their receipts unclaimed); every caller sends one
       for (const raw of raws) {
         const r = await follower.send(raw)
@@ -244,10 +269,12 @@ export function followerApproach(o: {
     dismiss: (hash) => local().dismiss(hash),
     async dispose() {
       stopped = true
-      clearTimeout(timer)
+      stopLive?.()
+      stopLive = undefined
       unsubs?.forEach((u) => u())
       await running
-      try { await f?.dispose() } finally { release?.() }
+      waiting?.abort()
+      try { await f?.dispose() } finally { release() }
     },
   }
 }

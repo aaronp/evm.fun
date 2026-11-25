@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { ChainHost, handle, type ChainHandleLike } from '@evmb/node/src/router'
-import { GRANT_READER, GRANT_WRITER, NodeClient, NodeError, accessTx, claimTx, generateCode, inviteTx, setupTxs } from '@evmb/node/src/client'
+import { GRANT_DEPLOY, GRANT_READER, GRANT_WRITER, NodeClient, NodeError, accessTx, claimTx, generateCode, inviteTx, setupTxs } from '@evmb/node/src/client'
 import { bunSql } from '@evmb/node/test/bunSql'
 import { freshDump, wasm } from '@evmb/node/scripts/bootstrap'
 import { createKv } from '../src/store/kv'
 import { createChainRegistry } from '../src/chain/registry'
 import { MAX_CODE_LENGTH, codeUsable, joinChain, joinPrefill } from '../src/cloud/join'
-import { inviteDefaults, inviteDevice, inviteShare, multiUseWriterWarning, removeDevice, singleLinkWarning } from '../src/cloud/devices'
+import { inviteDefaults, inviteDevice, inviteShare, multiUseWriterWarning, grantDeploy, removeDeploy, removeDevice, singleLinkWarning } from '../src/cloud/devices'
 
 // The worker stand-in, as in cloud-join.test.ts: packages/node's router over in-process ChainHosts on bun:sqlite.
 const admin = privateKeyToAccount(generatePrivateKey())
@@ -58,6 +58,37 @@ describe('inviteDevice', () => {
       expect(me).toMatchObject({ role, name: 'phone' })
       await registry.remove(h.info.id)
     }
+  })
+})
+
+describe('deploy role', () => {
+  test('invite with deploy sends GRANT_WRITER|GRANT_DEPLOY; the member can deploy', async () => {
+    const code = generateCode()
+    await inviteDevice({ client: o(), chainId, admin: owner, code, ttlS: 300, uses: 1, role: 'writer', deploy: true })
+    const k = privateKeyToAccount(generatePrivateKey())
+    const c = new NodeClient(url, k, { name: 'd' })
+    await c.join(chainId, await claimTx(k, (await c.joinInfo(chainId)).nonce, code, access))
+    expect((await o().nodes(chainId)).members.find((x) => x.address === k.address)).toMatchObject({ role: 'writer', deploy: true })
+    const code2 = generateCode()
+    await inviteDevice({ client: o(), chainId, admin: owner, code: code2, ttlS: 300, uses: 1, role: 'writer' })
+    const k2 = privateKeyToAccount(generatePrivateKey())
+    const c2 = new NodeClient(url, k2, { name: 'd' })
+    await c2.join(chainId, await claimTx(k2, (await c2.joinInfo(chainId)).nonce, code2, access))
+    expect((await o().nodes(chainId)).members.find((x) => x.address === k2.address)).toMatchObject({ role: 'writer', deploy: false })
+  })
+
+  test('grantDeploy sends addDeployer: a writer without deploy can then deploy', async () => {
+    const { m } = await member(GRANT_WRITER)
+    expect(m.deploy).toBe(false)
+    await grantDeploy({ client: o(), chainId, admin: owner, member: m })
+    expect((await o().nodes(chainId)).members.find((x) => x.address === m.address)).toMatchObject({ role: 'writer', deploy: true })
+  })
+
+  test('removeDeploy sends removeDeployer: still a writer, no deploy', async () => {
+    const { m } = await member(GRANT_WRITER | GRANT_DEPLOY)
+    expect(m.deploy).toBe(true)
+    await removeDeploy({ client: o(), chainId, admin: owner, member: m })
+    expect((await o().nodes(chainId)).members.find((x) => x.address === m.address)).toMatchObject({ role: 'writer', deploy: false })
   })
 })
 
@@ -131,7 +162,7 @@ test('singleLinkWarning names the role', () => {
 })
 
 test('inviteDefaults is single-use reader, 1 h, no single link', () => {
-  expect(inviteDefaults).toEqual({ ttl: '3600', uses: '1', role: 'reader', singleLink: false })
+  expect(inviteDefaults).toEqual({ ttl: '3600', uses: '1', role: 'reader', deploy: false, singleLink: false })
 })
 
 test('a code the wizard accepts (200 chars) survives inviteShare -> joinPrefill; 201 and blank are rejected', () => {
