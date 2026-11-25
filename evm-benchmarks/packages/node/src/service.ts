@@ -119,6 +119,8 @@ export class ChainService {
     return this.node.read((n) => ethCall(n, to, abi, fn, args))
   }
 
+  // ponytail: cached for the service's life, so re-registering the "onboarding" alias isn't seen until the DO restarts;
+  // re-read it (or listen for Aliases.Registered) if root's Onboarding is ever replaced.
   #onboarding: Address | null = null
   /** Root: the Onboarding registered as alias "onboarding" (null if none yet; cached once found). */
   async onboarding(): Promise<Address | null> {

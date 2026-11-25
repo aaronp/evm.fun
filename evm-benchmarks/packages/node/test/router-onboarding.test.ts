@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { keccak256, toBytes, type Address, type Hex } from 'viem'
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { encodeFunctionData, keccak256, toBytes, type Address, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { Onboarding } from '@evmb/contracts'
 import { ChainHost, handle, type ChainHandleLike } from '../src/router'
@@ -50,7 +50,13 @@ beforeAll(async () => {
   await node.dispose()
   await as(admin).createChain({ dump, setup: await setupTxs(admin, 0, 31337) })
 })
-afterAll(() => srv.stop(true))
+afterAll(() => { srv.stop(true); globalThis.fetch = realFetch })
+// each test its own rate-limit bucket (cf-connecting-ip), so refusals in one test don't 429 the next
+const realFetch = fetch
+let ip = ''
+globalThis.fetch = ((u: RequestInfo | URL, init: RequestInit = {}) =>
+  realFetch(u, { ...init, headers: { ...(init.headers as Record<string, string>), 'cf-connecting-ip': ip } })) as typeof fetch
+beforeEach(() => { ip = crypto.randomUUID() })
 
 describe('onboarding on root', () => {
   test('health shows root.onboarding after ensureOnboarding; ensureOnboarding twice deploys once', async () => {
@@ -123,6 +129,36 @@ describe('onboarding on root', () => {
     expect(r.error).toStartWith('bad redeem tx: ')
     expect(await err(create(sue, { chainId: 'Not-A-UUID' }))).toEqual({ status: 400, error: 'bad chain id' })
     expect(await head()).toBe(h)
+  })
+
+  test('prechecks: redeem to ChainAccess → 400; Bob\'s tx in Sue\'s request → 403; value → 400; nothing mined', async () => {
+    const code = await issue()
+    const chainId = crypto.randomUUID()
+    const { access } = (await as(admin).health()).root!
+    const s = as(sue)
+    const nonce = await s.nonce('root')
+    const data = encodeFunctionData({ abi: Onboarding.abi, functionName: 'redeem', args: [code, chainId] })
+    const signed = (to: Address, value = 0n) => sue.signTransaction({ type: 'eip1559', chainId: 31337, nonce, to, data, value, gas: 500_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    const send = async (redeem: Hex) => err(s.createChain({ dump, setup: await setupTxs(sue, 0, 31337), chainId, redeem }))
+    const h = await head()
+    expect(await send(await signed(access))).toEqual({ status: 400, error: "bad redeem tx: not sent to root's Onboarding" })
+    expect(await send(await redeemTx(bob, 0, onb, code, chainId))).toEqual({ status: 403, error: 'redeem tx must be sent by the request signer' })
+    expect(await send(await signed(onb, 1n))).toEqual({ status: 400, error: 'bad redeem tx: redeem tx must send no value' })
+    expect(await head()).toBe(h)
+    expect(await usesLeft(code)).toBe(1)
+  })
+
+  test('repeated whyNot refusals from one IP → 429', async () => {
+    const out: number[] = []
+    for (let i = 0; i < 11; i++) out.push((await err(create(bob, { code: `NOSUCH${i}` }))).status)
+    expect(out.slice(0, 10)).toEqual(Array(10).fill(403))
+    expect(out[10]).toBe(429)
+  })
+
+  test('claim and chainId together → 400', async () => {
+    const { access } = (await as(admin).health()).root!
+    const r = await err(as(bob).createChain({ dump, setup: await setupTxs(bob, 0, 31337), chainId: crypto.randomUUID(), claim: await claimTx(bob, 0, 'whatever', access) }))
+    expect(r).toEqual({ status: 400, error: 'send claim or chainId, not both' })
   })
 
   test('existing chainId → 409 before mining', async () => {

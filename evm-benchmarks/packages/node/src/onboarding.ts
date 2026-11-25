@@ -41,5 +41,8 @@ export async function ensureOnboarding(client: NodeClient, admin: LocalAccount):
     await deploy(Onboarding, [allowList], nonce + 1),
     await call(admin, nonce + 2, aliases, encodeFunctionData({ abi: Aliases.abi, functionName: 'register', args: ['onboarding', onboarding, '', '', zeroAddress] })),
   ]))
+  // mined() only says the txs are in a block; a reverted deploy or register shows here
+  const now = (await client.health()).root?.onboarding
+  if (now !== onboarding) throw new Error(`onboarding set-up failed: root's alias is ${now}, not the deployed ${onboarding}`)
   return { onboarding, allowList }
 }

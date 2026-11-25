@@ -253,7 +253,8 @@ export class ChainHost implements ChainHandleLike {
     const { dump, setup, claim, chainId, redeem } = parse<CreateChainRequest>(r.body)
     const url = (id: string) => new URL(`/chains/${id}`, r.url).href
     const done = (out: Reply, id: string) => (out.status === 201 ? { status: 201, body: { ...(out.body as object), url: url(id) } } : out)
-    if (!claim && chainId !== undefined) return this.#createGranted(signer, r, { dump, setup, chainId, redeem }, done)
+    if (claim && chainId !== undefined) throw new ServiceError(400, 'send claim or chainId, not both')
+    if (chainId !== undefined) return this.#createGranted(signer, r, { dump, setup, chainId, redeem }, done)
     if (!claim) {
       if (signer !== this.cfg.rootAdmin.toLowerCase()) throw new ServiceError(403, 'only the root admin can create a chain without a code')
       if (this.service) throw new ServiceError(409, 'the root chain already exists')
