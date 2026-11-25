@@ -34,7 +34,8 @@ export function mined(r: SubmitResult): SubmitResult {
   if (no?.result === 'refused') throw new Error(`tx ${no.hash} refused (${no.code}): ${no.reason}`)
   return r
 }
-export interface CreateChainRequest { dump: SerializedState; setup: [Hex, Hex]; claim?: Hex }
+/** Three forms: neither `claim` nor `chainId` (root admin creates root); `claim` (evm.fun's ChainAccess code); `chainId` (+ `redeem`, an Onboarding `redeem(code, chainId)` tx, unless already granted). */
+export interface CreateChainRequest { dump: SerializedState; setup: [Hex, Hex]; claim?: Hex; chainId?: string; redeem?: Hex }
 export interface CreateChainResult { chainId: string; url: string; head: BlockSummary; dump: SerializedState }
 export interface RemoteChainInfo { chainId: string; head: BlockSummary; admin: Address; access: Address; aliases: Address }
 export interface CodeRecord { hash: Hex; expiry: number; usesLeft: number; redeemed: { by: Address; chainId: string; at: number }[] }
@@ -42,7 +43,7 @@ export interface CodeRecord { hash: Hex; expiry: number; usesLeft: number; redee
 export type BlockRecord = StoredBlock
 export interface Member { address: Address; role: 'admin' | 'writer' | 'reader'; deploy: boolean; name?: string; block?: number; behind?: number; seenAt?: number }
 export interface NodesView { head: BlockSummary; admin: Address; readOpen: boolean; /** false on a chain whose ChainAccess predates the deploy role (writers deploy) */ deployRole: boolean; members: Member[] }
-type RootInfo = { chainId: 'root'; admin: Address; access: Address; head: number }
+type RootInfo = { chainId: 'root'; admin: Address; access: Address; head: number; onboarding: Address | null }
 
 export const codeHash = (code: string): Hex => keccak256(toBytes(code))
 

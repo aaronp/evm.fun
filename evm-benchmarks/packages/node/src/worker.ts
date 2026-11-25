@@ -46,4 +46,5 @@ export class ChainDO extends DurableObject<Env> {
   serve(r: ChainRequest) { return this.host.serve(r) }
   create(chainId: string, signer: string, dump: SerializedState, setup: [Hex, Hex]) { return this.host.create(chainId, signer, dump, setup) }
   rootInfo() { return this.host.rootInfo() }
+  exists(chainId: string) { return this.host.exists(chainId) }
 }
