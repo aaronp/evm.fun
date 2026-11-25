@@ -1,49 +1,28 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { keccak256, toBytes, type Address } from 'viem'
+import { keccak256, toBytes } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { BrowserKeyStore, MemoryKeyPersistence, passphraseProvider } from '@evmb/keys'
-import { ChainHost, MemoryFollowerStore, NodeClient, ensureOnboarding, handle, issueTx, mined, setupTxs, type ChainHandleLike } from '@evmb/node'
-import { createNode } from 'webevm'
-import { createRevmEngine } from 'webevm/revm'
-import { bunSql } from '../../node/test/bunSql'
-import { wasm } from '../../node/test/workload'
+import { MemoryFollowerStore, mined } from '@evmb/node'
 import { MemoryWorkspaceStorage, Workspace, type ChainRecord } from '../src'
+import { startWorker, wasm } from './harness'
 
-const acct = (n: string) => privateKeyToAccount(keccak256(toBytes(n)))
-const admin = acct('w-admin'), sueKey = keccak256(toBytes('w-sue')), sue = privateKeyToAccount(sueKey)
-const hosts = new Map<string, ChainHost>()
-const chainHost = (id: string): ChainHandleLike => {
-  let h = hosts.get(id)
-  if (!h) hosts.set(id, (h = new ChainHost(bunSql(), wasm, { rootAdmin: admin.address, chain: chainHost })))
-  return h
-}
-let srv: ReturnType<typeof Bun.serve>, url: string, onb: Address
-const as = (a: typeof admin) => new NodeClient(url, a)
-const now = () => Math.floor(Date.now() / 1000)
-let n = 0
-const issue = async (ttl = 600) => {
-  const code = `CODE${++n}`
-  const a = as(admin)
-  mined(await a.submit('root', [await issueTx(admin, await a.nonce('root'), onb, code, `label ${n}`, now() + ttl, 1)]))
-  return code
-}
+const sueKey = keccak256(toBytes('w-sue')), sue = privateKeyToAccount(sueKey)
+let w: Awaited<ReturnType<typeof startWorker>>, url: string
+const as = (a: typeof sue) => w.as(a)
+const issue = (ttl?: number) => w.issue(ttl)
 const persistence = new MemoryKeyPersistence()
 const keys = new BrowserKeyStore({ persistence, provider: passphraseProvider({ persistence, ask: async () => 'pw' }) })
 const storage = new MemoryWorkspaceStorage()
-const open = () => Workspace.open({ workerUrl: url, keys, me: sue.address, storage, wasm, followerStore: new MemoryFollowerStore() })
+const followerStore = new MemoryFollowerStore()
+const open = () => Workspace.open({ workerUrl: url, keys, me: sue.address, storage, wasm, followerStore })
 const get = (ws: Workspace, id: string) => ws.chains().find((c) => c.id === id)!
 
 beforeAll(async () => {
-  srv = Bun.serve({ port: 0, fetch: (r) => handle(r, { chain: chainHost }) })
-  url = `http://localhost:${srv.port}`
-  const node = await createNode({ chainId: 31337, computeStateRoot: true, miningConfig: { type: 'manual' }, engine: await createRevmEngine({ wasm }) })
-  const dump = await node.dumpState()
-  await node.dispose()
-  await as(admin).createChain({ dump, setup: await setupTxs(admin, 0, 31337) })
-  onb = (await ensureOnboarding(as(admin), admin)).onboarding
+  w = await startWorker()
+  url = w.url
   await keys.importKey(sueKey)
 })
-afterAll(() => srv.stop(true))
+afterAll(() => w.stop())
 
 describe('Workspace', () => {
   test('createChain is local and persisted (reopen sees it)', async () => {
@@ -99,7 +78,8 @@ describe('Workspace', () => {
     bad.chainId = 1 // loads locally; the worker refuses the set-up txs (signed for 31337)
     await storage.save({ ...rec, dump: bad })
     ws = await open()
-    await expect(ws.deploy(rec.id, { code: await issue() })).rejects.toThrow('chain not created: ')
+    const code = await issue()
+    await expect(ws.deploy(rec.id, { code })).rejects.toThrow('chain not created: ')
     expect(get(ws, rec.id).status).toBe('unfinished')
     expect(get(ws, rec.id).error).toStartWith('chain not created: ')
     await storage.save({ ...get(ws, rec.id), dump: rec.dump })
@@ -109,6 +89,8 @@ describe('Workspace', () => {
     expect(c.status).toBe('deployed')
     expect(c.error).toBeUndefined()
     expect((await as(sue).info(rec.id)).admin).toBe(sue.address)
+    // the use was spent once, by the first attempt
+    await expect(ws.deploy((await ws.createChain('again', '')).id, { code })).rejects.toThrow('code used up')
   })
 
   test('retryDeploy: 409 (an earlier attempt landed) → deployed; 403 (no grant) → local', async () => {
@@ -124,4 +106,31 @@ describe('Workspace', () => {
     expect(get(ws, never.id).status).toBe('local')
     expect(get(ws, never.id).error).toBeUndefined()
   })
+
+  test('a second deploy or retry of a chain while one runs → "already deploying", nothing sent', async () => {
+    const ws = await open()
+    const { id } = await ws.createChain('twice', '')
+    const first = ws.deploy(id, { code: await issue() })
+    // sent, 'ABCD' would fail as "no such code"; a retry of a local chain as "not unfinished"
+    await expect(ws.deploy(id, { code: 'ABCD' })).rejects.toThrow('already deploying')
+    await expect(ws.retryDeploy(id)).rejects.toThrow('already deploying')
+    expect((await first).status).toBe('deployed')
+    expect(get(ws, id).error).toBeUndefined()
+  })
+
+  test('follow: a block the owner mines in the cloud reaches the follower; stop ends it', async () => {
+    const ws = await open()
+    const { id } = await ws.deploy((await ws.createChain('followed', '')).id, { code: await issue() })
+    const states: string[] = []
+    const stop = ws.follow(id, (s) => states.push(s))
+    try {
+      while (!states.length) await Bun.sleep(20) // the follower is open and connecting
+      const c = as(sue)
+      const tx = await sue.signTransaction({ type: 'eip1559', chainId: 31337, nonce: await c.nonce(id), to: sue.address, value: 0n, gas: 21_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+      const { head } = mined(await c.submit(id, [tx]))
+      // no socket here (Bun.serve doesn't upgrade): liveSync syncs after each failed connect, within its backoff
+      for (let i = 0; i < 100 && (await followerStore.loadConfirmed(id))?.head.number !== head.number; i++) await Bun.sleep(100)
+      expect((await followerStore.loadConfirmed(id))?.head.hash).toBe(head.hash)
+    } finally { stop() }
+  }, 15_000)
 })
