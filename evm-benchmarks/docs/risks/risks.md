@@ -1115,3 +1115,20 @@ The cloud mines txs in arrival order. A tx that is still valid after another dev
 | Outcomes are compared by status and logs, so a tx whose result changed shows as conflicted | Detective | Partial |
 | A tx that depends on an earlier conflicted one is marked `dependsOn` | Detective | Partial |
 | Contracts that need it check a version or expected value and revert on a mismatch | Preventive | Partial |
+
+## R61 · A block hash doesn't commit to its txs or state
+- impact: 3
+- likelihood: 2
+- target: 3x1
+- appetite: 4
+- category: Technology
+- driver: Claude
+- approver: Aaron
+
+webevm hashes a block's header before executing it, so the block hash covers neither the txs nor the resulting state root. A follower that only compared hashes would accept a block with altered txs. Found in the SpacetimeDB spike (t-155); applies to the Cloudflare node too.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Followers replay every block and compare the state root (and per-tx outcomes) with the cloud's | Detective | Strong |
+| Include a tx root and the post-state root in the header before hashing (webevm change or our own header) | Preventive | Strong |

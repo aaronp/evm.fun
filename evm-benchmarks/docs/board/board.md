@@ -19,7 +19,7 @@ effects.complete: random
 ```md
 A separate app (not evm.fun; evm.fun stays the developer playground) where people create chains, deploy them, give people, groups and devices read/write/deploy access, add contracts from a marketplace, and read their data over REST: a programmable database with easy reads. Design: [Chain workspace](https://claude.ai/code/artifact/76120764-ecd9-4317-a5ee-f6fde6920bdf) (chains list, chain dashboard, contract studio, chain settings, deploy with a one-time code, access picker, contacts & groups). Aaron, 2026-11-24.
 
-Order: deploy role (t-152) → governance allow-lists and contacts (t-147, t-143) → indexer (t-153) → the app (t-154). SpacetimeDB as a second destination is a separate spike (t-155). Where it lives (e.g. mychain.dev) to settle with t-142.
+Order: deploy role (t-152) → followers by subscription (t-144) → governance allow-lists and contacts (t-147, t-143) → indexer (t-153) → the app (t-154). SpacetimeDB: the spike (t-155) says viable; not built until per-database cost is measured on a paid account (Aaron, 2026-11-25). Where it lives (e.g. mychain.dev) to settle with t-142.
 ```
 
 ```dod
@@ -60,21 +60,6 @@ Build the [Chain workspace design](https://claude.ai/code/artifact/76120764-ecd9
 - [ ] Tokens only, three themes (or the design's), phone width, contrast tests
 ```
 
-### Spike: SpacetimeDB as a deploy destination
-- id: t-155
-- parent: t-151
-- tags: chains, spike, size-S
-- history:
-  - Backlog @ 2026-11-24T20:43:30Z
-
-```md
-Can a chain deploy to SpacetimeDB as well as Cloudflare? Find out whether revm can run inside a SpacetimeDB module (wasm) or whether SpacetimeDB only stores chain data with execution elsewhere; cost, limits, auth model, and how followers would sync. Throwaway, local only.
-```
-
-```dod
-- [ ] Spike report in `docs/spikes/` with a recommendation
-```
-
 ### Followers: streaming instead of polling
 - id: t-144
 - parent: t-112
@@ -84,6 +69,8 @@ Can a chain deploy to SpacetimeDB as well as Cloudflare? Find out whether revm c
 
 ```md
 Followers pull new blocks on demand: the cloud node pushes each new head over a hibernating WebSocket (proved in the t-128 spike), so devices stop polling. Until then polling is configurable per browser (5 s / 15 s / 60 s / Manual, plus Sync now) — plan 18. Cuts the per-poll nonce write and read check (risk R57). Aaron, 2026-11-23.
+
+**Next (Aaron, 2026-11-25):** after the SpacetimeDB spike (t-155) showed subscription followers working, adopt the subscription model on Cloudflare now: the same push-a-block shape a SpacetimeDB destination would use later.
 ```
 
 ### Device bookkeeping contract
@@ -1200,6 +1187,24 @@ Browser checklist (Aaron; also in `.superpowers/sdd/2026-11-24-plan21-follow-and
 ```
 
 ## Done
+
+### Spike: SpacetimeDB as a deploy destination
+- id: t-155
+- parent: t-151
+- tags: chains, spike, size-S
+- history:
+  - Backlog @ 2026-11-24T20:43:30Z
+  - Done @ 2026-11-25T12:00:00Z
+
+```md
+Can a chain deploy to SpacetimeDB as well as Cloudflare? Find out whether revm can run inside a SpacetimeDB module (wasm) or whether SpacetimeDB only stores chain data with execution elsewhere; cost, limits, auth model, and how followers would sync. Throwaway, local only.
+
+**Result (2026-11-25, branch `spike-spacetimedb` b427bb4, report `docs/spikes/stdb.md` there):** viable. revm runs in a reducer (TS module on revm-wasm 0.3.1, or Rust on revm 43); block hashes and state roots match `nodeOptions` over 83 blocks; a subscribed client gets blocks pushed and verifies them, no polling. webevm itself (async) can't run in a reducer, so `ChainNode` isn't reused as is. Access: EIP-191 checks work in a reducer; device identity linked to its address once, roles from `ChainAccess`; closed reads need private tables + views. ~5 ms/tx, ~20–29 ms per 25-tx block locally. **Decision (Aaron):** not built yet — finish the Cloudflare path (t-152…t-154), adopt the subscription model now (t-144), revisit after measuring per-database cost on a paid maincloud account. Found R61 (block hash doesn't commit to txs/state).
+```
+
+```dod
+- [x] Spike report in `docs/spikes/` with a recommendation
+```
 
 ### web: static deploy (GitHub Pages)
 - id: t-16
