@@ -1,6 +1,6 @@
 import {expect, test} from 'bun:test'
 import {createNode} from 'webevm'
-import {createPublicClient, createWalletClient, custom, getAddress, keccak256, pad, toHex, type Address} from 'viem'
+import {createPublicClient, createWalletClient, custom, decodeErrorResult, encodeDeployData, getAddress, keccak256, pad, toHex, type Address} from 'viem'
 import {privateKeyToAccount} from 'viem/accounts'
 import {AllowList, Onboarding} from './index.ts'
 
@@ -60,7 +60,7 @@ async function ctx(node: Awaited<ReturnType<typeof createNode>>, blockEnv: {time
     blockEnv.timestamp += s
     await pub.waitForTransactionReceipt({hash: await wallet(admin).sendTransaction({to: admin.address, chain: null} as any)})
   }
-  return {list, onb, al, ob, alWhy, obWhy, alRead, obRead, blockEnv, now, advance}
+  return {pub, list, onb, al, ob, alWhy, obWhy, alRead, obRead, blockEnv, now, advance}
 }
 
 const code = 'LETSUEIN'
@@ -96,11 +96,26 @@ test('allowlist: unknown kind reverts', () => setup(async ({alWhy}) => {
   expect(await alWhy(admin, 'add', [{kind: 2, value: pad(joiner.address.toLowerCase() as Address)}])).toBe('unknown kind')
 }), 60_000)
 
+test('allowlist: unmatchable keys revert "bad key"; absent remove is a no-op', () => setup(async ({al, alWhy, alRead}) => {
+  expect(await alWhy(admin, 'add', [{kind: 1, value: pad('0x0')}])).toBe('bad key')
+  expect(await alWhy(admin, 'add', [{kind: 1, value: `0x01${'00'.repeat(11)}${joiner.address.slice(2).toLowerCase()}`}])).toBe('bad key')
+  expect((await al(admin, 'remove', [key(joiner.address)])).status).toBe('success')
+  expect(await alRead('entities')).toEqual([key(admin.address)])
+}), 60_000)
+
+test('allowlist: constructor with an empty list reverts "no entities"', () => setup(async ({pub}) => {
+  const data = encodeDeployData({abi: AllowList.abi, bytecode: AllowList.bytecode, args: [[]]} as any)
+  const err: any = await pub.call({account: admin.address, data}).then(() => null, (e) => e)
+  const raw = err?.walk?.((x: any) => typeof x?.data === 'string')?.data
+  expect(decodeErrorResult({abi: [], data: raw})).toMatchObject({errorName: 'Error', args: ['no entities']})
+}), 60_000)
+
 test('issue by issuer; by outsider reverts "issuers only"', () => setup(async ({ob, obWhy, obRead, now, list}) => {
   expect(await obRead('issuers')).toBe(getAddress(list))
   expect(await obWhy(outsider, 'issue', [hash, 'sue', now() + 3600n, 1])).toBe('issuers only')
   expect((await ob(admin, 'issue', [hash, 'sue', now() + 3600n, 1])).status).toBe('success')
   expect(await obWhy(outsider, 'revoke', [hash])).toBe('issuers only')
+  expect(await obWhy(admin, 'revoke', [keccak256(toHex('NOPE'))])).toBe('no such code')
 }), 60_000)
 
 test('issue: uses 0 and 1001 revert "bad uses"; reused hash reverts "code exists"', () => setup(async ({ob, obWhy, now}) => {
@@ -165,6 +180,9 @@ test('uses 2: two chains then "code used up"', () => setup(async ({ob, obWhy, no
   await ob(admin, 'issue', [hash, 'sue', now() + 3600n, 2])
   expect((await ob(joiner, 'redeem', [code, chainA])).status).toBe('success')
   expect((await ob(outsider, 'redeem', [code, chainB])).status).toBe('success')
+  const long = 'ABCDEFGH12345678' // 16 chars: the longest accepted
+  await ob(admin, 'issue', [keccak256(toHex(long)), 'long', now() + 3600n, 1])
+  expect((await ob(joiner, 'redeem', [long, '0a1b2c3d-0000-4000-8000-00000000000d'])).status).toBe('success')
   expect(await obWhy(joiner, 'redeem', [code, '0a1b2c3d-0000-4000-8000-00000000000c'])).toBe('code used up')
 }), 60_000)
 

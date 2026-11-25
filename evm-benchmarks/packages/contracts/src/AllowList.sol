@@ -38,6 +38,8 @@ contract AllowList is IAllows {
 
     function _add(Entity memory e) private {
         require(e.kind == KIND_KEY, "unknown kind");
+        // a key must be a non-zero address: a junk entry would let the last real member remove itself
+        require(e.value != 0 && uint256(e.value) >> 160 == 0, "bad key");
         bytes32 k = _key(e.kind, e.value);
         require(_idx[k] == 0, "already present");
         _all.push(e);
