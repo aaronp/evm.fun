@@ -1,4 +1,5 @@
 // Onboarding codes as the apps type and show them (on chain: 4–16 of A–Z 0–9).
+export { codeHash } from '@evmb/node' // what CodeView.hash is: keccak256 of the stored code
 export const normalizeCode = (s: string) => s.replace(/[\s-]/g, '').toUpperCase()
 export const isValidCode = (s: string) => /^[A-Z0-9]{4,16}$/.test(normalizeCode(s))
 /** "205117" → "205 117"; any other code as stored. */

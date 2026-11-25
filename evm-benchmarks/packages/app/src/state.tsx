@@ -38,8 +38,8 @@ export const useApp = () => {
   return s
 }
 
-const cancelled = (e: unknown) => e instanceof Error && e.message === 'cancelled'
-const text = (e: unknown) => (e instanceof Error ? e.message : String(e))
+export const cancelled = (e: unknown) => e instanceof Error && e.message === 'cancelled'
+export const text = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const remember = (a: Address) => { try { localStorage.setItem(ME_KEY, a) } catch {} }
 const remembered = () => { try { return localStorage.getItem(ME_KEY) } catch { return null } }
 

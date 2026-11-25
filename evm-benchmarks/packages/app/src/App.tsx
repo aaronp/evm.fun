@@ -10,11 +10,11 @@ import { ChainDetail } from './chains/ChainDetail'
 import { ChainList, ChainPicker } from './chains/ChainList'
 import { DeployModal } from './chains/DeployModal'
 import { NewChainModal } from './chains/NewChainModal'
+import { OnboardingPage } from './onboarding/OnboardingPage'
+import type { Plain } from './onboarding/view'
 import { STATUS, afterCreate, checkChainName, codeFromSearch, linkDialog, refusalCopy } from './chains/view'
-import { useApp, type Notice } from './state'
+import { text, useApp, type Notice } from './state'
 import { C, FONT } from './theme'
-
-const text = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 /** The layout, all state injected: app bar (with `heading`), notice, nav + `aside` + main, footer (with `chain`). */
 export function Shell(p: {
@@ -51,6 +51,8 @@ export function App() {
   const [, rerender] = useState(0)
   const [selected, setSelected] = useState<string>()
   const [retrying, setRetrying] = useState(false)
+  // plain codes issued in this session (by hash), never persisted
+  const [plain] = useState<Plain>(() => new Map())
   // a ?code= link: read once, then dropped from the URL; it opens New chain, and Deploy (filled in) after the create
   const [linkCode, setLinkCode] = useState(() => codeFromSearch(location.search))
   const [dialog, setDialog] = useState(() => linkDialog(linkCode))
@@ -121,7 +123,7 @@ export function App() {
         {section === 'chains' && (chain
           ? <ChainDetail key={chain.id} chain={chain} busy={retrying} onSave={(n, d) => save(chain.id, n, d)} onDeploy={() => setDialog({ kind: 'deploy', id: chain.id })} onRetry={() => retry(chain.id)} follow={(id) => ws!.follow(id)} />
           : <Empty title="No chain selected" text="Create a chain, or pick one from the list." />)}
-        {/* Onboarding (Task 8) fills the rest */}
+        {section === 'onboarding' && <OnboardingPage workspace={ws} issuer={s.issuer} plain={plain} onNotice={s.setNotice} />}
       </Shell>
       {dialog?.kind === 'new' && <NewChainModal chains={chains} onCreate={ws && create} onClose={() => { setDialog(undefined); setLinkCode(undefined) }} />}
       {deploying && <DeployModal key={deploying.id} chain={deploying} issuer={s.issuer} initialCode={dialog?.kind === 'deploy' ? dialog.code : undefined} onDeploy={deploy(deploying.id)} onClose={() => setDialog(undefined)} />}
