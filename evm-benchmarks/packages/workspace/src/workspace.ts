@@ -41,6 +41,8 @@ export class Workspace {
   private deploying = new Set<string>()
   /** root's local copy, opened on first use and synced before each read */
   private rootF?: Promise<Follower>
+  /** reads of root's copy one at a time (sync then fn) */
+  private rootReads: Promise<unknown> = Promise.resolve()
   /** root txs (issue, revoke, a create's redeem) one at a time: each reads my root nonce then sends */
   private rootQueue: Promise<unknown> = Promise.resolve()
 
@@ -187,17 +189,28 @@ export class Workspace {
     return { onboarding: root.onboarding, access: root.access }
   }
 
-  /** `fn` on root's local copy, synced first. The copy is opened once (kept in the follower store under "root"); a failure drops it, so the next call reopens. */
-  private async onRoot<A>(fn: (f: Follower) => Promise<A>): Promise<A> {
-    const opened = (this.rootF ??= Follower.open(this.client('Read root'), 'root', this.o.wasm, { store: this.o.followerStore }))
-    try {
-      const f = await opened
-      await f.sync()
-      return await fn(f)
-    } catch (e) {
-      if (this.rootF === opened) { this.rootF = undefined; void opened.then((f) => f.dispose(), () => {}) }
-      throw e
+  /**
+   * `fn` on root's local copy, synced first; one read at a time. The copy is opened once (kept in the follower store under
+   * "root"). Only a failed open, or a copy that stopped (removed, gone, mismatch), is dropped for the next call to reopen;
+   * an error from `fn` (a revert) leaves it cached.
+   */
+  private onRoot<A>(fn: (f: Follower) => Promise<A>): Promise<A> {
+    const run = async () => {
+      const opened = (this.rootF ??= Follower.open(this.client('Read root'), 'root', this.o.wasm, { store: this.o.followerStore }))
+      let f: Follower
+      try { f = await opened } catch (e) {
+        if (this.rootF === opened) this.rootF = undefined
+        throw e
+      }
+      try { await f.sync() } catch (e) {
+        if (f.status !== 'following' && this.rootF === opened) { this.rootF = undefined; void f.dispose() }
+        throw e
+      }
+      return fn(f)
     }
+    const p = this.rootReads.then(run, run)
+    this.rootReads = p.catch(() => {})
+    return p
   }
 
   /** Send one Onboarding tx to root, after the ones before it: simulated first where I can read root (its revert reason thrown), else the worker decides. */

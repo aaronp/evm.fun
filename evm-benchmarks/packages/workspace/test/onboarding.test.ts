@@ -55,6 +55,22 @@ describe('Workspace onboarding', () => {
     expect(paths.filter((p) => p === '/chains/root/state').length).toBe(1)
   })
 
+  test('a reverting root call keeps the root follower; the next call and two concurrent reads reuse it', async () => {
+    const ws = await open(wendy.address) // reads root; her issue reverts "issuers only" in the simulation
+    const real = globalThis.fetch
+    const paths: string[] = []
+    globalThis.fetch = ((u: RequestInfo | URL, init?: RequestInit) => (paths.push(new URL(String(u)).pathname), real(u, init))) as typeof fetch
+    try {
+      expect(await ws.isIssuer()).toBe(false)
+      await expect(ws.issueCode({ label: 'no', validFor: '1h', uses: 1 })).rejects.toThrow('issuers only')
+      expect((await ws.codes()).length).toBeGreaterThan(0)
+      const [x, y] = await Promise.all([ws.codes(), ws.isIssuer()])
+      expect(x.length).toBeGreaterThan(0)
+      expect(y).toBe(false)
+    } finally { globalThis.fetch = real; await ws.dispose() }
+    expect(paths.filter((p) => p === '/chains/root/state').length).toBe(1)
+  })
+
   test('concurrent issues from one workspace share the root nonce without colliding', async () => {
     const a = await open(admin.address)
     const codes = await Promise.all([1, 2, 3].map((i) => a.issueCode({ label: `burst ${i}`, validFor: '1h', uses: 1 })))
