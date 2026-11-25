@@ -104,6 +104,16 @@ export class NodeClient {
     return out as T
   }
 
+  /** A `ws(s):` URL for GET /chains/:id/subscribe, signed in its query (a socket can't carry headers). */
+  async subscribeUrl(chainId: string) {
+    if (!this.account) throw new Error('this request needs a signing account')
+    const url = new URL(`/chains/${chainId}/subscribe`, this.baseUrl)
+    const s = await signRequest(this.account, 'GET', url, '')
+    for (const [k, v] of Object.entries(s)) url.searchParams.set(k, v)
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    return url.href
+  }
+
   health() { return this.req<{ ok: true; root: null | RootInfo }>('GET', '/health', undefined, false) }
   info(chainId: string) { return this.req<RemoteChainInfo>('GET', `/chains/${chainId}`) }
   async nonce(chainId: string) { return (await this.joinInfo(chainId)).nonce }

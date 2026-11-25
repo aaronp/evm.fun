@@ -123,6 +123,8 @@ export class ChainService {
     return { chainId: this.chainId, head: summary(this.node.head()), admin: await this.call(ChainAccess.abi, 'admin'), access: this.access, aliases: this.aliases }
   }
 
+  head(): BlockSummary { return summary(this.store.head()) }
+
   canRead(addr: string): Promise<boolean> { return this.acl.canRead(addr as Address) }
   canWrite(addr: string): Promise<boolean> { return this.acl.canWrite(addr as Address) }
   /** Admin, writer or reader: excludes keys that can read only because readOpen is on. */

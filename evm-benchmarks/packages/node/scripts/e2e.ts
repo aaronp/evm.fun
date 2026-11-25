@@ -6,6 +6,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { MintableToken } from '@evmb/contracts'
 import { GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, MAX_CREATE_BYTES, MAX_SUBMIT_BYTES, NodeClient, NodeError, accessTx, claimTx, codeHash, generateCode, inviteTx, mined, setupTxs, type CreateChainResult } from '../src/client'
 import { signRequest } from '../src/auth'
+import { parseHead } from '../src/live'
 import { Follower, FollowerRemoved } from '../src/follower'
 import { MemoryFollowerStore } from '../src/followerStore'
 import { ensureKey, freshDump, wasm } from './bootstrap'
@@ -43,7 +44,7 @@ try {
   // ---- admin issues codes ----
   const issue = async (code: string, ttl: number, uses: number) =>
     mined(await as(admin).submit('root', [await inviteTx(admin, await as(admin).nonce('root'), root.access, code, ttl, uses)]))
-  const writes = generateCode(), one = generateCode(), two = generateCode(), short = generateCode(), race = generateCode(), retry = generateCode(), spent = generateCode()
+  const writes = generateCode(), one = generateCode(), two = generateCode(), short = generateCode(), race = generateCode(), live = generateCode(), retry = generateCode(), spent = generateCode()
   await issue(one, 600, 1)
   await issue(two, 600, 2)
   await issue(short, 2, 1)
@@ -51,6 +52,7 @@ try {
   await issue(retry, 600, 1)
   await issue(spent, 600, 1)
   await issue(writes, 600, 1)
+  await issue(live, 600, 1)
   check(true, 'admin issues 1-use, 2-use and 2 s codes')
 
   // ---- B's browser chain: a fresh chain with one ERC-20 deploy ----
@@ -187,6 +189,38 @@ try {
     check(await status(joinAs(E, revoked)) === 403, 'a revoked unused code → 403')
   } finally {
     await fc.dispose(); await fd.dispose()
+  }
+
+  // ---- live: a hibernating socket per reader gets the head on open and after each block; removal closes it with 4003 ----
+  {
+    const rl = await deploy(B, live), lid = rl.chainId
+    const lb = as(B, 'B laptop'), lAccess = (await lb.info(lid)).access
+    const R = privateKeyToAccount(generatePrivateKey())
+    const code = generateCode()
+    mined(await lb.submit(lid, [await inviteTx(B, await lb.nonce(lid), lAccess, code, 300, 1, GRANT_READER)]))
+    const ji = await as(R).joinInfo(lid)
+    await as(R).join(lid, await claimTx(R, ji.nonce, code, ji.access))
+    const open = async (c: NodeClient) => {
+      const ws = new WebSocket(await c.subscribeUrl(lid))
+      const msgs: string[] = [], closed = new Promise<number>((res) => ws.addEventListener('close', (e) => res(e.code)))
+      ws.addEventListener('message', (e) => msgs.push(String(e.data)))
+      await new Promise((res, rej) => { ws.addEventListener('open', res); ws.addEventListener('error', () => rej(new Error('socket error'))) })
+      return { ws, msgs, closed }
+    }
+    const until = async (f: () => boolean, ms = 5000) => { for (const t = Date.now(); !f() && Date.now() - t < ms;) await Bun.sleep(50); return f() }
+    const head = (m?: string) => (m ? parseHead(m) : null)
+    const h0 = (await lb.state(lid)).head.number
+    const sk = await open(as(R))
+    try {
+      check(await until(() => sk.msgs.length === 1) && head(sk.msgs[0])?.number === h0, `live: the reader's socket opens with the current head #${h0}`)
+      mined(await lb.submit(lid, [await accessTx(B, await lb.nonce(lid), lAccess, 'setReadOpen', false)]))
+      check(await until(() => sk.msgs.length === 2) && head(sk.msgs[1])?.number === h0 + 1, 'live: a writer submits and the reader gets the new head within 5 s')
+      const bare = await fetch(new URL(`/chains/${lid}/subscribe`, URL_))
+      check(bare.status === 426, `live: subscribe without upgrade → ${bare.status}`)
+      mined(await lb.submit(lid, [await accessTx(B, await lb.nonce(lid), lAccess, 'removeReader', R.address)]))
+      const code4 = await Promise.race([sk.closed, Bun.sleep(5000).then(() => -1)])
+      check(code4 === 4003 && sk.msgs.length === 2, `live: after the admin removes the reader its socket closes with ${code4} and gets no further head`)
+    } finally { sk.ws.close() }
   }
 
   // ---- writes: phone and tablet follow a chain with an ERC-20 B owns; each sends offline, then syncs ----

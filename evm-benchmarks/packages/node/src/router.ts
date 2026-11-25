@@ -7,7 +7,7 @@ import { recoverSigner, SKEW_S } from './auth'
 import type { Sql } from './sql'
 import { ChainService, ServiceError, checkSetup } from './service'
 import type { NodeConfig } from './node'
-import { MAX_CREATE_BYTES, MAX_SUBMIT_BYTES, type CreateChainRequest } from './client'
+import { MAX_CREATE_BYTES, MAX_SUBMIT_BYTES, type BlockSummary, type CreateChainRequest } from './client'
 
 /** A request as a chain sees it (plain data, so it crosses a Durable Object RPC boundary). */
 export interface ChainRequest { method: string; url: string; body: string; ts: string; nonce: string; sig: string; ip: string; name?: string }
@@ -22,7 +22,17 @@ export interface ChainHandleLike {
   rootInfo(): Promise<RootInfo | null>
 }
 
-export interface RouterDeps { chain(id: string): ChainHandleLike }
+export interface RouterDeps {
+  chain(id: string): ChainHandleLike
+  /** Hand a websocket upgrade for chain `id` to its Durable Object (absent: 501). */
+  subscribe?(id: string, req: Request): Promise<Response>
+}
+
+/** The `ChainRequest` for a subscribe: a socket can't carry headers, so ts, nonce and sig come from the query. */
+export function subscribeRequest(req: Request): ChainRequest {
+  const q = new URL(req.url).searchParams
+  return { method: 'GET', url: req.url, body: '', ts: q.get('ts') ?? '', nonce: q.get('nonce') ?? '', sig: q.get('sig') ?? '', ip: req.headers.get('cf-connecting-ip') || 'unknown' }
+}
 
 /** Body cap for every route but POST /chains and submit (join, signed GETs). */
 const MAX_BODY_BYTES = 64 * 1024
@@ -57,6 +67,10 @@ export async function handle(req: Request, deps: RouterDeps): Promise<Response> 
     // POST /chains goes to the root chain: it checks the code, then creates the new chain
     const id = url.pathname === '/chains' ? 'root' : url.pathname.match(/^\/chains\/([\w-]{1,64})(\/[\w-]*)?$/)?.[1]
     if (!id) return json({ status: 404, body: { error: 'not found' } })
+    if (req.method === 'GET' && url.pathname === `/chains/${id}/subscribe`) {
+      if (req.headers.get('upgrade')?.toLowerCase() !== 'websocket') return json({ status: 426, body: { error: 'expected a websocket upgrade' } })
+      return deps.subscribe ? deps.subscribe(id, req) : json({ status: 501, body: { error: 'subscribe not supported here' } })
+    }
     const h = (k: string) => req.headers.get(k) ?? ''
     // ponytail: a chunked body without content-length is read in full before this check; stream-count it if that matters
     const body = req.method === 'GET' || req.method === 'HEAD' ? '' : await req.text()
@@ -86,7 +100,7 @@ export class ChainHost implements ChainHandleLike {
   #boot?: Promise<void>
   #tables = false
 
-  constructor(private sql: Sql, private wasm: NodeConfig['wasm'], private cfg: { rootAdmin: string; chain(id: string): ChainHandleLike }) {}
+  constructor(private sql: Sql, private wasm: NodeConfig['wasm'], private cfg: { rootAdmin: string; chain(id: string): ChainHandleLike; onHead?: (h: BlockSummary) => void }) {}
 
   /** Boot the stored chain once, if any (a Durable Object learns its chain id from its first call). Writes nothing if none. */
   #ready(chainId: string): Promise<void> {
@@ -129,12 +143,25 @@ export class ChainHost implements ChainHandleLike {
 
   async serve(r: ChainRequest): Promise<Reply> {
     try {
-      return await this.#serve(r)
+      await this.#ready(new URL(r.url).pathname.split('/')[2] ?? 'root')
+      const before = this.service?.head().number ?? -1
+      const out = await this.#serve(r)
+      this.#announce(before)
+      return out
     } catch (e) {
       if (e instanceof ServiceError) return { status: e.status, body: { error: e.message } }
       throw e
     }
   }
+
+  /** Tell `onHead` once if the head is past `before`. */
+  #announce(before: number) {
+    const h = this.service?.head()
+    if (h && h.number > before) this.cfg.onHead?.(h)
+  }
+
+  /** Whether `addr` may read this chain now (false if there is no chain). */
+  async canRead(addr: string): Promise<boolean> { return (await this.service?.canRead(addr)) ?? false }
 
   async #serve(r: ChainRequest): Promise<Reply> {
     const url = new URL(r.url)
@@ -142,7 +169,7 @@ export class ChainHost implements ChainHandleLike {
     const route = `${r.method} ${rest.join('/')}`
     const isRoot = id === 'root'
     await this.#ready(id)
-    const known = url.pathname === '/chains' ? isRoot && r.method === 'POST' : ['GET ', 'POST submit', 'GET nonce', 'GET state', 'GET blocks', 'GET nodes', 'POST join', ...(isRoot ? ['GET codes'] : [])].includes(route)
+    const known = url.pathname === '/chains' ? isRoot && r.method === 'POST' : ['GET ', 'POST submit', 'GET nonce', 'GET state', 'GET blocks', 'GET subscribe', 'GET nodes', 'POST join', ...(isRoot ? ['GET codes'] : [])].includes(route)
     if (!known) return { status: 404, body: { error: 'not found' } }
     if (url.pathname !== '/chains' && !this.service) return { status: 404, body: { error: 'no such chain' } }
     const signer = await this.#auth(r)
@@ -172,6 +199,9 @@ export class ChainHost implements ChainHandleLike {
         if (await s.isMember(signer)) s.touch(signer, r.name, out.blocks.at(-1)?.header.number ?? out.head.number, now())
         return { status: 200, body: out }
       }
+      case 'GET subscribe': // the Durable Object turns this 200 into the socket
+        await this.#reader(s, signer)
+        return { status: 200, body: { tag: signer, head: s.head() } }
       case 'GET nodes':
         await this.#reader(s, signer)
         return { status: 200, body: await s.nodes() }
@@ -242,6 +272,7 @@ export class ChainHost implements ChainHandleLike {
       await this.#ready(chainId)
       const s = await ChainService.create(this.sql, this.wasm, { chainId, signer, dump, setup, timestamp: now() })
       this.service = s
+      this.#announce(-1)
       const info = await s.info()
       return { status: 201, body: { chainId, head: info.head, dump: await s.dump() } }
     } catch (e) {
