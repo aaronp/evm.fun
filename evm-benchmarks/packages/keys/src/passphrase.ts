@@ -11,16 +11,10 @@ export function passphraseProvider(o: {
   const { persistence } = o
   let ref: UnlockRef = { mechanism: 'passphrase', passphraseId: o.id ?? '' }
   let init: Promise<Uint8Array> | undefined
-  // Salt and id are created together on first use; `ref` carries the id once loaded.
+  // Salt and id are each created on first use if missing; `ref` carries the id once loaded.
   const salt = () => (init ??= (async () => {
-    let s = await persistence.getMeta('passphrase-salt')
-    let id = await persistence.getMeta('passphrase-id')
-    if (!s || !id) {
-      s = randomBytes(32)
-      id = randomBytes(16)
-      await persistence.setMeta('passphrase-salt', s)
-      await persistence.setMeta('passphrase-id', id)
-    }
+    const s = await persistence.ensureMeta('passphrase-salt', () => randomBytes(32))
+    const id = await persistence.ensureMeta('passphrase-id', () => randomBytes(16))
     ref = { mechanism: 'passphrase', passphraseId: o.id ?? bytesToHex(id).slice(2) }
     return s
   })().catch((e) => { init = undefined; throw e }))

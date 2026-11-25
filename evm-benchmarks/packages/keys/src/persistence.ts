@@ -9,7 +9,10 @@ export class MemoryKeyPersistence implements KeyPersistence {
   async store(e: StoredKey) { this.keys.set(k(e.address), e) }
   async list() { return [...this.keys.values()] }
   async getMeta(key: string) { return this.meta.get(key) }
-  async setMeta(key: string, v: Uint8Array) { this.meta.set(key, v) }
+  async ensureMeta(key: string, make: () => Uint8Array) {
+    if (!this.meta.has(key)) this.meta.set(key, make())
+    return this.meta.get(key)!
+  }
 }
 
 /** IndexedDB database "evmb-keys": object stores "keys" (StoredKey by lowercased address) and "meta". */
@@ -40,5 +43,15 @@ export class IndexedDbKeyPersistence implements KeyPersistence {
   async store(e: StoredKey) { await this.run('keys', 'readwrite', (s) => s.put(e, k(e.address))) }
   list() { return this.run<StoredKey[]>('keys', 'readonly', (s) => s.getAll()) }
   getMeta(key: string) { return this.run<Uint8Array | undefined>('meta', 'readonly', (s) => s.get(key)) }
-  async setMeta(key: string, v: Uint8Array) { await this.run('meta', 'readwrite', (s) => s.put(v, key)) }
+  /** `add` fails with ConstraintError if another tab wrote first; then the stored value wins. */
+  async ensureMeta(key: string, make: () => Uint8Array) {
+    const v = make()
+    try {
+      await this.run('meta', 'readwrite', (s) => s.add(v, key))
+      return v
+    } catch (e) {
+      if ((e as DOMException | null)?.name !== 'ConstraintError') throw e
+      return (await this.getMeta(key))!
+    }
+  }
 }

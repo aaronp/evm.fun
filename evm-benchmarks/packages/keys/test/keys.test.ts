@@ -59,12 +59,16 @@ describe('BrowserKeyStore', () => {
     const a = await store.generate()
     store.lock()
     const before = await persistence.list()
+    const meta = () => Promise.all(['wallet-salt', 'passphrase-salt', 'passphrase-id'].map((k) => persistence.getMeta(k)))
+    const metaBefore = await meta()
+    expect(metaBefore.every((m) => m instanceof Uint8Array)).toBe(true)
     const err = await sign(store, a).catch((e) => e)
     expect(err).toBeInstanceOf(WrongPassphrase)
     expect(err.message).toBe('Wrong passphrase')
     // a wrong passphrase must not add a key either
     expect(await store.importKey(generatePrivateKey()).catch((e) => e)).toBeInstanceOf(WrongPassphrase)
     expect(await persistence.list()).toEqual(before)
+    expect(await meta()).toEqual(metaBefore)
     const sig = await sign(store, a)
     expect(await recoverMessageAddress({ message: 'hi', signature: sig })).toBe(a)
   })
@@ -122,5 +126,22 @@ describe('BrowserKeyStore', () => {
     const [e1] = await one.persistence.list()
     const [e2] = await two.persistence.list()
     expect(e1!.encryptedPrivateKey).not.toEqual(e2!.encryptedPrivateKey)
+  })
+
+  test('lock() during an in-flight generate wins: the new signer is not cached', async () => {
+    const { store, asked } = setup()
+    const pending = store.generate()
+    store.lock()
+    const a = await pending
+    await sign(store, a)
+    expect(asked.length).toBe(2)
+    store.lock()
+  })
+
+  test('ensureMeta never replaces an existing value', async () => {
+    const p = new MemoryKeyPersistence()
+    const first = await p.ensureMeta('wallet-salt', () => new Uint8Array([1]))
+    expect(await p.ensureMeta('wallet-salt', () => new Uint8Array([2]))).toEqual(first)
+    expect(await p.getMeta('wallet-salt')).toEqual(new Uint8Array([1]))
   })
 })

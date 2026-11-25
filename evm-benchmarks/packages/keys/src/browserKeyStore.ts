@@ -12,6 +12,7 @@ export class BrowserKeyStore implements KeyStore, KeyGenerator {
   private signers = new Map<string, Promise<LocalAccount>>()
   private salt: Promise<Uint8Array> | undefined
   private timer: ReturnType<typeof setTimeout> | undefined
+  private epoch = 0 // bumped by lock(); an unlock that started before a lock() doesn't cache its signer
 
   constructor(o: { persistence: KeyPersistence; provider: UnlockProvider; idleLockMs?: number }) {
     this.persistence = o.persistence
@@ -38,6 +39,7 @@ export class BrowserKeyStore implements KeyStore, KeyGenerator {
 
   /** Forget decrypted signers. */
   lock() {
+    this.epoch++
     this.signers.clear()
     clearTimeout(this.timer)
     this.timer = undefined
@@ -49,11 +51,7 @@ export class BrowserKeyStore implements KeyStore, KeyGenerator {
   }
 
   private walletSalt() {
-    return (this.salt ??= (async () => {
-      let s = await this.persistence.getMeta('wallet-salt')
-      if (!s) await this.persistence.setMeta('wallet-salt', (s = randomBytes(32)))
-      return s
-    })().catch((e) => { this.salt = undefined; throw e }))
+    return (this.salt ??= this.persistence.ensureMeta('wallet-salt', () => randomBytes(32)).catch((e) => { this.salt = undefined; throw e }))
   }
 
   private async withKey<A>(purpose: string, fn: (key: CryptoKey, g: Grant) => Promise<A>): Promise<A> {
@@ -63,7 +61,11 @@ export class BrowserKeyStore implements KeyStore, KeyGenerator {
 
   private async open(key: CryptoKey, e: StoredKey): Promise<LocalAccount> {
     const plain = await decrypt(key, e.iv, e.encryptedPrivateKey).catch(() => { throw new WrongPassphrase() })
-    return privateKeyToAccount(bytesToHex(plain))
+    try {
+      return privateKeyToAccount(bytesToHex(plain))
+    } finally {
+      plain.fill(0)
+    }
   }
 
   /** The cached signer, or unlock it (one prompt even for concurrent callers). */
@@ -84,15 +86,19 @@ export class BrowserKeyStore implements KeyStore, KeyGenerator {
 
   private async add(privateKey: Hex, purpose: string): Promise<Address> {
     const account = privateKeyToAccount(privateKey)
+    const epoch = this.epoch
     const held = await this.persistence.list()
     await this.withKey(purpose, async (key, g) => {
       // With keys held, the passphrase must open one of them; the first-ever passphrase is accepted as is.
       if (held[0]) await this.open(key, held[0])
-      const { iv, ciphertext } = await encrypt(key, hexToBytes(privateKey))
+      const plain = hexToBytes(privateKey)
+      const { iv, ciphertext } = await encrypt(key, plain).finally(() => plain.fill(0))
       await this.persistence.store({ address: getAddress(account.address), encryptedPrivateKey: ciphertext, iv, ref: g.ref, createdAt: Date.now() })
     })
-    this.signers.set(account.address.toLowerCase(), Promise.resolve(account))
-    this.touch()
+    if (epoch === this.epoch) {
+      this.signers.set(account.address.toLowerCase(), Promise.resolve(account))
+      this.touch()
+    }
     return account.address
   }
 

@@ -27,7 +27,8 @@ export type KeyPersistence = {
   store(e: StoredKey): Promise<void>
   list(): Promise<StoredKey[]>
   getMeta(k: string): Promise<Uint8Array | undefined>
-  setMeta(k: string, v: Uint8Array): Promise<void>
+  /** Writes make() only if `k` is absent (atomic, also across tabs); returns the stored value. */
+  ensureMeta(k: string, make: () => Uint8Array): Promise<Uint8Array>
 }
 
 export class KeyNotFound extends Error {
