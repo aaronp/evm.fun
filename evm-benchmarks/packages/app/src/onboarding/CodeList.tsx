@@ -1,7 +1,7 @@
 import type { Hex } from 'viem'
 import { C, FONT, R } from '../theme'
 import { card } from './IssueForm'
-import { LOOK, codeRow, type CodeView, type Plain } from './view'
+import { LOOK, codeRow, statusAt, type CodeView, type Plain } from './view'
 
 export const ISSUER_ONLY = 'Only people with this contract’s Issuer role can see its codes.'
 const head = (sub?: string) => (
@@ -23,11 +23,11 @@ export const CodesHidden = () => (
 export function CodeList(p: { codes: CodeView[]; plain: Plain; now: number; busy: boolean; onRevoke(hash: Hex): void }) {
   return (
     <section aria-labelledby="onb-codes" style={{ ...card, gap: 14 }}>
-      {head(`${p.codes.filter((c) => c.status === 'active').length} active`)}
+      {head(`${p.codes.filter((c) => statusAt(c, p.now) === 'active').length} active`)}
       <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid #EAECF0', borderRadius: R.lg }}>
         {p.codes.map((c, i) => {
           const r = codeRow(c, p.now, p.plain)
-          const look = LOOK[c.status]
+          const look = LOOK[statusAt(c, p.now)]
           return (
             <div key={c.hash} style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '14px 16px', ...(i === 0 ? {} : { borderTop: '1px solid #EAECF0' }), ...(r.canRevoke ? {} : { opacity: 0.8 }) }}>
               <span style={{ minWidth: 128, fontFamily: FONT.mono, fontSize: 18, fontWeight: 500, letterSpacing: '.12em', color: C.ink }}>{r.code}</span>

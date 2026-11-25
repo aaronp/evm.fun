@@ -43,6 +43,13 @@ describe('onboarding', () => {
     expect(e.usesText).toBe('1 of 3 used')
     expect(e.expiryText).toBe('expired 3 h ago')
 
+    // read as active, but past its expiry by now
+    const late = codeRow(code({ expiresAt: NOW - 30 }), NOW, new Map())
+    expect(late.status).toBe('Expired')
+    expect(late.expiryText).toBe('expired just now')
+    expect(late.canRevoke).toBe(false)
+    expect(html(<CodeList codes={[code({ expiresAt: NOW - 30 })]} plain={new Map()} now={NOW} busy={false} onRevoke={noop} />)).toContain('0 active')
+
     const r = codeRow(code({ status: 'revoked' }), NOW, new Map([[code().hash, '205117']]))
     expect(r.status).toBe('Revoked')
     expect(r.expiryText).toBe('revoked')

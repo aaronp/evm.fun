@@ -24,10 +24,13 @@ export function timeLeft(s: number) {
 }
 const agoS = (now: number, t: number) => ago(now * 1000, t * 1000)
 
+/** `c.status` as of `now` (it was computed when the codes were read). */
+export const statusAt = (c: CodeView, now: number) => (c.status === 'active' && now > c.expiresAt ? 'expired' : c.status)
+
 /** One row of the Codes list. */
 export function codeRow(c: CodeView, now: number, plain: Plain) {
   const known = plain.get(c.hash)
-  const st = c.status
+  const st = statusAt(c, now)
   return {
     code: known ? formatCode(known) : c.label || `Code ending …${c.hash.slice(-4)}`,
     status: LOOK[st].label,
