@@ -84,6 +84,12 @@
         "webevm": "0.9.1",
       },
     },
+    "packages/keys": {
+      "name": "@evmb/keys",
+      "dependencies": {
+        "viem": "^2.58.1",
+      },
+    },
     "packages/node": {
       "name": "@evmb/node",
       "dependencies": {
@@ -331,6 +337,8 @@
     "@evmb/core": ["@evmb/core@workspace:packages/core"],
 
     "@evmb/htlc": ["@evmb/htlc@workspace:packages/htlc"],
+
+    "@evmb/keys": ["@evmb/keys@workspace:packages/keys"],
 
     "@evmb/node": ["@evmb/node@workspace:packages/node"],
 
