@@ -1,9 +1,12 @@
+import type { Address } from 'viem'
 import type { SerializedState } from 'webevm'
 
 export type ChainRecord = {
   id: string; name: string; desc: string; createdAt: number
   /** unfinished: the create request may have redeemed a code but the chain wasn't confirmed; retryDeploy resends it */
   status: 'local' | 'unfinished' | 'deployed'; dump?: SerializedState; deployedAt?: number; error?: string
+  /** the key that sent its deploy (its grant is that key's); none on records from before it was kept */
+  by?: Address
 }
 export type WorkspaceStorage = { load(): Promise<ChainRecord[]>; save(c: ChainRecord): Promise<void> }
 

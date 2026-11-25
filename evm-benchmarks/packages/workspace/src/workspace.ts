@@ -21,6 +21,7 @@ type Options = {
 
 const CHAIN_ID = 31337
 const NOT_ALLOWED = 'not allowed to create this chain'
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
 const message = (e: unknown) => (e instanceof NodeError ? e.error : e instanceof Error ? e.message : String(e))
 
 /** A local chain's node (as packages/node/scripts/bootstrap.ts freshDump), from `dump` or a fresh genesis; disposed after `fn`. */
@@ -67,9 +68,12 @@ export class Workspace {
   }
 
   /** Rename a chain: metadata on this device only (no network call). */
-  renameChain(id: string, name: string, desc: string): Promise<ChainRecord> {
-    return this.put({ ...this.get(id), name, desc })
+  async renameChain(id: string, name: string, desc: string): Promise<ChainRecord> {
+    return this.put({ ...(await this.stored(id)), name, desc })
   }
+
+  /** Whether `c` was deployed by another key than `me` (records without `by` count as mine). */
+  byOther(c: ChainRecord): boolean { return !!c.by && c.by.toLowerCase() !== this.o.me.toLowerCase() }
 
   /**
    * Redeem `src.code` for this chain on root and create it in the cloud, in one request. `{vouch: true}`: an issuer
@@ -93,6 +97,8 @@ export class Workspace {
     return this.once(id, async () => {
       const c = this.get(id)
       if (c.status !== 'unfinished') throw new Error(`chain ${id} is ${c.status}, not unfinished`)
+      // its grant is the deployer's: a retry by another key would be refused, and must not reset the record
+      if (this.byOther(c)) throw new Error(`deployed by ${short(c.by!)}; switch to that key to retry`)
       return this.send(c)
     })
   }
@@ -233,6 +239,14 @@ export class Workspace {
     return c
   }
 
+  /**
+   * `id` as stored (else as held): another Workspace on this storage (one left from before a key switch) may have saved it since.
+   * ponytail: loads every record (dumps included) for one; add a get(id) to WorkspaceStorage if that shows up
+   */
+  private async stored(id: string): Promise<ChainRecord> {
+    return (await this.o.storage.load()).find((c) => c.id === id) ?? this.get(id)
+  }
+
   private async put(c: ChainRecord): Promise<ChainRecord> {
     await this.o.storage.save(c)
     this.records.set(c.id, c)
@@ -252,7 +266,9 @@ export class Workspace {
     const dump = c.dump!
     const nonce = await withNode(wasm, dump, async (n) => Number(BigInt(await n.request({ method: 'eth_getTransactionCount', params: [me, 'latest'] }) as string)))
     let sent = false
-    const { error: _, ...rest } = c
+    const { error: _, ...base } = { ...c, by: me }
+    // the name and description as they are by then (a rename may have landed while this ran)
+    const rest = async () => { const { name, desc } = await this.stored(c.id); return { ...base, name, desc } }
     try {
       const r = await (await keys.resolve(me, `Deploy ${c.name}`)).withSigner(async (account) => {
         const client = new NodeClient(workerUrl, account)
@@ -268,12 +284,12 @@ export class Workspace {
           throw e
         }
       })
-      return await this.put({ ...rest, status: 'deployed', dump: r.dump, deployedAt: Date.now() })
+      return await this.put({ ...(await rest()), status: 'deployed', dump: r.dump, deployedAt: Date.now() })
     } catch (e) {
       const reason = message(e)
-      // a 502 (created after the grant was recorded) or no reply at all: the grant may exist
-      if (sent && (e instanceof NodeError ? e.status === 502 : true)) await this.put({ ...rest, status: 'unfinished', error: reason })
-      else if (!code && e instanceof NodeError && e.status === 403 && e.error === NOT_ALLOWED) await this.put({ ...rest, status: 'local' })
+      // a 5xx (a 502: not created after the grant was recorded; else the worker failed, maybe after) or no reply: the grant may exist
+      if (sent && (e instanceof NodeError ? e.status >= 500 : true)) await this.put({ ...(await rest()), status: 'unfinished', error: reason })
+      else if (!code && !this.byOther(c) && e instanceof NodeError && e.status === 403 && e.error === NOT_ALLOWED) await this.put({ ...(await rest()), status: 'local' })
       throw new Error(reason, { cause: e })
     }
   }

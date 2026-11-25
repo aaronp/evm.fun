@@ -121,7 +121,7 @@ export function App() {
         }}
       >
         {section === 'chains' && (chain
-          ? <ChainDetail key={chain.id} chain={chain} busy={retrying} onSave={(n, d) => save(chain.id, n, d)} onDeploy={() => setDialog({ kind: 'deploy', id: chain.id })} onRetry={() => retry(chain.id)} follow={(id) => ws!.follow(id)} />
+          ? <ChainDetail key={chain.id} chain={chain} me={s.me} busy={retrying} onSave={(n, d) => save(chain.id, n, d)} onDeploy={() => setDialog({ kind: 'deploy', id: chain.id })} onRetry={() => retry(chain.id)} follow={(id) => ws!.follow(id)} />
           : <Empty title="No chain selected" text="Create a chain, or pick one from the list." />)}
         {section === 'onboarding' && <OnboardingPage workspace={ws} issuer={s.issuer} plain={plain} onNotice={s.setNotice} />}
       </Shell>

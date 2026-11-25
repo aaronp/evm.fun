@@ -42,5 +42,5 @@ export async function startWorker() {
     const data = encodeFunctionData({ abi, functionName, args } as never)
     mined(await a.submit('root', [await admin.signTransaction({ type: 'eip1559', chainId: 31337, nonce: await a.nonce('root'), to, data, gas: 500_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })]))
   }
-  return { url, onb, allowList, access, as, issue, adminCall, stop: () => srv.stop(true) }
+  return { url, onb, allowList, access, as, issue, adminCall, hosts, stop: () => srv.stop(true) }
 }

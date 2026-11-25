@@ -106,4 +106,14 @@ describe('chains', () => {
     expect(d).toContain('Deployed just now')
     expect(d).toContain('You: Admin')
   })
+
+  test('unfinished by another key: says so and hides Retry; by me (or no by) shows it', () => {
+    const sue = '0x5B38Da6a701c568545dCfcB03FcB875f56beddC4', bob = '0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2'
+    const u = (by?: string) => html(<ChainDetail chain={chain({ status: 'unfinished', error: 'network', by: by as never })} me={bob} onSave={async () => {}} onDeploy={noop} onRetry={noop} />)
+    const h = u(sue)
+    expect(h).toContain("Deployed by another key (0x5B38…ddC4); switch to that key to retry. The chain wasn't created: network")
+    expect(h).not.toContain('>Retry<')
+    expect(h).not.toContain('You: Admin')
+    for (const m of [u(bob), u()]) { expect(m).toContain('>Retry<'); expect(m).toContain('You: Admin') }
+  })
 })

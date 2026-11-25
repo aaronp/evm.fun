@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import type { ChainRecord } from '@evmb/workspace'
-import { C, FONT, R, S } from '../theme'
+import { C, FONT, R, S, short } from '../theme'
 import { MY_ACCESS, STATUS, ago, badge, glyph, initials } from './view'
 
 const card = { display: 'flex', flexDirection: 'column', gap: 16, padding: 24, background: '#FFFFFF', border: `1px solid ${C.border}`, borderRadius: 14 } as const
@@ -20,11 +20,13 @@ const state = (o: { title: string; text: string; tone: { bg: string; border: str
  * is open. `onSave` rejects with the message to show (e.g. a taken name).
  */
 export function ChainDetail(p: {
-  chain: ChainRecord; busy?: boolean; onSave(name: string, desc: string): Promise<void>; onDeploy(): void; onRetry(): void
+  chain: ChainRecord; me?: string; busy?: boolean; onSave(name: string, desc: string): Promise<void>; onDeploy(): void; onRetry(): void
   follow?(id: string): () => void
 }) {
   const c = p.chain
   const deployed = c.status === 'deployed'
+  // its deploy was sent by another key (its grant is that key's): only that key can retry it
+  const other = !!c.by && !!p.me && c.by.toLowerCase() !== p.me.toLowerCase()
   useEffect(() => (deployed ? p.follow?.(c.id) : undefined), [c.id, deployed])
   const [name, setName] = useState(c.name)
   const [desc, setDesc] = useState(c.desc)
@@ -47,7 +49,7 @@ export function ChainDetail(p: {
           </div>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, color: C.muted }}>
             <span style={{ fontFamily: FONT.mono }}>{c.id}</span>
-            <span>You: {MY_ACCESS}</span>
+            <span>{other ? `Deployed by another key (${short(c.by!)})` : `You: ${MY_ACCESS}`}</span>
           </div>
         </div>
       </section>
@@ -72,9 +74,10 @@ export function ChainDetail(p: {
           action: <button type="button" onClick={p.onDeploy} style={S.primary(true)}>Deploy chain…</button>,
         })}
         {c.status === 'unfinished' && state({
-          title: 'Unfinished', text: `Your code was accepted but the chain wasn't created: ${c.error ?? ''}`,
+          title: 'Unfinished',
+          text: other ? `Deployed by another key (${short(c.by!)}); switch to that key to retry. The chain wasn't created: ${c.error ?? ''}` : `Your code was accepted but the chain wasn't created: ${c.error ?? ''}`,
           tone: { bg: '#FFFAEB', border: '#FEDF89', title: '#93370D' },
-          action: <button type="button" onClick={p.onRetry} disabled={p.busy} style={S.primary(!p.busy)}>Retry</button>,
+          action: other ? undefined : <button type="button" onClick={p.onRetry} disabled={p.busy} style={S.primary(!p.busy)}>Retry</button>,
         })}
         {deployed && state({
           title: 'Deployed and syncing', text: `Deployed ${c.deployedAt === undefined ? '' : ago(Date.now(), c.deployedAt)}`,
