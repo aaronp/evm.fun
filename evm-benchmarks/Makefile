@@ -1,7 +1,10 @@
-.PHONY: dev build test bench report soak-node throughput-node dev-services dev-services-status dev-services-stop clear-local e2e-node deploy
+.PHONY: dev app build test bench report soak-node throughput-node dev-services dev-services-status dev-services-stop clear-local e2e-node deploy
 
 dev:     ## playground dev server (http://localhost:5173)
 	bun run web:dev
+
+app: ## new app on http://localhost:5174 (or the next free port) against the local worker
+	bun run --cwd packages/app dev
 
 build:   ## static playground site -> packages/web/dist
 	bun run web:build
@@ -40,7 +43,7 @@ clear-local: ## stop the local worker and delete its chains (root included); kee
 
 e2e-node: ## end-to-end against the local worker; starts it if needed, stops it only if it started it
 	@if curl -sf http://127.0.0.1:8799/health >/dev/null; then started=; else $(DEV_SERVICES) start || exit 1; started=1; fi; \
-	bun packages/node/scripts/e2e.ts; rc=$$?; \
+	bun packages/node/scripts/e2e.ts && bun packages/workspace/scripts/e2e-onboarding.ts; rc=$$?; \
 	if [ -n "$$started" ]; then $(DEV_SERVICES) stop; fi; exit $$rc
 
 # >>> @pritzlaff/project — managed by `project add/remove/update`; edits inside are overwritten

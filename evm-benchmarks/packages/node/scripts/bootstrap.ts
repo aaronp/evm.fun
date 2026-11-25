@@ -1,5 +1,5 @@
 // Create the root chain on a worker: bun packages/node/scripts/bootstrap.ts <url> <envfile>
-// Reads ROOT_ADMIN_KEY from <envfile>, generating and saving one if missing. Does nothing if the root chain exists.
+// Reads ROOT_ADMIN_KEY from <envfile>, generating and saving one if missing. Creates root if missing, then its Onboarding if missing.
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import type { Hex } from 'viem'
@@ -7,6 +7,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { createNode, type SerializedState } from 'webevm'
 import { createRevmEngine } from 'webevm/revm'
 import { NodeClient, setupTxs } from '../src/client'
+import { ensureOnboarding } from '../src/onboarding'
 
 export const wasm = readFileSync(require.resolve('revm-wasm/revm.wasm'))
 
@@ -46,7 +47,8 @@ export async function bootstrap(url: string, envFile: string) {
     root = (await client.health()).root
     console.log('root chain created')
   }
-  console.log(`root chain: admin ${root!.admin}, ChainAccess ${root!.access}, head #${root!.head}`)
+  const { onboarding } = await ensureOnboarding(client, admin)
+  console.log(`root chain: admin ${root!.admin}, ChainAccess ${root!.access}, Onboarding ${onboarding}, head #${(await client.health()).root!.head}`)
 }
 
 if (import.meta.main) {

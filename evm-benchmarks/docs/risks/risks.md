@@ -975,6 +975,8 @@ A code the admin types (e.g. `my-first-friend`) can be guessed within its TTL, a
 
 The worker redeems the code on the root chain before the new chain's Durable Object is created. If the creation then fails, the code is already used and the friend must ask for another. (ADR-0023)
 
+Note (2026-11-25): closed for the new redeem form of `POST /chains` (ADR-0026): the grant stays on root after a failed create and the app resends without `redeem`, so the use is spent once. The `claim` form (evm.fun) is unchanged and still open.
+
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
@@ -1128,8 +1130,54 @@ The cloud mines txs in arrival order. A tx that is still valid after another dev
 
 webevm hashes a block's header before executing it, so the block hash covers neither the txs nor the resulting state root. A follower that only compared hashes would accept a block with altered txs. Found in the SpacetimeDB spike (t-155); applies to the Cloudflare node too.
 
+Note (2026-11-25): the worker accepted a dump whose block `stateRoot` had been tampered with (found writing the onboarding tests, plan 24), so its create path trusts the header too. Followers still catch it by replaying; the worker does not.
+
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
 | Followers replay every block and compare the state root (and per-tx outcomes) with the cloud's | Detective | Strong |
 | Include a tx root and the post-state root in the header before hashing (webevm change or our own header) | Preventive | Strong |
+
+## R62 · Onboarding codes can be guessed or brute-forced
+- impact: 3
+- likelihood: 2
+- target: 2x2
+- appetite: 4
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+A typed code (`let-sue-in`) or a generated 6-digit one can be guessed within its validity, and a guess lets a stranger create a chain on the worker. A 6-digit code is also only 10^6 values: anyone who can read root can recover it from its `codeHash` in an `issue` tx in minutes. Root must stay read-closed and its readers are trusted. (ADR-0026)
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Valid for 1 hour by default (1 minute to 1 week), `uses` 1-1000; revoke at any time | Preventive | Partial |
+| 10 failed redeems per IP per 10 minutes then `429`; every redeem and grant is on root | Detective | Partial |
+| Root reads are closed to all but the root admin and readers it adds | Preventive | Partial |
+| Vouch code: 1 use, 10 minutes | Preventive | Partial |
+
+## R63 · Keys in the browser can be lost or exposed
+- impact: 3
+- likelihood: 3
+- target: 2x2
+- appetite: 6
+- category: Security
+- driver: Claude
+- approver: Aaron
+
+`@evmb/app` keeps private keys in IndexedDB, encrypted with AES-256-GCM under a key derived from the user's passphrase (PBKDF2-SHA256, 600,000 iterations). A decrypted signer lives in memory while unlocked, so script on the app's origin could use it. A forgotten passphrase loses the keys for good (no recovery); a chain owned by a lost key can no longer be administered. (ADR-0026)
+
+Known limits (plan 24):
+- Two passphrase prompts at once hang the first. The startup "Read root" prompt (isIssuer) can overlap a deploy or follow prompt and stall root reads.
+- A returning user is asked for the passphrase on every load, because isIssuer reads root; cancelling leaves issuer=false without a message.
+- "Deployed and syncing" is shown even when follow is down.
+- Two tabs opened on first run can each set a different passphrase (the first-ever passphrase is accepted as is), leaving keys under two passphrases.
+
+### Controls
+| Control | Type | Effectiveness |
+|---|---|---|
+| Encrypted at rest (WebCrypto only); a wrong passphrase throws `Wrong passphrase` and leaves storage untouched | Preventive | Strong |
+| The grant and plaintext key exist only inside a callback; Lock drops the in-memory signer | Preventive | Partial |
+| Auto-lock after 15 minutes idle drops the in-memory signer | Preventive | Partial |
+| Keep a copy of the key elsewhere: there is no recovery by design | Corrective | None yet |

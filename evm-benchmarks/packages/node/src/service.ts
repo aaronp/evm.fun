@@ -1,7 +1,7 @@
 // One chain's logic, independent of Durable Objects: create from a dump + set-up block, submit, redeem codes, info.
 import { decodeFunctionData, decodeFunctionResult, encodeFunctionData, getAddress, isHex, keccak256, parseEventLogs, parseTransaction, recoverTransactionAddress, type Abi, type Address, type Hex } from 'viem'
 import type { SerializedState } from 'webevm'
-import { ChainAccess } from '@evmb/contracts'
+import { Aliases, ChainAccess, Onboarding } from '@evmb/contracts'
 import type { Sql } from './sql'
 import { chainAcl, type ACL } from './acl'
 import { ChainStore, type SerializedBlock } from './store'
@@ -115,8 +115,31 @@ export class ChainService {
 
   readonly acl: ACL = chainAcl((fn, args) => this.call(ChainAccess.abi, fn, args))
 
-  private call(abi: Abi, fn: string, args: unknown[] = []): Promise<any> {
-    return this.node.read((n) => ethCall(n, this.access, abi, fn, args))
+  private call(abi: Abi, fn: string, args: unknown[] = [], to: Address = this.access): Promise<any> {
+    return this.node.read((n) => ethCall(n, to, abi, fn, args))
+  }
+
+  // ponytail: cached for the service's life, so re-registering the "onboarding" alias isn't seen until the DO restarts;
+  // re-read it (or listen for Aliases.Registered) if root's Onboarding is ever replaced.
+  #onboarding: Address | null = null
+  /** Root: the Onboarding registered as alias "onboarding" (null if none yet; cached once found). */
+  async onboarding(): Promise<Address | null> {
+    if (!this.#onboarding) {
+      const { target } = await this.call(Aliases.abi, 'get', ['onboarding'], this.aliases)
+      if (BigInt(target) !== 0n) this.#onboarding = target
+    }
+    return this.#onboarding
+  }
+
+  async #needOnboarding(): Promise<Address> {
+    const a = await this.onboarding()
+    if (!a) throw new ServiceError(503, 'onboarding not set up on root')
+    return a
+  }
+
+  /** Root: whether root's Onboarding holds a grant of `chainId` to `signer`. */
+  async isDeployAllowed(signer: string, chainId: string): Promise<boolean> {
+    return this.call(Onboarding.abi, 'isDeployAllowed', [signer, chainId], await this.#needOnboarding())
   }
 
   async info(): Promise<RemoteChainInfo> {
@@ -208,6 +231,40 @@ export class ChainService {
     })
   }
 
+  /**
+   * Root: mine `raw` (a `redeem(code, chainId)` to root's Onboarding sent by `signer`) as its own block. Checked first like
+   * a claim, so a refused code (reason from `whyNot`) or a tx for another chain id never reaches a block.
+   */
+  redeemGrant(signer: string, raw: Hex, chainId: string, timestamp: number): Promise<void> {
+    return this.#write(async () => {
+      const onb = await this.#needOnboarding()
+      let code: string
+      let tx: ReturnType<typeof parseTransaction>
+      try {
+        tx = parseTransaction(raw)
+        if (tx.to?.toLowerCase() !== onb.toLowerCase()) throw new Error("not sent to root's Onboarding")
+        if (tx.value) throw new Error('redeem tx must send no value')
+        if (tx.accessList?.length || 'authorizationList' in tx) throw new Error('redeem tx must not carry an access list')
+        const d = decodeFunctionData({ abi: Onboarding.abi, data: tx.data! })
+        if (d.functionName !== 'redeem') throw new Error('not a redeem(code, chainId) call')
+        if (d.args[1] !== chainId) throw new Error("its chain id is not the request's")
+        code = d.args[0] as string
+      } catch (e) {
+        throw new ServiceError(400, `bad redeem tx: ${msg(e)}`)
+      }
+      if ((await sender(raw)) !== signer.toLowerCase()) throw new ServiceError(403, 'redeem tx must be sent by the request signer')
+      const whyNot = async () => (await this.call(Onboarding.abi, 'whyNot', [code, chainId], onb)) as string
+      const no = await whyNot()
+      if (no) throw new ServiceError(403, no)
+      // eth_estimateGas, as #invite: the redeem must succeed at the tx's gas limit
+      const need = await this.node.read((n) => n.request({ method: 'eth_estimateGas', params: [{ from: signer, to: onb, data: tx.data }, 'latest'] }))
+        .then(BigInt, () => null)
+      if (need === null || (tx.gas ?? 0n) < need) throw new ServiceError(403, 'redeem tx would revert')
+      // whyNot ran at the last block's time; a code that expired since reverts in its block, and says so here
+      await this.#claim(raw, timestamp, 'redeem', async () => (await whyNot()) || 'redeem reverted')
+    })
+  }
+
   /** Parse and check a claim tx against its live invite; throws before anything is mined. Call inside the write queue. */
   async #invite(signer: string, claim: Hex, timestamp: number): Promise<{ hash: Hex; grants: number }> {
     let code: string
@@ -238,10 +295,11 @@ export class ChainService {
     return { hash, grants: Number(grants) }
   }
 
-  async #claim(claim: Hex, timestamp: number): Promise<BlockSummary> {
-    const { block: blk, results: [r] } = await this.node.apply(timestamp, [claim]).catch((e) => { throw new ServiceError(e instanceof NodeFault ? 503 : 400, `claim rejected: ${msg(e)}`) })
-    if (!blk) throw new ServiceError(400, `claim rejected: ${r && !r.ok ? r.error : 'not mined'}`)
-    if ((blk.receipts[0] as { status: number }).status !== 1) throw new ServiceError(403, BAD_CODE)
+  /** Mine `claim` alone; a revert is a 403 with `reverted()`'s reason. */
+  async #claim(claim: Hex, timestamp: number, what = 'claim', reverted = async () => BAD_CODE): Promise<BlockSummary> {
+    const { block: blk, results: [r] } = await this.node.apply(timestamp, [claim]).catch((e) => { throw new ServiceError(e instanceof NodeFault ? 503 : 400, `${what} rejected: ${msg(e)}`) })
+    if (!blk) throw new ServiceError(400, `${what} rejected: ${r && !r.ok ? r.error : 'not mined'}`)
+    if ((blk.receipts[0] as { status: number }).status !== 1) throw new ServiceError(403, await reverted())
     return summary(blk.header)
   }
 

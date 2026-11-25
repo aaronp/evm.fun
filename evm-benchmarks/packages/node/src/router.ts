@@ -1,25 +1,28 @@
 // HTTP routing for the chain worker, independent of Durable Objects.
 // `handle` does CORS and finds the chain; each chain is a `ChainHost` (one Durable Object in the worker, or an
 // in-process object in tests) that authenticates, keeps its own single-use request nonces, and runs its ChainService.
-import type { Hex } from 'viem'
+import type { Address, Hex } from 'viem'
 import type { SerializedState } from 'webevm'
 import { recoverSigner, SKEW_S } from './auth'
 import type { Sql } from './sql'
 import { ChainService, ServiceError, checkSetup } from './service'
 import type { NodeConfig } from './node'
+import { CHAIN_ID_RE } from './onboarding'
 import { MAX_CREATE_BYTES, MAX_SUBMIT_BYTES, type BlockSummary, type CreateChainRequest } from './client'
 
 /** A request as a chain sees it (plain data, so it crosses a Durable Object RPC boundary). */
 export interface ChainRequest { method: string; url: string; body: string; ts: string; nonce: string; sig: string; ip: string; name?: string }
 /** A response as plain data; `handle` turns it into JSON with CORS headers. */
 export interface Reply { status: number; body: unknown }
-type RootInfo = { chainId: 'root'; admin: string; access: string; head: number }
+type RootInfo = { chainId: 'root'; admin: string; access: string; head: number; onboarding: Address | null }
 
 /** What the router needs from a chain; a Durable Object stub of `ChainDO`, or a `ChainHost` itself. */
 export interface ChainHandleLike {
   serve(r: ChainRequest): Promise<Reply>
   create(chainId: string, signer: string, dump: SerializedState, setup: [Hex, Hex]): Promise<Reply>
   rootInfo(): Promise<RootInfo | null>
+  /** Whether this handle (for `chainId`) holds a created chain. */
+  exists(chainId: string): Promise<boolean>
 }
 
 export interface RouterDeps {
@@ -125,7 +128,12 @@ export class ChainHost implements ChainHandleLike {
     await this.#ready('root')
     if (!this.service) return null
     const i = await this.service.info()
-    return { chainId: 'root', admin: i.admin, access: i.access, head: i.head.number }
+    return { chainId: 'root', admin: i.admin, access: i.access, head: i.head.number, onboarding: await this.service.onboarding() }
+  }
+
+  async exists(chainId: string): Promise<boolean> {
+    await this.#ready(chainId)
+    return this.service !== null
   }
 
   /** The signer of a valid, fresh, never-seen signed request; its nonce is spent here. */
@@ -223,7 +231,10 @@ export class ChainHost implements ChainHandleLike {
     if (!(await s.canRead(signer))) throw new ServiceError(403, `${signer} is not a reader of this chain`)
   }
 
-  /** Run a code check under the per-IP failure limit; a throw counts as a failure. */
+  /**
+   * Run a code check under the per-IP failure limit. Only a 403 counts as a failure: a refusal of the code itself (a
+   * `whyNot` or revert reason, a bad/used/expired code) or a forged request; a fault (503) or a stale nonce (400) doesn't.
+   */
   async #limited<T>(ip: string, f: () => Promise<T>): Promise<T> {
     const t = now()
     this.sql.exec('DELETE FROM fails WHERE at < ?', t - FAIL_WINDOW_S)
@@ -232,16 +243,21 @@ export class ChainHost implements ChainHandleLike {
     try {
       return await f()
     } catch (e) {
-      this.sql.exec('INSERT INTO fails VALUES (?, ?)', ip, t)
+      if (e instanceof ServiceError && e.status === 403) this.sql.exec('INSERT INTO fails VALUES (?, ?)', ip, t)
       throw e
     }
   }
 
-  /** Root only. No claim: the root admin creates `root`. With a claim: redeem it here, then create a new chain. */
+  /**
+   * Root only. No claim or chainId: the root admin creates `root`. With a claim: redeem it here, then create a new chain.
+   * With a chainId: redeem `redeem` (if sent) on root's Onboarding, then create that chain if root grants it to the signer.
+   */
   async #createChain(signer: string, r: ChainRequest): Promise<Reply> {
-    const { dump, setup, claim } = parse<CreateChainRequest>(r.body)
+    const { dump, setup, claim, chainId, redeem } = parse<CreateChainRequest>(r.body)
     const url = (id: string) => new URL(`/chains/${id}`, r.url).href
     const done = (out: Reply, id: string) => (out.status === 201 ? { status: 201, body: { ...(out.body as object), url: url(id) } } : out)
+    if (claim && chainId !== undefined) throw new ServiceError(400, 'send claim or chainId, not both')
+    if (chainId !== undefined) return this.#createGranted(signer, r, { dump, setup, chainId, redeem }, done)
     if (!claim) {
       if (signer !== this.cfg.rootAdmin.toLowerCase()) throw new ServiceError(403, 'only the root admin can create a chain without a code')
       if (this.service) throw new ServiceError(409, 'the root chain already exists')
@@ -264,6 +280,32 @@ export class ChainHost implements ChainHandleLike {
     }
     record(out.status === 201 ? id : `failed: ${(out.body as { error?: string }).error ?? out.status}`)
     return done(out, id)
+  }
+
+  /** The redeem form: the grant on root's Onboarding is the token; a create that fails after it is a 502 (resend without `redeem`). */
+  async #createGranted(signer: string, r: ChainRequest, b: CreateChainRequest, done: (out: Reply, id: string) => Reply): Promise<Reply> {
+    const s = this.service
+    if (!s) throw new ServiceError(404, 'no root chain yet')
+    await checkSetup(signer, b.setup)
+    const { chainId } = b
+    if (typeof chainId !== 'string' || !CHAIN_ID_RE.test(chainId)) throw new ServiceError(400, 'bad chain id')
+    const target = this.cfg.chain(chainId)
+    if (await target.exists(chainId)) throw new ServiceError(409, 'chain already exists')
+    if (!(await s.onboarding())) throw new ServiceError(503, 'onboarding not set up on root')
+    if (b.redeem !== undefined) {
+      if (typeof b.redeem !== 'string') throw new ServiceError(400, 'redeem must be a hex string')
+      await this.#limited(r.ip, () => s.redeemGrant(signer, b.redeem!, chainId, now()))
+    }
+    if (!(await s.isDeployAllowed(signer, chainId))) throw new ServiceError(403, 'not allowed to create this chain')
+    // returned, not thrown, so serve() still announces the redeem's block on root
+    const failed = (why: string): Reply => ({ status: 502, body: { error: `chain not created: ${why}` } })
+    let out: Reply
+    try {
+      out = await target.create(chainId, signer, b.dump, b.setup)
+    } catch (e) {
+      return failed(e instanceof Error ? e.message : String(e))
+    }
+    return out.status === 201 ? done(out, chainId) : failed((out.body as { error?: string }).error ?? String(out.status))
   }
 
   /** Create this chain from `dump` + the two set-up txs; the reply carries the new chain's dump. */

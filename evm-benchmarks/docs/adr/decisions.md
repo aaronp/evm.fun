@@ -1431,3 +1431,67 @@ Claude's call: outcomes are compared by status and logs (not state), so a tx tha
 - A self-governed allow-list contract is a later card (t-147).
 - The chain ACL has three roles (t-152): read, write and deploy. Deploy (`GRANT_DEPLOY`, `ChainAccess.canDeploy`: a deployer or the admin) lets the submitting key create contracts. The worker checks it on the submitter, per tx, and refuses a creation (a tx with no `to`) from a submitter without it (`invalid`, "<signer> can't deploy contracts on this chain"). Factories are not checked: a contract may create contracts for any caller; apps govern that. `addDeployer` also adds a writer, and `removeWriter` also drops deploy. A chain whose `ChainAccess` predates the role has no `canDeploy`; there writers deploy (the fallback applies only when the function is absent, not on any other failure). evm.fun refuses a creation locally from a device without deploy.
 - Risks R59 and R60.
+
+---
+id: ADR-0026
+title: "Deploy codes live in root's Onboarding contract; the worker asks root, and only root vouches"
+status: accepted
+date: 2026-11-25
+tags: architecture, chains, access, onboarding
+decision: root-onboarding
+---
+
+## Goal
+Let admins decide who may create a chain on the worker, with codes they can issue, time-limit, count and revoke, and see who redeemed what.
+
+## Hypothesis
+If the chain is the database, the worker needs no SQL for codes: it asks root one question, may this key create this chain, and the answer is already on chain.
+
+## People
+- Admins (issuers), who hand out codes
+- Friends who redeem one and get a chain of their own
+- The worker operator, who must not let a chain owner mint deployments
+
+## Criteria
+- dogfood: codes, redemptions and issuers live on root, not in worker SQL
+- trust: the worker believes only root's Onboarding
+- no lost use: a code is never spent with no chain to show for it
+- simple: the fewest new moving parts
+
+## Solution: Onboarding contract on root; root state is the token
+`Onboarding(IAllows issuers)` on root: issuers `issue` (codeHash, label, expiry, uses 1-1000) and `revoke`; anyone `redeem(code, chainId)`, which spends a use and records a grant `chainId -> {by, codeHash, at}`. The worker reads `isDeployAllowed(signer, chainId)` (token introspection) and creates the chain only if true. Issuers are an `AllowList` (an `IAllows`: `allows(caller, subject, owner)`), seeded with the root admin key and governed by itself. The worker finds Onboarding through root's `Aliases.get("onboarding")` and publishes it as `root.onboarding` in `GET /health`. `POST /chains` gains a third form, `{ chainId, dump, setup, redeem? }`: the redeem tx is prechecked like a claim, mined on root, then the grant is checked and the chain created with id `chainId`. A failed create leaves the grant, so the app retries without `redeem`.
+Pros:
+- No worker SQL; codes, grants and issuers are on chain and readable by issuers
+- A code is spent once and its grant survives a failed create (R53 closed for this path)
+- `IAllows` is one function, so a Users/Groups/Policy allow-list can replace `AllowList` later without changing the worker
+
+Cons:
+- A 6-digit code can be brute-forced from its hash by whoever can read root (risk R62)
+- A second issuer needs two entries: the AllowList and root `ChainAccess` writer, since issuing is a root tx
+
+## Solution: the admin signs a ticket
+| criterion | score |
+| --- | --- |
+| dogfood | 2 |
+| trust | 3 |
+| no lost use | 2 |
+| simple | 3 |
+
+Pros:
+- No contract state for redemptions
+
+Cons:
+- A contract can't sign, so the admin would have to be online to issue
+- Nothing on chain shows who redeemed what
+
+## Decision
+root-onboarding. Decided with Aaron (2026-11-25): the worker honours root's Onboarding only (other chains may hold their own for other purposes); evm.fun and its `claim` form are unchanged; the new app (`@evmb/app`, over `@evmb/workspace` and `@evmb/keys`) is local only for now, since mychain.dev fronts evm.fun.
+
+Claude's call: refusals say why (`no such code`, `code expired`, `code used up`, `code revoked`, `bad code`, `bad chain id`, `chain id taken`, `issuers only`, `not allowed to create this chain`): a short-lived, rate-limited code gains an attacker nothing from them.
+
+## Consequences
+- An issuer must also be a root writer, because `issue` and `revoke` are root txs. A second admin needs the AllowList entry and a root `ChainAccess` writer entry (a README step for now).
+- Root must stay read-closed and its readers trusted: a redeem puts the plaintext code on root, and `codes()` shows hashes of 6-digit codes (risk R62).
+- Keys in the browser are encrypted at rest with a passphrase (risk R63).
+- Not in this step: Users, Usernames, Policy, Groups, passkeys, moving evm.fun onto `keys`/`workspace`.
+- Risks R62, R63; R53 noted.
