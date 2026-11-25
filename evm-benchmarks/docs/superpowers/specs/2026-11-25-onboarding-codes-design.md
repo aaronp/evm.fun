@@ -9,7 +9,7 @@ Admins decide who may create a chain on our Cloudflare worker. They issue **acce
 `let-sue-in`) with an expiry and a number of deployments, and see each code's status (time left, deployments left,
 who redeemed it and which chain they got). Anyone holding a live code can create a chain of their own.
 
-We **dogfood**: the chain is the database. Codes, redemptions and who may issue live in contracts on the `root`
+We **dogfood (build on/use our own APIs)**: the chain is the database. Codes, redemptions and who may issue live in contracts on the `root`
 chain, not in worker SQL. The worker only asks root one question: may this key create this chain?
 
 This is the first small, testable piece of a bigger model (Aaron, 2026-11-25):
@@ -52,6 +52,27 @@ admin-signed tickets; changing evm.fun (left exactly as is) or its deploy-code p
 | How the worker checks a redemption | **Root state is the token** (OAuth token introspection, RFC 7662): `redeem` records a grant; the worker reads `isDeployAllowed(signer, chainId)`. No admin-signed ticket (a contract can't sign; the admin would have to be online). |
 | Contract shape | One small contract per piece, wired by address; `allows` is a one-function interface any implementer can satisfy. |
 | UI | A new app from the prototype; evm.fun untouched. |
+
+## Packages: thin apps over a shared library layer
+
+Two applications sit on the same library layer (Aaron, 2026-11-25): **evm.fun** (`@evmb/web`, the benchmarks,
+wizards and Cloud pages) and the new user-friendly **app** (`@evmb/app`). Both stay thin: screens and state
+binding only; chain, key and deployment logic lives in the libraries.
+
+| Package | Owns | Depends on |
+|---|---|---|
+| `@evmb/contracts` (exists) | All Solidity and ABIs; gains `IAllows`, `AllowList`, `Onboarding` | — |
+| `@evmb/node` (exists) | Chain layer: worker, client, follower; gains `POST /chains` with `redeem` and `root.onboarding` in `/health` | contracts |
+| `@evmb/keys` (new) | `KeyStore`, `KeyScope`, `KeyGenerator`, `UnlockProvider`/`Grant`, `KeyPersistence` (IndexedDB; in-memory for tests), `BrowserKeyStore`, the passphrase provider | viem |
+| `@evmb/workspace` (new) | What an app does, without UI: local chains, deploy (code or vouch) and its retry, following, issuing/listing/revoking codes | node, contracts, keys |
+| `@evmb/app` (new) | React screens from the prototype over `workspace` | workspace, keys |
+
+- The headless test drives `@evmb/workspace` against the local worker with an in-memory key store: it runs what
+  the app runs.
+- `workspace` and `keys` carry no app-specific state or copy, so evm.fun can move onto them. **Not in this step**:
+  evm.fun is left as is; moving its key handling and cloud flows onto `keys`/`workspace` is a later step.
+- Later, once these boundaries prove themselves: split platform contracts (ChainAccess, Aliases, AllowList,
+  Onboarding) from the benchmark ones; split `@evmb/node` into a browser-safe client/follower and the worker.
 
 ## Contracts (`packages/contracts/src`)
 
@@ -130,7 +151,7 @@ grant and status show on root; expired, used-up, revoked and unknown codes are r
 second redeem for the same `chainId` is refused; a retry without `redeem` after a simulated failed create works;
 Bob can't create Sue's granted `chainId`.
 
-## New app (`packages/app`)
+## New app (`packages/app`, logic in `packages/workspace` and `packages/keys`)
 
 React 19 + Vite + TypeScript, like `packages/web`; reuses `@evmb/node` client and webevm. The prototype
 (`design/prototype/Prototype.dc.html`, never committed) is the reference: replicate its tokens, spacing, copy and
