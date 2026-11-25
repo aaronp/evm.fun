@@ -27,7 +27,7 @@ export function FollowerBadge({ chain }: { chain?: ChainHandle }) {
   return <Badge variant={b.tone} title={s.kind === 'following' ? `Block #${s.block}` : s.detail}>{b.text}</Badge>
 }
 
-/** Sync a follower now (every sync-interval mode, Manual included). */
+/** Sync a follower now (Live and Manual alike). */
 export const syncNow = (h: ChainHandle) => (h.approach as unknown as { syncNow(): Promise<void> }).syncNow()
 
 /** Status line for a follower's chain card, with what can be done about it (`onReload`: drop the copy and boot it again from the cloud's state). */
@@ -53,8 +53,7 @@ export function FollowerStatusLine({ chain, onDelete, onReload }: { chain: Chain
 
 /**
  * Devices on a follower's cloud chain: each member's name, role and position. The chain's admin (this browser's follow
- * account) can invite a device and remove members. Refreshes when the follower's head or status changes (its sync
- * interval) and on Sync now: no polling of its own.
+ * account) can invite a device and remove members. Refreshes when the follower's head or status changes (live updates) and on Sync now: no polling of its own.
  */
 export function DevicesPanel({ chain }: { chain: ChainHandle }) {
   const { balanceTick } = useApp()

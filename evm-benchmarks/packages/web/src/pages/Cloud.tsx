@@ -23,7 +23,7 @@ import { Table, td, th } from '../ui/table'
 type Health = Awaited<ReturnType<NodeClient['health']>>
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const short = (s: string) => `${s.slice(0, 6)}…${s.slice(-4)}`
-const SYNC_OPTIONS = [{ value: '5', content: '5 s' }, { value: '15', content: '15 s' }, { value: '60', content: '60 s' }, { value: 'manual', content: 'Manual' }]
+const SYNC_OPTIONS = [{ value: 'live', content: 'Live' }, { value: 'manual', content: 'Manual' }]
 
 export function Cloud() {
   useAppBar({ title: 'Cloud' })
@@ -56,7 +56,7 @@ export function Cloud() {
     if (link.code) setHeld({ code: link.code, nodeUrl: link.nodeUrl, chainId: link.chainId })
     nav(`${pathname}${stripCode(search)}`, { replace: true })
   }, [search]) // eslint-disable-line react-hooks/exhaustive-deps
-  const [sync, setSync] = useState(() => String(getSyncInterval()))
+  const [sync, setSync] = useState<string>(getSyncInterval)
 
   function save(next: string) {
     setNodeUrl(next)
@@ -87,10 +87,10 @@ export function Cloud() {
 
       <Panel title="Followers">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
-          <div className="text-text-2">Sync followers every</div>
-          <Segmented label="Sync followers every" name="sync-interval" value={sync} options={SYNC_OPTIONS} className="flex gap-1" itemClassName="px-2.5 py-1 text-xs"
-            onChange={(v) => { setSync(v); setSyncInterval(v === 'manual' ? v : (Number(v) as SyncInterval)) }} />
-          <p className="w-full text-xs text-muted">Kept in this browser only. Manual: followers sync only when you ask. Hidden tabs don't sync.</p>
+          <div className="text-text-2">Keep followers</div>
+          <Segmented label="Keep followers" name="sync-interval" value={sync} options={SYNC_OPTIONS} className="flex gap-1" itemClassName="px-2.5 py-1 text-xs"
+            onChange={(v) => { setSync(v); setSyncInterval(v as SyncInterval) }} />
+          <p className="w-full text-xs text-muted">Kept in this browser only. Live: followers update as the cloud mines blocks. Manual: followers sync only when you ask.</p>
         </div>
       </Panel>
 

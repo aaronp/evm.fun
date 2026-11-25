@@ -14,6 +14,20 @@ import { createWebAssets } from '../src/assets/registry'
 import { pendingSummary, type FollowerStatus } from '../src/cloud/followerChain'
 import { getSyncInterval, setSyncInterval } from '../src/cloud/node'
 
+/** A socket that never reaches a server: tests open/close/drop it by hand. */
+class FakeWS {
+  static all: FakeWS[] = []
+  closed?: number
+  #l: Record<string, ((e: any) => void)[]> = {}
+  constructor(public url: string) { FakeWS.all.push(this) }
+  addEventListener(t: string, f: (e: any) => void) { (this.#l[t] ??= []).push(f) }
+  send() {}
+  close(code = 1000) { this.closed ??= code }
+  emit(t: string, e: any = {}) { for (const f of this.#l[t] ?? []) f(e) }
+}
+const open = () => FakeWS.all.filter((w) => w.closed === undefined)
+const until = async (c: () => boolean) => { for (let i = 0; i < 600 && !c(); i++) await new Promise((r) => setTimeout(r, 5)); expect(c()).toBe(true) }
+
 // The worker stand-in (as cloud-deploy.test.ts): packages/node's router over in-process ChainHosts on bun:sqlite.
 const admin = privateKeyToAccount(generatePrivateKey())
 const phone = privateKeyToAccount(generatePrivateKey())
@@ -56,11 +70,13 @@ afterAll(() => {
 afterEach(() => {
   globalThis.fetch = realFetch
   jest.useRealTimers()
-  setSyncInterval(5)
+  setSyncInterval('live')
+  FakeWS.all = []
 })
 
 const keys = new Map<string, { account: LocalAccount; label: string }>([[admin.address, { account: admin, label: 'laptop' }], [phone.address, { account: phone, label: 'phone' }]])
 function env(o: { kv?: ReturnType<typeof createKv>; lock?: () => boolean; wasm?: () => Promise<any>; account?: (a: `0x${string}`) => { account: LocalAccount; label: string } | undefined } = {}) {
+  FakeWS.all = []
   const kv = o.kv ?? createKv()
   const keySubs = new Set<() => void>()
   const stores = new Map<string, any>()
@@ -69,7 +85,7 @@ function env(o: { kv?: ReturnType<typeof createKv>; lock?: () => boolean; wasm?:
     kv,
     host: (id: string) => ({ persistence: { load: async () => stores.get(id) ?? null, save: async (s: any) => void stores.set(id, structuredClone(s)) } }),
     purge: async (id: string) => void stores.delete(id),
-    follower: { lock: o.lock, wasm: o.wasm ?? (async () => wasm), account: o.account ?? ((a) => keys.get(a)), onAccountsChange: (cb) => (keySubs.add(cb), () => void keySubs.delete(cb)) },
+    follower: { lock: o.lock, WebSocket: FakeWS as never, wasm: o.wasm ?? (async () => wasm), account: o.account ?? ((a) => keys.get(a)), onAccountsChange: (cb) => (keySubs.add(cb), () => void keySubs.delete(cb)) },
   })
   registry.watch((id) => events.push(id))
   return { kv, stores, registry, events, keysChanged: () => keySubs.forEach((cb) => cb()) }
@@ -178,26 +194,6 @@ describe('follower chains', () => {
     await registry.remove(h.info.id)
   })
 
-  test('hiding the tab drops the timer; showing it re-arms', async () => {
-    let state = 'visible', listener: (() => void) | undefined
-    g.document = { get visibilityState() { return state }, addEventListener: (_: string, f: () => void) => (listener = f), removeEventListener: () => (listener = undefined) }
-    try {
-      const { registry } = env()
-      jest.useFakeTimers()
-      const h = await addFollower(registry, { name: 'd', follows: follows() })
-      expect(jest.getTimerCount()).toBe(1)
-      state = 'hidden'
-      listener!()
-      expect(jest.getTimerCount()).toBe(0)
-      state = 'visible'
-      listener!()
-      expect(jest.getTimerCount()).toBe(1)
-      jest.useRealTimers()
-      await registry.remove(h.info.id)
-      expect(listener).toBeUndefined()
-    } finally { delete g.document }
-  })
-
   test('missing account → needs-key, no request sent', async () => {
     const { registry } = env()
     let calls = 0
@@ -224,34 +220,72 @@ describe('follower chains', () => {
     await registry.remove(h.info.id)
   })
 
-  test('the sync interval setting re-arms a running follower; manual stops the timer and syncNow still works', async () => {
-    expect(getSyncInterval()).toBe(5)
+  test('default setting is live and opens one socket', async () => {
+    expect(getSyncInterval()).toBe('live')
     const { registry } = env()
-    // the timer's syncs are seen as fetches (submits can't run under fake timers: the worker stand-in uses timers)
-    let calls = 0
-    globalThis.fetch = ((...a: Parameters<typeof fetch>) => (calls++, realFetch(...a))) as typeof fetch
-    jest.useFakeTimers()
     const h = await addFollower(registry, { name: 'd', follows: follows() })
-    expect(jest.getTimerCount()).toBe(1)
-    setSyncInterval(15)
-    expect(getSyncInterval()).toBe(15)
-    expect(jest.getTimerCount()).toBe(1)
-    const n = calls
-    jest.advanceTimersByTime(5_000) // the old 5 s timer was replaced: still pending, nothing ran
-    expect(jest.getTimerCount()).toBe(1)
-    jest.advanceTimersByTime(10_000)
-    expect(jest.getTimerCount()).toBe(0) // fired; re-armed once the sync lands
-    await syncNow(h) // joins the timer's sync
-    expect(calls).toBe(n + 1) // one GET /blocks
-    expect(jest.getTimerCount()).toBe(1)
+    await until(() => FakeWS.all.length === 1)
+    expect(FakeWS.all[0].url).toContain(`/chains/${cid}/subscribe`)
+    await registry.remove(h.info.id)
+  })
+
+  test('a stored 15 reads as live', () => {
+    for (const v of ['5', '15', '60', 'junk']) { g.localStorage.setItem('evmb.syncInterval', v); expect(getSyncInterval()).toBe('live') }
+    g.localStorage.setItem('evmb.syncInterval', 'manual')
+    expect(getSyncInterval()).toBe('manual')
+    g.localStorage.removeItem('evmb.syncInterval')
+  })
+
+  test('manual opens no socket; Sync now still syncs', async () => {
     setSyncInterval('manual')
-    expect(jest.getTimerCount()).toBe(0)
-    jest.useRealTimers()
+    const { registry } = env()
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
     await mineBlocks(1)
     await syncNow(h)
+    expect(FakeWS.all).toEqual([])
     expect(await bn(h)).toBe((await cloudHead()).number)
     expect(status(h)).toMatchObject({ kind: 'following', behind: 0 })
     await registry.remove(h.info.id)
+  })
+
+  test('switching manual → live connects, live → manual closes it', async () => {
+    setSyncInterval('manual')
+    const { registry } = env()
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    expect(FakeWS.all).toEqual([])
+    setSyncInterval('live')
+    await until(() => open().length === 1)
+    setSyncInterval('manual')
+    expect(open()).toEqual([])
+    setSyncInterval('live')
+    await until(() => open().length === 1)
+    expect(FakeWS.all.length).toBe(2)
+    await registry.remove(h.info.id)
+  })
+
+  test('socket down shows offline with lastSynced and keeps pending txs; back up resyncs', async () => {
+    const { registry } = env()
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    await until(() => FakeWS.all.length === 1)
+    const ws = FakeWS.all[0]
+    ws.emit('open')
+    await until(() => status(h).kind === 'following')
+    const was = (h.approach as any).pendingTxs().length
+    ws.emit('close', { code: 1006 })
+    expect(status(h)).toMatchObject({ kind: 'offline', lastSynced: expect.any(Number), detail: expect.stringContaining('Offline — last synced') })
+    expect((h.approach as any).pendingTxs().length).toBe(was)
+    await until(() => FakeWS.all.length === 2) // backoff, then a fresh socket
+    FakeWS.all[1].emit('open')
+    await until(() => status(h).kind === 'following')
+    await registry.remove(h.info.id)
+  })
+
+  test('dispose closes the socket', async () => {
+    const { registry } = env()
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    await until(() => open().length === 1)
+    await registry.remove(h.info.id)
+    expect(open()).toEqual([])
   })
 
   test('a 401 → clock; a 404 → gone', async () => {

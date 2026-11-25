@@ -34,6 +34,8 @@ export function createChainRegistry(deps: {
     wasm(): Promise<NodeConfig['wasm']>
     /** the writing-tab lock (default: Web Locks) */
     lock?(name: string, fn: () => Promise<void>): boolean | Promise<boolean>
+    /** the socket class for live followers (tests) */
+    WebSocket?: typeof WebSocket
     account(address: Address): { account: LocalAccount; label: string } | undefined
     /** the accounts store changed: a follower waiting for its key looks again */
     onAccountsChange?(cb: () => void): () => void
@@ -50,9 +52,9 @@ export function createChainRegistry(deps: {
   const build = (info: ChainInfo) => {
     if (info.type !== 'follower') return makeHandle(info, factories[info.type]({}, { ...deps.host(info.id), stateHistory: STATE_HISTORY }))
     if (!deps.follower || !info.follows) throw new Error(`chain ${info.id} can't follow a cloud chain here`)
-    const { account, wasm, onAccountsChange, lock } = deps.follower, follows = info.follows
+    const { account, wasm, onAccountsChange, lock, WebSocket } = deps.follower, follows = info.follows
     return makeHandle(info, followerApproach({
-      follows, name: () => info.name, id: info.id, store: followerStore, lock, persistent: () => deps.kv.persistent, key: () => account(follows.account), wasm, onKeysChange: onAccountsChange,
+      follows, name: () => info.name, id: info.id, store: followerStore, lock, WebSocket, persistent: () => deps.kv.persistent, key: () => account(follows.account), wasm, onKeysChange: onAccountsChange,
       signer: (from) => account(from)?.account,
       onStatus: () => emit(info.id), onHead: () => emit(info.id), onChange: () => emit(info.id),
     }))

@@ -1,5 +1,5 @@
 // A follower chain's Approach: a local copy of a cloud chain (packages/node Follower). Sends run locally at once and stay
-// pending until a sync confirms them; polled.
+// pending until a sync confirms them; live over a WebSocket (or Manual).
 import { parseTransaction, type Address, type LocalAccount } from 'viem'
 import type { ChainInfo } from '../chain/handle'
 import type { Approach, Hex, Receipt } from '@evmb/core'
@@ -7,6 +7,7 @@ import { NodeClient, NodeError, type BlockSummary } from '@evmb/node/src/client'
 import type { FollowerStore, PendingTx } from '@evmb/node/src/followerStore'
 import { Follower, FollowerGone, FollowerMismatch, FollowerRemoved, noSuchChain } from '@evmb/node/src/follower'
 import type { NodeConfig } from '@evmb/node/src/node'
+import { liveSync } from '@evmb/node/src/live'
 import { getSyncInterval, onSyncIntervalChange } from './node'
 
 export type Follows = NonNullable<ChainInfo['follows']>
@@ -15,7 +16,6 @@ export type FollowerStatus =
   | { kind: 'offline'; lastSynced?: number; detail: string }
   | { kind: 'removed' | 'mismatch' | 'needs-key' | 'unreachable' | 'clock' | 'gone'; detail: string }
 
-const MAX_BACKOFF_MS = 60_000
 /** No point retrying: only Delete / Re-join / Import key help. */
 const final = (s: FollowerStatus) => s.kind === 'removed' || s.kind === 'mismatch' || s.kind === 'needs-key' || s.kind === 'gone'
 /** Why a follower can't mine, snapshot or restore. */
@@ -45,11 +45,10 @@ const webLock = (name: string, fn: () => Promise<void>): Promise<boolean> => {
   return new Promise((res) => void locks.request(name, { ifAvailable: true }, (l) => { res(!!l); return l ? fn() : undefined })
     .catch((e) => { console.warn(`Can't take the writing-tab lock (${name}); following read-only`, e); res(false) }))
 }
-const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden'
 
 /**
- * `open` (or the first `syncNow`) boots the Follower once (from a stored copy, `open` returns before the first sync's network part) and starts polling at the sync-interval setting: paused while
- * the tab is hidden, backing off ×2 up to 60 s on errors. `dispose` stops it. Never throws for cloud errors: they become
+ * `open` (or the first `syncNow`) boots the Follower once (from a stored copy, `open` returns before the first sync's network part) and keeps one liveSync socket while the setting is Live (and the
+ * status isn't final); Manual has none. `dispose` closes it. Never throws for cloud errors: they become
  * the status (`onStatus`); reads throw that status's detail until the follower is open.
  */
 export function followerApproach(o: {
@@ -69,6 +68,8 @@ export function followerApproach(o: {
   /** where the copy and pending txs are kept; without it nothing is stored and there is no lock */
   store?: FollowerStore
   lock?(name: string, fn: () => Promise<void>): boolean | Promise<boolean>
+  /** the socket class (tests) */
+  WebSocket?: typeof WebSocket
   /** false when the browser can't keep data (kv fell back to memory) */
   persistent?(): boolean
   onStatus(s: FollowerStatus): void; onHead(h: BlockSummary): void
@@ -94,8 +95,7 @@ export function followerApproach(o: {
   let status: FollowerStatus = { kind: 'unreachable', detail: `Connecting to ${nodeUrl}` }
   let f: Follower | undefined
   let running: Promise<void> | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let backoff: number | undefined // ms, after an error
+  let stopLive: (() => void) | undefined
   let fStore = false // the open follower has the store
   let stopped = false
   let unsubs: (() => void)[] | undefined
@@ -121,6 +121,10 @@ export function followerApproach(o: {
     status = s
     o.onStatus(s)
   }
+  const offline = (): FollowerStatus => {
+    const at = f?.lastSynced
+    return { kind: 'offline', lastSynced: at, detail: `Offline${at ? ` — last synced ${ago(at / 1000)}` : ''}.${fStore ? " Changes are kept and sent when you're back." : ''}` }
+  }
   const classify = (e: unknown): FollowerStatus => {
     const detail = e instanceof Error ? e.message : String(e)
     if (e instanceof FollowerRemoved) return { kind: 'removed', detail: `Removed from ${o.name?.() ?? `chain ${chainId}`}: your copy is no longer updated` }
@@ -131,27 +135,24 @@ export function followerApproach(o: {
     // error (Bun), or a 5xx/429 ("retrying"); engine or store bugs stay "unreachable"
     const name = (e as { name?: unknown })?.name
     const network = e instanceof TypeError || name === 'TimeoutError' || name === 'AbortError' || (e instanceof NodeError ? e.status >= 500 || e.status === 429 : typeof (e as { code?: unknown })?.code === 'string')
-    if (f && network) {
-      const at = f.lastSynced
-      return { kind: 'offline', lastSynced: at, detail: `Offline${at ? ` — last synced ${ago(at / 1000)}` : ''}.${fStore ? " Changes are kept and sent when you're back." : ''}` }
-    }
+    if (f && network) return offline()
     // a store or engine failure says what it is, not "Can't reach"
     return { kind: 'unreachable', detail: e instanceof NodeError ? `${nodeUrl}: ${e.error}` : network ? `Can't reach ${nodeUrl}` : detail }
   }
 
-  const arm = () => {
-    clearTimeout(timer)
-    timer = undefined
-    const every = getSyncInterval()
-    if (stopped || final(status) || every === 'manual' || hidden()) return
-    timer = setTimeout(() => { timer = undefined; void syncNow() }, backoff ?? every * 1000)
+  /** one socket while Live and not final; none otherwise. Runs after every sync and on a setting change. */
+  const reconcile = () => {
+    const want = !stopped && getSyncInterval() === 'live' && !final(status)
+    if (!want) { stopLive?.(); stopLive = undefined; return }
+    stopLive ??= liveSync({ sync: syncNow, get head() { return f?.head ?? { number: 0 } } }, () => (client ? client.subscribeUrl(chainId) : Promise.reject(new Error('no key yet'))), {
+      WebSocket: o.WebSocket,
+      onState: (s) => { if (s === 'down' && f && !final(status)) set(offline()) }, // removed/gone come from the sync's own errors
+    })
   }
-  /** hidden: drop the pending timer; visible: arm again (sync() re-arms itself when it lands) */
-  const onVisibility = () => { if (hidden()) { clearTimeout(timer); timer = undefined } else if (!running) arm() }
   const onKeys = () => { if (status.kind === 'needs-key') void syncNow() }
 
   function syncNow(): Promise<void> {
-    return (running ??= sync().finally(() => { running = undefined; arm() }))
+    return (running ??= sync().finally(() => { running = undefined; reconcile() }))
   }
   async function sync() {
     try {
@@ -181,14 +182,11 @@ export function followerApproach(o: {
       const before = f.head.hash
       await f.sync()
       if (roleDue) await fetchRole()
-      backoff = undefined
       set({ kind: 'following', block: f.head.number, behind: Math.max(0, f.cloudHead.number - f.head.number) })
       if (first || f.head.hash !== before) o.onHead(f.head)
     } catch (e) {
       if (stopped) return
       set(classify(e))
-      const every = getSyncInterval()
-      backoff = Math.min((backoff ?? (every === 'manual' ? 5 : every) * 1000) * 2, MAX_BACKOFF_MS)
     }
   }
 
@@ -208,8 +206,7 @@ export function followerApproach(o: {
     syncNow,
     async open() {
       if (!unsubs) {
-        globalThis.document?.addEventListener('visibilitychange', onVisibility)
-        unsubs = [onSyncIntervalChange(arm), o.onKeysChange?.(onKeys) ?? (() => {}), () => globalThis.document?.removeEventListener('visibilitychange', onVisibility)]
+        unsubs = [onSyncIntervalChange(reconcile), o.onKeysChange?.(onKeys) ?? (() => {})]
       }
       // with a stored copy: return once the Follower is booted from it (no network), leaving its first sync to run on
       await Promise.race([syncNow(), bootedOnce])
@@ -251,7 +248,8 @@ export function followerApproach(o: {
     dismiss: (hash) => local().dismiss(hash),
     async dispose() {
       stopped = true
-      clearTimeout(timer)
+      stopLive?.()
+      stopLive = undefined
       unsubs?.forEach((u) => u())
       await running
       try { await f?.dispose() } finally { release?.() }
