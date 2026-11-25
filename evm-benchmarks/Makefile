@@ -1,7 +1,10 @@
-.PHONY: dev build test bench report soak-node throughput-node dev-services dev-services-status dev-services-stop clear-local e2e-node deploy
+.PHONY: dev app build test bench report soak-node throughput-node dev-services dev-services-status dev-services-stop clear-local e2e-node deploy
 
 dev:     ## playground dev server (http://localhost:5173)
 	bun run web:dev
+
+app: ## new app on http://localhost:5174 against the local worker
+	bun run --cwd packages/app dev
 
 build:   ## static playground site -> packages/web/dist
 	bun run web:build
