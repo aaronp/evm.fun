@@ -42,3 +42,63 @@ export class LiveHub {
     }
   }
 }
+
+export type LiveState = 'connecting' | 'live' | 'down' | 'removed'
+
+/**
+ * The follower's side of the socket: sync on open, on a head newer than ours, after a failed connect and after a 4003 close;
+ * reconnect with doubling backoff (a fresh signed URL each time: nonces are single-use); ping so a half-open socket is noticed.
+ * Returns stop.
+ */
+export function liveSync(
+  f: { sync(): Promise<unknown>; head: { number: number } },
+  url: () => Promise<string>,
+  o: { WebSocket?: typeof WebSocket; pingMs?: number; pongMs?: number; minBackoffMs?: number; maxBackoffMs?: number; onState?: (s: LiveState) => void } = {},
+): () => void {
+  const { pingMs = 30_000, pongMs = 10_000, minBackoffMs = 1_000, maxBackoffMs = 60_000 } = o
+  let stopped = false, backoff = minBackoffMs, cur: { close(): void } | undefined, retry: ReturnType<typeof setTimeout> | undefined
+  const state = (s: LiveState) => { if (!stopped) o.onState?.(s) }
+  const sync = () => f.sync().catch((e) => { if (e?.name === 'FollowerRemoved' || e?.name === 'FollowerGone') stop() }) // other errors: the Follower records them
+  const stop = () => { stopped = true; clearTimeout(retry); cur?.close() }
+  const again = () => {
+    if (stopped) return
+    state('down')
+    retry = setTimeout(connect, backoff)
+    backoff = Math.min(backoff * 2, maxBackoffMs)
+  }
+  async function connect() {
+    if (stopped) return
+    state('connecting')
+    let ws: WebSocket
+    try { ws = new (o.WebSocket ?? WebSocket)(await url()) } catch { void sync(); return again() }
+    if (stopped) return ws.close()
+    let opened = false, over = false, ping: ReturnType<typeof setInterval> | undefined, pong: ReturnType<typeof setTimeout> | undefined
+    const end = (code?: number) => { // once per socket, whichever of close/error/missed pong comes first
+      if (over) return
+      over = true; clearInterval(ping); clearTimeout(pong)
+      try { ws.close() } catch {}
+      if (stopped) return
+      if (code === CLOSE_REMOVED) { void sync(); return state('removed') }
+      if (!opened) void sync()
+      again()
+    }
+    cur = { close: () => end() }
+    ws.addEventListener('open', () => {
+      opened = true; backoff = minBackoffMs
+      state('live'); void sync()
+      ping = setInterval(() => {
+        try { ws.send(PING) } catch { return end() }
+        pong ??= setTimeout(() => end(), pongMs) // no pong in time: half-open, give up on it
+      }, pingMs)
+    })
+    ws.addEventListener('message', (e) => {
+      if (e.data === PONG) { clearTimeout(pong); pong = undefined; return }
+      const h = parseHead(e.data)
+      if (h && h.number > f.head.number) void sync()
+    })
+    ws.addEventListener('close', (e) => end(e.code))
+    ws.addEventListener('error', () => end())
+  }
+  void connect()
+  return stop
+}

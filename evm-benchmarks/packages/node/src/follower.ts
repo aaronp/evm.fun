@@ -43,6 +43,7 @@ type Pass = { done: Promise<BlockSummary>; late: boolean; next?: Promise<BlockSu
 
 /** This device is no longer a member of the chain (the cloud answered 403). */
 export class FollowerRemoved extends Error {
+  override name = 'FollowerRemoved' // by name: liveSync (no follower import) recognises it
   constructor(chainId: string) { super(`removed from chain ${chainId}`) }
 }
 
@@ -51,6 +52,7 @@ export const noSuchChain = (e: unknown) => e instanceof NodeError && e.status ==
 
 /** The cloud chain was deleted (the worker answered 404 "no such chain"). */
 export class FollowerGone extends Error {
+  override name = 'FollowerGone'
   constructor() { super('This chain no longer exists') }
 }
 

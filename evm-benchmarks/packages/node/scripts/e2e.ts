@@ -6,7 +6,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { MintableToken } from '@evmb/contracts'
 import { GRANT_CREATE_CHAIN, GRANT_READER, GRANT_WRITER, MAX_CREATE_BYTES, MAX_SUBMIT_BYTES, NodeClient, NodeError, accessTx, claimTx, codeHash, generateCode, inviteTx, mined, setupTxs, type CreateChainResult } from '../src/client'
 import { signRequest } from '../src/auth'
-import { parseHead } from '../src/live'
+import { liveSync, parseHead } from '../src/live'
 import { Follower, FollowerRemoved } from '../src/follower'
 import { MemoryFollowerStore } from '../src/followerStore'
 import { ensureKey, freshDump, wasm } from './bootstrap'
@@ -44,13 +44,14 @@ try {
   // ---- admin issues codes ----
   const issue = async (code: string, ttl: number, uses: number) =>
     mined(await as(admin).submit('root', [await inviteTx(admin, await as(admin).nonce('root'), root.access, code, ttl, uses)]))
-  const writes = generateCode(), one = generateCode(), two = generateCode(), short = generateCode(), race = generateCode(), live = generateCode(), retry = generateCode(), spent = generateCode()
+  const writes = generateCode(), one = generateCode(), two = generateCode(), short = generateCode(), race = generateCode(), live = generateCode(), retry = generateCode(), spent = generateCode(), lsync = generateCode()
   await issue(one, 600, 1)
   await issue(two, 600, 2)
   await issue(short, 2, 1)
   await issue(race, 600, 1)
   await issue(retry, 600, 1)
   await issue(spent, 600, 1)
+  await issue(lsync, 600, 1)
   await issue(writes, 600, 1)
   await issue(live, 600, 1)
   check(true, 'admin issues 1-use, 2-use and 2 s codes')
@@ -221,6 +222,25 @@ try {
       const code4 = await Promise.race([sk.closed, Bun.sleep(5000).then(() => -1)])
       check(code4 === 4003 && sk.msgs.length === 2, `live: after the admin removes the reader its socket closes with ${code4} and gets no further head`)
     } finally { sk.ws.close() }
+  }
+
+  // ---- liveSync: a follower reaches a block another key mined without calling sync() itself ----
+  {
+    const rs = await deploy(B, lsync), sid = rs.chainId
+    const sb = as(B, 'B laptop'), sAccess = (await sb.info(sid)).access
+    const W = privateKeyToAccount(generatePrivateKey())
+    const code = generateCode()
+    mined(await sb.submit(sid, [await inviteTx(B, await sb.nonce(sid), sAccess, code, 300, 1, GRANT_READER)]))
+    const ji = await as(W).joinInfo(sid)
+    await as(W).join(sid, await claimTx(W, ji.nonce, code, ji.access))
+    const wc = as(W, 'W phone'), fl = await Follower.open(wc, sid, wasm)
+    const stop = liveSync(fl, () => wc.subscribeUrl(sid))
+    try {
+      const target = fl.head.number + 1
+      mined(await sb.submit(sid, [await accessTx(B, await sb.nonce(sid), sAccess, 'setReadOpen', false)]))
+      for (const t = Date.now(); fl.head.number < target && Date.now() - t < 5000;) await Bun.sleep(50)
+      check(fl.head.number === target, `liveSync: the follower reaches #${target} within 5 s without calling sync() (at #${fl.head.number})`)
+    } finally { stop(); await fl.dispose() }
   }
 
   // ---- writes: phone and tablet follow a chain with an ERC-20 B owns; each sends offline, then syncs ----
