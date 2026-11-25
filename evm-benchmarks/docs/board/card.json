@@ -3,11 +3,11 @@
   "title": "evm.fun",
   "subtitle": "Kanban board",
   "status": {
-    "label": "81 open",
+    "label": "82 open",
     "tone": "neutral"
   },
   "heading": {
-    "primary": "3/84",
+    "primary": "3/85",
     "label": "tasks done"
   },
   "legend": [
@@ -35,7 +35,7 @@
   "report": {
     "Backlog": 64,
     "Next": 12,
-    "Doing": 5,
+    "Doing": 6,
     "Done": 3
   },
   "source": {

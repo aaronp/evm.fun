@@ -81,7 +81,7 @@ Users record what and where each device key is ("my work computer", "the family 
   - Backlog @ 2026-11-23T18:00:00Z
 
 ```md
-evm.fun is served at `aaronp.github.io/evm.fun/`. Serve it at `mychain.dev` (the worker's CORS already allows `https://mychain.dev`). **Open (2026-11-24):** the Chain workspace app (t-151) is separate from evm.fun and may be the better fit for mychain.dev; decide which goes where before doing this.
+evm.fun is served at `aaronp.github.io/evm.fun/`. Serve it at `mychain.dev` (the worker's CORS already allows `https://mychain.dev`). **Settled (2026-11-25):** mychain.dev fronts evm.fun; the new Chain workspace app (t-151, `packages/app`) is local only for now, and where it is hosted is decided later.
 
 Aaron's DNS steps: in Cloudflare (once `mychain.dev` is a zone, t-134), add a `CNAME` record `mychain.dev` (or `www`) → `aaronp.github.io` (DNS only), then repo Settings → Pages → Custom domain `mychain.dev`, and tick Enforce HTTPS once the certificate is issued. The Pages build adds a `CNAME` file containing `mychain.dev` to the published folder (e.g. `packages/web/public/CNAME`) so each deploy keeps the setting.
 
@@ -1078,6 +1078,26 @@ See t-152 (ADR-0025): no deployer list; the deploy role is checked on the submit
 ```
 
 ## Doing
+
+### Onboarding codes: deploys gated by root
+- id: t-156
+- parent: t-151
+- tags: chains, onboarding, web, size-L
+- history:
+  - Doing @ 2026-11-25T18:00:00Z
+
+```md
+Admins issue access codes on root (an `Onboarding` contract with an `AllowList` of issuers); anyone with a live code, or an issuer vouching, creates a chain on the worker, which asks root `isDeployAllowed`. First slice of the new app (`@evmb/app`, over `@evmb/workspace` and `@evmb/keys`). Design: [onboarding codes](docs/superpowers/specs/2026-11-25-onboarding-codes-design.md); ADR-0026; risks R62, R63. Aaron, 2026-11-25.
+
+**Known limits to fix:** two passphrase prompts at once hang the first (the startup isIssuer "Read root" prompt can overlap a deploy or follow prompt and stall root reads); a returning user is asked for the passphrase on every load; "Deployed and syncing" is shown even when follow is down (needs an `onState` and copy); `?code=` is lost if no key or workspace exists; a rename saved during Retry is overwritten.
+```
+
+```dod
+- [x] Contracts, worker redeem form, `@evmb/keys`, `@evmb/workspace`, `@evmb/app` built
+- [x] Headless end-to-end passes (`make e2e-node`)
+- [x] ADR-0026, READMEs, risks R62 and R63 written
+- [ ] Checked in a browser (`make dev-services`, `make app`): issue a code, redeem it in a second profile and deploy, vouch as an issuer, revoke, wrong passphrase, three themes, phone width
+```
 
 ### Followers: streaming instead of polling
 - id: t-144

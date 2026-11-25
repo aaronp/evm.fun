@@ -141,3 +141,14 @@ Known limits:
 - webevm 0.9.1 `loadState` does not reset accounts missing from the dump, so the Follower rebases on a fresh node (upstream, board t-130).
 
 `make e2e-node` also runs the write race: phone and tablet send offline to different keys and both confirm, each seeing the other's; one key imported on both spends one balance, so one is confirmed and one conflicted; a broker submits a tx signed by a key with no role; the phone reopens from its store with its client pointed at an unreachable URL (not a stopped worker), opens at the stored head with its tx pending, and settles once it can reach the worker.
+
+
+# Onboarding codes (plan 24, t-151)
+
+Design: [onboarding codes](../../docs/superpowers/specs/2026-11-25-onboarding-codes-design.md); decision: ADR-0026. Codes, redemptions and issuers live in contracts on the root chain (`IAllows`, `AllowList`, `Onboarding` in `@evmb/contracts`), not in worker SQL.
+
+- **Bootstrap.** `scripts/bootstrap.ts` (run by `make dev-services` and `make deploy`; idempotent, so it upgrades an existing root) deploys `AllowList([admin key])` and `Onboarding(allowList)` and registers the alias `onboarding` on root's `Aliases`. `GET /health` gains `root.onboarding`, the Onboarding address, so a redeemer who can't read root knows where to send `redeem`.
+- **Redeem form of `POST /chains`.** Body `{ chainId, dump, setup, redeem? }`, `chainId` a lowercase UUID. `redeem` is a raw tx from the request signer to `root.onboarding` calling `redeem(code, chainId)` with the same `chainId`, no value or access list; it is prechecked like a claim (under the failed-redeem rate limit), mined on root as its own block, then the worker asks `isDeployAllowed(signer, chainId)` and creates the chain with the signer as admin. The `claim` form and the root create are unchanged. A failed create keeps the grant: resend the same body without `redeem`. A chain that exists is `409` `chain already exists`.
+- **Refusal reasons** (exact): `no such code`, `code expired`, `code used up`, `code revoked`, `bad code` (4-16 chars of `A-Z 0-9` after the app drops spaces and `-` and upper-cases), `bad chain id`, `chain id taken`, `issuers only`, `not allowed to create this chain` (`403`: nobody but the granted signer may create that `chainId`).
+- **Second admin.** Issuing and revoking are root txs, so an issuer needs two entries: the `AllowList` (`add`, sent by an existing issuer) and root `ChainAccess` writer. Only the first is enough to pass the contract, and only the second lets the tx reach root. The last entity can't be removed from the AllowList.
+- **Run it.** `make e2e-node` also runs `packages/workspace/scripts/e2e-onboarding.ts`: issue, redeem, create, every refusal, and the retry without `redeem`. Root must stay read-closed (risk R62).
