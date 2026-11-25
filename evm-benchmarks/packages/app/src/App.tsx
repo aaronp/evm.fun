@@ -10,11 +10,10 @@ import { ChainDetail } from './chains/ChainDetail'
 import { ChainList, ChainPicker } from './chains/ChainList'
 import { DeployModal } from './chains/DeployModal'
 import { NewChainModal } from './chains/NewChainModal'
-import { STATUS, codeFromSearch, refusalCopy } from './chains/view'
+import { STATUS, afterCreate, checkChainName, codeFromSearch, linkDialog, refusalCopy } from './chains/view'
 import { useApp, type Notice } from './state'
 import { C, FONT } from './theme'
 
-type Dialog = { kind: 'new' } | { kind: 'deploy'; id: string; code?: string }
 const text = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 /** The layout, all state injected: app bar (with `heading`), notice, nav + `aside` + main, footer (with `chain`). */
@@ -51,16 +50,15 @@ export function App() {
   const [importing, setImporting] = useState(false)
   const [, rerender] = useState(0)
   const [selected, setSelected] = useState<string>()
-  const [dialog, setDialog] = useState<Dialog>()
   const [retrying, setRetrying] = useState(false)
   // a ?code= link: read once, then dropped from the URL; it opens New chain, and Deploy (filled in) after the create
   const [linkCode, setLinkCode] = useState(() => codeFromSearch(location.search))
+  const [dialog, setDialog] = useState(() => linkDialog(linkCode))
   useEffect(() => {
     if (!linkCode) return
     const u = new URL(location.href)
     u.searchParams.delete('code')
     history.replaceState(history.state, '', u)
-    setDialog({ kind: 'new' })
   }, [])
   useEffect(() => s.workspace?.onChange(() => rerender((n) => n + 1)), [s.workspace])
   useEffect(() => { if (!s.issuer && section === 'onboarding') setSection('chains') }, [s.issuer])
@@ -76,19 +74,27 @@ export function App() {
     const c = await ws!.createChain(name, desc)
     setSelected(c.id)
     s.setNotice({ text: `Created “${c.name}”. It’s local until you deploy it.`, kind: 'ok' })
-    setDialog(linkCode ? { kind: 'deploy', id: c.id, code: linkCode } : undefined)
+    setDialog(afterCreate(linkCode, c.id))
     setLinkCode(undefined)
   }
+  // closes this chain's Deploy only, not a dialog opened since
+  const closeDeploy = (id: string) => setDialog((d) => (d?.kind === 'deploy' && d.id === id ? undefined : d))
   const deploy = (id: string) => async (src: CodeSource) => {
     try {
       const c = await ws!.deploy(id, src)
-      setDialog(undefined)
+      closeDeploy(id)
       s.setNotice({ text: `${c.name} is deployed. Only you have access so far.`, kind: 'ok' })
     } catch (e) {
       // accepted but not created: Deployment shows it with Retry
-      if (ws!.chains().find((c) => c.id === id)?.status === 'unfinished') return setDialog(undefined)
+      if (ws!.chains().find((c) => c.id === id)?.status === 'unfinished') return closeDeploy(id)
       throw e
     }
+  }
+  const save = async (id: string, name: string, desc: string) => {
+    const bad = checkChainName(chains, name, id)
+    if (bad) throw new Error(bad)
+    await ws!.renameChain(id, name.trim(), desc.trim())
+    s.setNotice({ text: 'Saved.', kind: 'ok' })
   }
   const retry = (id: string) => {
     setRetrying(true)
@@ -113,7 +119,7 @@ export function App() {
         }}
       >
         {section === 'chains' && (chain
-          ? <ChainDetail chain={chain} busy={retrying} onDeploy={() => setDialog({ kind: 'deploy', id: chain.id })} onRetry={() => retry(chain.id)} follow={(id) => ws!.follow(id)} />
+          ? <ChainDetail key={chain.id} chain={chain} busy={retrying} onSave={(n, d) => save(chain.id, n, d)} onDeploy={() => setDialog({ kind: 'deploy', id: chain.id })} onRetry={() => retry(chain.id)} follow={(id) => ws!.follow(id)} />
           : <Empty title="No chain selected" text="Create a chain, or pick one from the list." />)}
         {/* Onboarding (Task 8) fills the rest */}
       </Shell>

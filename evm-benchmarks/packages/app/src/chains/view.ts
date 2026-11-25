@@ -13,6 +13,13 @@ const REFUSALS: Record<string, string> = {
 /** The worker's refusal reason as the user reads it; any other reason as given. */
 export const refusalCopy = (reason: string) => REFUSALS[reason] ?? reason
 
+/** App's open dialog: New chain, or Deploy for a chain (with a `?code=` link's code). */
+export type Dialog = { kind: 'new' } | { kind: 'deploy'; id: string; code?: string }
+/** The dialog a `?code=` link opens at start: New chain (nothing is created until the user does). */
+export const linkDialog = (linkCode?: string): Dialog | undefined => (linkCode ? { kind: 'new' } : undefined)
+/** After New chain creates `id`: Deploy with the link's code, if any; else nothing. */
+export const afterCreate = (linkCode: string | undefined, id: string): Dialog | undefined => (linkCode ? { kind: 'deploy', id, code: linkCode } : undefined)
+
 /** The `code` of a `?code=` link, normalised and shown as the user would type it. */
 export function codeFromSearch(search: string): string | undefined {
   const c = new URLSearchParams(search).get('code')
@@ -50,10 +57,10 @@ export function ago(now: number, t: number) {
 export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 export const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
-/** The prototype's checkChainName: null when ok. */
-export function checkChainName(chains: ChainRecord[], name: string): string | null {
+/** The prototype's checkChainName (`exceptId`: the chain being renamed): null when ok. */
+export function checkChainName(chains: ChainRecord[], name: string, exceptId?: string): string | null {
   if (name.trim() === '') return 'Give the chain a name.'
-  return chains.some((c) => sameName(c.name, name)) ? `You already have a chain called “${name.trim()}”.` : null
+  return chains.some((c) => c.id !== exceptId && sameName(c.name, name)) ? `You already have a chain called “${name.trim()}”.` : null
 }
 
 /** The prototype's S.avatar (square). */

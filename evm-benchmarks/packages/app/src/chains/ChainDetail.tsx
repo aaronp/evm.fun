@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { ChainRecord } from '@evmb/workspace'
 import { C, FONT, R, S } from '../theme'
 import { MY_ACCESS, STATUS, ago, badge, glyph, initials } from './view'
@@ -17,12 +17,25 @@ const state = (o: { title: string; text: string; tone: { bg: string; border: str
 
 /**
  * The prototype's chain detail, General and Deployment only. A deployed chain is followed (kept in sync) while this
- * is open. General is read-only: the workspace has no rename yet.
+ * is open. `onSave` rejects with the message to show (e.g. a taken name).
  */
-export function ChainDetail(p: { chain: ChainRecord; busy?: boolean; onDeploy(): void; onRetry(): void; follow?(id: string): () => void }) {
+export function ChainDetail(p: {
+  chain: ChainRecord; busy?: boolean; onSave(name: string, desc: string): Promise<void>; onDeploy(): void; onRetry(): void
+  follow?(id: string): () => void
+}) {
   const c = p.chain
   const deployed = c.status === 'deployed'
   useEffect(() => (deployed ? p.follow?.(c.id) : undefined), [c.id, deployed])
+  const [name, setName] = useState(c.name)
+  const [desc, setDesc] = useState(c.desc)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const unchanged = name === c.name && desc === c.desc
+  const save = () => {
+    setSaving(true)
+    p.onSave(name, desc).then(() => { setName(name.trim()); setDesc(desc.trim()); setError('') }, (e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setSaving(false))
+  }
   return (
     <div style={{ maxWidth: 960, margin: '0 auto', padding: '28px 24px 64px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <section style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
@@ -42,11 +55,13 @@ export function ChainDetail(p: { chain: ChainRecord; busy?: boolean; onDeploy():
       <section style={card}>
         {h3('General')}
         <label style={S.label}>Name
-          <input type="text" value={c.name} readOnly disabled style={S.input} />
+          <input type="text" value={name} onChange={(e) => { setName(e.target.value); setError('') }} style={S.input} />
         </label>
         <label style={S.label}>Description
-          <input type="text" value={c.desc} readOnly disabled style={S.input} />
+          <input type="text" value={desc} onChange={(e) => setDesc(e.target.value)} style={S.input} />
         </label>
+        {error && <p role="alert" style={{ margin: 0, fontSize: 13, color: C.error }}>{error}</p>}
+        <div><button type="button" onClick={save} disabled={unchanged || saving} style={S.primary(!unchanged && !saving)}>Save changes</button></div>
       </section>
 
       <section style={card}>

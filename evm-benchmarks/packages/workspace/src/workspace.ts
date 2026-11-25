@@ -66,6 +66,11 @@ export class Workspace {
     return this.put({ id: crypto.randomUUID(), name, desc, createdAt: Date.now(), status: 'local', dump })
   }
 
+  /** Rename a chain: metadata on this device only (no network call). */
+  renameChain(id: string, name: string, desc: string): Promise<ChainRecord> {
+    return this.put({ ...this.get(id), name, desc })
+  }
+
   /**
    * Redeem `src.code` for this chain on root and create it in the cloud, in one request. `{vouch: true}`: an issuer
    * issues a 1-use code for it first (`Vouch: <name>`, VOUCH_SECONDS) and deploys with that.

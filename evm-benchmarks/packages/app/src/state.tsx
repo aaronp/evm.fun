@@ -30,7 +30,8 @@ export type AppState = {
   cancelPassphrase(): void
 }
 
-const Ctx = createContext<AppState | null>(null)
+/** exported for tests, which provide a stub state */
+export const Ctx = createContext<AppState | null>(null)
 export const useApp = () => {
   const s = useContext(Ctx)
   if (!s) throw new Error('useApp outside AppProvider')

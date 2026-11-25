@@ -37,6 +37,17 @@ describe('Workspace', () => {
     expect(get(await open(), c.id)).toEqual(c)
   })
 
+  test('renameChain updates name and description, persisted, and notifies', async () => {
+    const ws = await open()
+    const c = await ws.createChain('Old name', 'old desc')
+    let changes = 0
+    ws.onChange(() => changes++)
+    const r = await ws.renameChain(c.id, 'New name', 'new desc')
+    expect(r).toEqual({ ...c, name: 'New name', desc: 'new desc' })
+    expect(changes).toBe(1)
+    expect(get(await open(), c.id)).toEqual(r)
+  })
+
   test('deploy with a live code → deployed, the cloud head matches, I\'m its admin', async () => {
     const ws = await open()
     const { id } = await ws.createChain('live', '')

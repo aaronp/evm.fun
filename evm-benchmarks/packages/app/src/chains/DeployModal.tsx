@@ -36,7 +36,7 @@ export function DeployModal(p: {
   }
   return (
     <Modal title={`Deploy ${p.chain.name}`} intro="Deploying moves this chain to the cloud so the people and devices you choose can connect. You need a one-time code from an admin."
-      error={error} confirmLabel="Deploy chain" canConfirm={!busy} onConfirm={submit} onClose={p.onClose}>
+      error={error} confirmLabel="Deploy chain" canConfirm={!busy} canClose={!busy} onConfirm={submit} onClose={p.onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <fieldset style={{ margin: 0, padding: 0, border: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <legend style={{ padding: 0, marginBottom: 10, fontSize: 14, fontWeight: 600 }}>Where's your code from?</legend>

@@ -5,6 +5,8 @@ import { C, ICONS, R, S, SHADOW } from '../theme'
 export function Modal(p: {
   title: string; intro: string; error?: string; children?: ReactNode
   cancelLabel?: string; confirmLabel: string; canConfirm: boolean; onConfirm(): void; onClose(): void
+  /** false: Close and Cancel are disabled (e.g. while a request is in flight) */
+  canClose?: boolean
 }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(16,24,40,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px 16px', overflowY: 'auto' }}>
@@ -18,7 +20,7 @@ export function Modal(p: {
             <h2 id="modal-title" style={{ margin: 0, fontSize: 20, fontWeight: 600 }}>{p.title}</h2>
             <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: C.muted }}>{p.intro}</p>
           </div>
-          <button type="button" onClick={p.onClose} aria-label="Close" className="hov" style={{ flex: 'none', width: 40, height: 40, border: 0, borderRadius: R.md, background: 'transparent', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+          <button type="button" onClick={p.onClose} disabled={p.canClose === false} aria-label="Close" className="hov" style={{ flex: 'none', width: 40, height: 40, border: 0, borderRadius: R.md, background: 'transparent', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
             <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2" strokeLinecap="round"><path d={ICONS.close} /></svg>
           </button>
         </div>
@@ -28,7 +30,7 @@ export function Modal(p: {
             <p role="alert" style={{ margin: 0, padding: '10px 12px', borderRadius: R.md, background: C.errorBg, border: `1px solid ${C.errorBorder}`, fontSize: 13, color: C.error }}>{p.error}</p>
           )}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
-            <button type="button" onClick={p.onClose} className="hov" style={S.secondary()}>{p.cancelLabel ?? 'Cancel'}</button>
+            <button type="button" onClick={p.onClose} disabled={p.canClose === false} className="hov" style={S.secondary(p.canClose !== false)}>{p.cancelLabel ?? 'Cancel'}</button>
             <button type="submit" disabled={!p.canConfirm} style={S.primary(p.canConfirm)}>{p.confirmLabel}</button>
           </div>
         </div>
