@@ -3,7 +3,7 @@ import { renderToString } from 'react-dom/server'
 import { Shell } from '../src/App'
 import { ProfileMenu, type ProfileProps } from '../src/shell/ProfileMenu'
 import { ImportKeyDialog, NOT_A_KEY, checkPrivateKey } from '../src/keys/ImportKeyDialog'
-import { FIRST_RUN, UnlockDialog } from '../src/keys/UnlockDialog'
+import { FIRST_RUN, MISMATCH, UnlockDialog, confirmError } from '../src/keys/UnlockDialog'
 
 const html = (el: React.ReactElement) => renderToString(el).replaceAll('<!-- -->', '').replaceAll('&#x27;', "'")
 const me = '0x1234567890abcdef1234567890abcdef12345678' as const
@@ -49,7 +49,17 @@ describe('shell', () => {
     const base = { busy: false, onSubmit: noop, onCancel: noop }
     expect(html(<UnlockDialog {...base} purpose="Deploy Household" firstRun={false} error="" />)).toContain('Deploy Household')
     expect(html(<UnlockDialog {...base} purpose="generate" firstRun error="" />)).toContain(FIRST_RUN)
-    expect(FIRST_RUN).toBe("Choose a passphrase. It encrypts your keys in this browser; it can't be recovered.")
+    expect(FIRST_RUN).toBe("It encrypts your keys in this browser; it can't be recovered.")
     expect(html(<UnlockDialog {...base} purpose="Read root" firstRun={false} error="Wrong passphrase" />)).toContain('Wrong passphrase')
+  })
+
+  test('first run asks to confirm the passphrase; a mismatch is refused', () => {
+    const base = { busy: false, onSubmit: noop, onCancel: noop, error: '' }
+    expect(html(<UnlockDialog {...base} purpose="generate" firstRun />)).toContain('Confirm passphrase')
+    expect(html(<UnlockDialog {...base} purpose="Read root" firstRun={false} />)).not.toContain('Confirm passphrase')
+    expect(confirmError('hunter2', 'hunter3')).toBe(MISMATCH)
+    expect(MISMATCH).toBe("Passphrases don't match")
+    expect(confirmError('hunter2', 'hunter2')).toBe('')
+    expect(confirmError('hunter2', '')).toBe('') // not typed yet
   })
 })
