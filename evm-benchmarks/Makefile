@@ -3,7 +3,7 @@
 dev:     ## playground dev server (http://localhost:5173)
 	bun run web:dev
 
-app: ## new app on http://localhost:5174 against the local worker
+app: ## new app on http://localhost:5174 (or the next free port) against the local worker
 	bun run --cwd packages/app dev
 
 build:   ## static playground site -> packages/web/dist
