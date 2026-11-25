@@ -75,7 +75,7 @@ afterEach(() => {
 })
 
 const keys = new Map<string, { account: LocalAccount; label: string }>([[admin.address, { account: admin, label: 'laptop' }], [phone.address, { account: phone, label: 'phone' }]])
-function env(o: { kv?: ReturnType<typeof createKv>; lock?: () => boolean; wasm?: () => Promise<any>; account?: (a: `0x${string}`) => { account: LocalAccount; label: string } | undefined } = {}) {
+function env(o: { kv?: ReturnType<typeof createKv>; lock?: () => boolean; lockWait?: (name: string, fn: () => Promise<void>, signal: AbortSignal) => void; wasm?: () => Promise<any>; account?: (a: `0x${string}`) => { account: LocalAccount; label: string } | undefined } = {}) {
   FakeWS.all = []
   const kv = o.kv ?? createKv()
   const keySubs = new Set<() => void>()
@@ -85,7 +85,7 @@ function env(o: { kv?: ReturnType<typeof createKv>; lock?: () => boolean; wasm?:
     kv,
     host: (id: string) => ({ persistence: { load: async () => stores.get(id) ?? null, save: async (s: any) => void stores.set(id, structuredClone(s)) } }),
     purge: async (id: string) => void stores.delete(id),
-    follower: { lock: o.lock, WebSocket: FakeWS as never, wasm: o.wasm ?? (async () => wasm), account: o.account ?? ((a) => keys.get(a)), onAccountsChange: (cb) => (keySubs.add(cb), () => void keySubs.delete(cb)) },
+    follower: { lock: o.lock, lockWait: o.lockWait, WebSocket: FakeWS as never, wasm: o.wasm ?? (async () => wasm), account: o.account ?? ((a) => keys.get(a)), onAccountsChange: (cb) => (keySubs.add(cb), () => void keySubs.delete(cb)) },
   })
   registry.watch((id) => events.push(id))
   return { kv, stores, registry, events, keysChanged: () => keySubs.forEach((cb) => cb()) }
@@ -499,6 +499,24 @@ describe('follower store and writing tab', () => {
     expect(status(h).kind).toBe('following')
     expect(await statuses(kv, id)).toEqual(['confirmed'])
     await registry.close(id)
+  })
+
+  test('a queued lock request takes over the moment the other tab lets go, with no sync asked for', async () => {
+    const kv = createKv()
+    const id = crypto.randomUUID()
+    await leavePending(kv, id)
+    const waits: { fn: () => Promise<void>; signal: AbortSignal }[] = []
+    const { registry } = env({ kv, lock: () => false, lockWait: (_n, fn, signal) => void waits.push({ fn, signal }) })
+    const h = await registry.open(id)
+    const ap = h.approach as any
+    expect(ap.canWrite()).toBe('Open in another tab: changes are made there.')
+    await syncNow(h); await syncNow(h)
+    expect(waits.length).toBe(1) // one waiting request, however many syncs
+    void waits[0]!.fn() // the browser grants the lock
+    for (let i = 0; i < 100 && ap.canWrite(); i++) await new Promise((r) => setTimeout(r, 50))
+    expect(ap.canWrite()).toBeUndefined()
+    await registry.close(id)
+    expect(waits[0]!.signal.aborted).toBe(true) // released on dispose
   })
 
   test('a rejected locks.request is treated as not granted and does not hang sync', async () => {

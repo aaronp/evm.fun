@@ -25,7 +25,7 @@ function setup(o: Parameters<typeof liveSync>[2] = {}, sync: () => Promise<unkno
   const f = { head: { number: 5 }, syncs: 0, sync() { this.syncs++; return sync() } }
   const states: LiveState[] = []
   let urls = 0
-  const stop = liveSync(f, async () => `ws://x/${++urls}`, { WebSocket: FakeWS as never, minBackoffMs: 20, maxBackoffMs: 80, pingMs: 1e6, pongMs: 1e6, onState: (s) => states.push(s), ...o })
+  const stop = liveSync(f, async () => `ws://x/${++urls}`, { WebSocket: FakeWS as never, minBackoffMs: 20, maxBackoffMs: 80, pingMs: 1e6, pongMs: 1e6, random: () => 0.5, onState: (s) => states.push(s), ...o })
   return { f, states, stop, ws: () => FakeWS.all.at(-1)! }
 }
 
@@ -62,10 +62,26 @@ describe('liveSync', () => {
     const t = setup(); await wait(5); t.ws().drop()
     expect(t.f.syncs).toBe(1); t.stop()
   })
-  test('close 4003 → one sync, removed, no reconnect', async () => {
-    const t = setup(); await wait(5); t.ws().open(); t.ws().drop(CLOSE_REMOVED)
+  test('close 4003 → one sync that ends in removed: removed, no reconnect', async () => {
+    let n = 0
+    const t = setup({}, async () => { if (++n === 2) throw Object.assign(new Error('x'), { name: 'FollowerRemoved' }) }); await wait(5); t.ws().open(); t.ws().drop(CLOSE_REMOVED)
     expect(t.f.syncs).toBe(2); expect(t.states.at(-1)).toBe('removed')
     await wait(60); expect(FakeWS.all.length).toBe(1)
+  })
+  test('a 4003 whose sync does not end in removed reconnects with backoff', async () => {
+    const t = setup(); await wait(5); t.ws().open(); t.ws().drop(CLOSE_REMOVED)
+    await wait(60); expect(FakeWS.all.length).toBeGreaterThan(1); expect(t.states).toContain('down'); t.stop()
+  })
+  test('a pong keeps the socket alive across several ping intervals', async () => {
+    const t = setup({ pingMs: 10, pongMs: 15 }); await wait(5); t.ws().open()
+    const ws = t.ws()
+    for (let i = 0; i < 5; i++) { await wait(10); ws.msg('pong') }
+    expect(ws.sent.length).toBeGreaterThanOrEqual(4); expect(ws.closed).toBeUndefined(); expect(FakeWS.all.length).toBe(1); t.stop()
+  })
+  test('reconnect waits backoff * (0.5 + random)', async () => {
+    const t = setup({ minBackoffMs: 100, maxBackoffMs: 100, random: () => 0 }); await wait(5); t.ws().drop()
+    await wait(30); expect(FakeWS.all.length).toBe(1)
+    await wait(40); expect(FakeWS.all.length).toBe(2); t.stop() // 50 ms (0.5 * 100), not 100
   })
   test('no pong within pongMs → closed, reconnected, then sync', async () => {
     const t = setup({ pingMs: 10, pongMs: 15 }); await wait(5); t.ws().open()

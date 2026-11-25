@@ -31,7 +31,7 @@ export class LiveHub {
     const all = this.sockets()
     const reads = new Map<string, boolean | null>()
     // once per distinct tag; a failed check leaves the socket alone (neither closed nor sent)
-    await Promise.all([...new Set(all.map((s) => s.tag))].map(async (t) => { reads.set(t, await this.canRead(t).catch(() => null)) }))
+    await Promise.all([...new Set(all.map((s) => s.tag))].map(async (t) => { reads.set(t, await this.canRead(t).catch((e) => (console.error(`live: canRead failed for ${t}`, e), null))) }))
     const msg = headMessage(h)
     for (const { ws, tag } of all) {
       const ok = reads.get(tag)
@@ -53,9 +53,9 @@ export type LiveState = 'connecting' | 'live' | 'down' | 'removed'
 export function liveSync(
   f: { sync(): Promise<unknown>; head: { number: number } },
   url: () => Promise<string>,
-  o: { WebSocket?: typeof WebSocket; pingMs?: number; pongMs?: number; minBackoffMs?: number; maxBackoffMs?: number; onState?: (s: LiveState) => void } = {},
+  o: { WebSocket?: typeof WebSocket; pingMs?: number; pongMs?: number; minBackoffMs?: number; maxBackoffMs?: number; random?: () => number; onState?: (s: LiveState) => void } = {},
 ): () => void {
-  const { pingMs = 30_000, pongMs = 10_000, minBackoffMs = 1_000, maxBackoffMs = 60_000 } = o
+  const { pingMs = 30_000, pongMs = 10_000, minBackoffMs = 1_000, maxBackoffMs = 60_000, random = Math.random } = o
   let stopped = false, backoff = minBackoffMs, cur: { close(): void } | undefined, retry: ReturnType<typeof setTimeout> | undefined
   const state = (s: LiveState) => { if (!stopped) o.onState?.(s) }
   let seen = 0 // the newest head announced; a sync that joined an older running pass can miss it
@@ -73,7 +73,7 @@ export function liveSync(
   const again = () => {
     if (stopped) return
     state('down')
-    retry = setTimeout(connect, backoff)
+    retry = setTimeout(connect, backoff * (0.5 + random())) // jitter: followers dropped together don't reconnect together
     backoff = Math.min(backoff * 2, maxBackoffMs)
   }
   async function connect() {
@@ -88,7 +88,7 @@ export function liveSync(
       over = true; clearInterval(ping); clearTimeout(pong)
       try { ws.close() } catch {}
       if (stopped) return
-      if (code === CLOSE_REMOVED) { void sync(); return state('removed') }
+      if (code === CLOSE_REMOVED) { state('removed'); return void sync().then(again) } // again() is a no-op if that sync ended in removed/gone
       if (!opened) void sync()
       again()
     }

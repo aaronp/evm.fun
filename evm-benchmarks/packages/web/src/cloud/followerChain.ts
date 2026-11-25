@@ -46,6 +46,12 @@ const webLock = (name: string, fn: () => Promise<void>): Promise<boolean> => {
     .catch((e) => { console.warn(`Can't take the writing-tab lock (${name}); following read-only`, e); res(false) }))
 }
 
+/** Queue for the lock (no ifAvailable): the browser grants it the moment the holding tab lets go. No Locks API: nothing to wait for. */
+const webWait = (name: string, fn: () => Promise<void>, signal: AbortSignal) => {
+  const locks = (globalThis as { navigator?: { locks?: LockManager } }).navigator?.locks
+  void locks?.request(name, { signal }, fn).catch(() => {}) // aborted on dispose, or refused: nothing more to do
+}
+
 /**
  * `open` (or the first `syncNow`) boots the Follower once (from a stored copy, `open` returns before the first sync's network part) and keeps one liveSync socket while the setting is Live (and the
  * status isn't final); Manual has none. `dispose` closes it. Never throws for cloud errors: they become
@@ -68,6 +74,8 @@ export function followerApproach(o: {
   /** where the copy and pending txs are kept; without it nothing is stored and there is no lock */
   store?: FollowerStore
   lock?(name: string, fn: () => Promise<void>): boolean | Promise<boolean>
+  /** queue a request for the lock when it isn't granted: `fn` runs once it is (default: a waiting Web Locks request; `signal` aborts it on dispose) */
+  lockWait?(name: string, fn: () => Promise<void>, signal: AbortSignal): void
   /** the socket class (tests) */
   WebSocket?: typeof WebSocket
   /** false when the browser can't keep data (kv fell back to memory) */
@@ -79,7 +87,9 @@ export function followerApproach(o: {
   const { nodeUrl, chainId, account: address } = o.follows
   const lockName = `evmb-follower:${o.id ?? chainId}`
   let holding = false
-  let release: (() => void) | undefined
+  let release!: () => void
+  const held = new Promise<void>((r) => (release = r)) // the lock is held until dispose
+  let waiting: AbortController | undefined // the one queued lock request
   const refuse = async (): Promise<never> => { throw new Error(followsCloud(nodeUrl)) }
   let role: 'admin' | 'writer' | 'reader' | undefined // from GET /nodes; unknown (offline) → writes allowed, the cloud decides
   let deploy: boolean | undefined // from GET /nodes (already reflects old chains, where writers deploy); unknown → the cloud decides
@@ -88,9 +98,16 @@ export function followerApproach(o: {
   /** try to become this chain's writing tab (once held, kept until dispose) */
   const acquire = async () => {
     if (holding || !o.store) return
-    const held = new Promise<void>((r) => (release = r))
     holding = await (o.lock ?? webLock)(lockName, () => held)
-    if (!holding) release = undefined
+    if (holding || waiting || stopped) return
+    // another tab writes: queue once, so the lock is taken the moment it frees, even on an idle chain
+    const ac = (waiting = new AbortController())
+    ;(o.lockWait ?? webWait)(lockName, () => {
+      if (ac.signal.aborted || stopped) return Promise.resolve()
+      holding = true
+      void syncNow() // reopens with the store
+      return held
+    }, ac.signal)
   }
   let status: FollowerStatus = { kind: 'unreachable', detail: `Connecting to ${nodeUrl}` }
   let f: Follower | undefined
@@ -256,7 +273,8 @@ export function followerApproach(o: {
       stopLive = undefined
       unsubs?.forEach((u) => u())
       await running
-      try { await f?.dispose() } finally { release?.() }
+      waiting?.abort()
+      try { await f?.dispose() } finally { release() }
     },
   }
 }

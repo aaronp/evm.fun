@@ -44,3 +44,13 @@ test('three sockets of one tag → canRead called once', async () => {
   expect(calls).toBe(1)
   expect(s.map((x) => x.sent.length)).toEqual([1, 1, 1])
 })
+
+test('a failing canRead is logged and that socket gets neither the head nor a close', async () => {
+  const a = sock(), b = sock()
+  const err = console.error, logged: unknown[][] = []
+  console.error = (...x) => void logged.push(x)
+  try { await new LiveHub(() => [{ ws: a, tag: 'a' }, { ws: b, tag: 'b' }], async (t) => { if (t === 'a') throw new Error('boom'); return true }).broadcast(H) } finally { console.error = err }
+  expect(a.sent).toEqual([]); expect(a.closed).toEqual([])
+  expect(b.sent).toEqual([headMessage(H)])
+  expect(logged.length).toBe(1)
+})
