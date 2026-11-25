@@ -226,6 +226,8 @@ describe('follower chains', () => {
     const h = await addFollower(registry, { name: 'd', follows: follows() })
     await until(() => FakeWS.all.length === 1)
     expect(FakeWS.all[0].url).toContain(`/chains/${cid}/subscribe`)
+    await syncNow(h)
+    expect(FakeWS.all.length).toBe(1)
     await registry.remove(h.info.id)
   })
 
@@ -270,13 +272,37 @@ describe('follower chains', () => {
     const ws = FakeWS.all[0]
     ws.emit('open')
     await until(() => status(h).kind === 'following')
-    const was = (h.approach as any).pendingTxs().length
+    const raw = await admin.signTransaction({ type: 'eip1559', chainId: 31337, nonce: Number(BigInt((await h.request('eth_getTransactionCount', [admin.address, 'latest'])) as string)), to: phone.address, value: 0n, gas: 30_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })
+    globalThis.fetch = (async () => { throw new TypeError('Failed to fetch') }) as unknown as typeof fetch
+    await (h.approach as any).submit([raw]) // runs locally; its sync can't reach the cloud
+    expect((h.approach as any).pendingTxs().map((t: any) => t.status)).toEqual(['pending'])
     ws.emit('close', { code: 1006 })
-    expect(status(h)).toMatchObject({ kind: 'offline', lastSynced: expect.any(Number), detail: expect.stringContaining('Offline — last synced') })
-    expect((h.approach as any).pendingTxs().length).toBe(was)
+    const off = status(h) as Extract<FollowerStatus, { kind: 'offline' }>
+    expect(off.kind).toBe('offline')
+    expect(typeof off.lastSynced).toBe('number')
+    expect(off.detail).toContain('Offline — last synced')
+    expect(off.detail).toContain('Changes are kept')
+    expect((h.approach as any).pendingTxs().map((t: any) => t.status)).toEqual(['pending'])
+    globalThis.fetch = realFetch
     await until(() => FakeWS.all.length === 2) // backoff, then a fresh socket
     FakeWS.all[1].emit('open')
     await until(() => status(h).kind === 'following')
+    await registry.remove(h.info.id)
+  })
+
+  test('socket never opens but HTTP works: stays offline, no flap on retries', async () => {
+    const { registry } = env()
+    const h = await addFollower(registry, { name: 'd', follows: follows() })
+    await until(() => FakeWS.all.length === 1)
+    FakeWS.all[0].emit('error') // failed connect: liveSync syncs, then backs off
+    await syncNow(h)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(status(h).kind).toBe('offline')
+    await until(() => FakeWS.all.length === 2)
+    FakeWS.all[1].emit('error')
+    await syncNow(h)
+    expect(status(h).kind).toBe('offline')
+    FakeWS.all[2]?.emit('open')
     await registry.remove(h.info.id)
   })
 

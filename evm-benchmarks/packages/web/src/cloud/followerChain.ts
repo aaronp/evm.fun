@@ -96,6 +96,7 @@ export function followerApproach(o: {
   let f: Follower | undefined
   let running: Promise<void> | undefined
   let stopLive: (() => void) | undefined
+  let liveDown = false // the socket is down: even a good HTTP sync reads as offline
   let fStore = false // the open follower has the store
   let stopped = false
   let unsubs: (() => void)[] | undefined
@@ -143,10 +144,13 @@ export function followerApproach(o: {
   /** one socket while Live and not final; none otherwise. Runs after every sync and on a setting change. */
   const reconcile = () => {
     const want = !stopped && getSyncInterval() === 'live' && !final(status)
-    if (!want) { stopLive?.(); stopLive = undefined; return }
+    if (!want) { stopLive?.(); stopLive = undefined; liveDown = false; return }
     stopLive ??= liveSync({ sync: syncNow, get head() { return f?.head ?? { number: 0 } } }, () => (client ? client.subscribeUrl(chainId) : Promise.reject(new Error('no key yet'))), {
       WebSocket: o.WebSocket,
-      onState: (s) => { if (s === 'down' && f && !final(status)) set(offline()) }, // removed/gone come from the sync's own errors
+      onState: (s) => { // removed/gone come from the sync's own errors
+        liveDown = s === 'down'
+        if (liveDown && f && (status.kind === 'following' || status.kind === 'offline')) set(offline()) // not over clock/unreachable
+      },
     })
   }
   const onKeys = () => { if (status.kind === 'needs-key') void syncNow() }
@@ -182,7 +186,7 @@ export function followerApproach(o: {
       const before = f.head.hash
       await f.sync()
       if (roleDue) await fetchRole()
-      set({ kind: 'following', block: f.head.number, behind: Math.max(0, f.cloudHead.number - f.head.number) })
+      set(liveDown ? offline() : { kind: 'following', block: f.head.number, behind: Math.max(0, f.cloudHead.number - f.head.number) })
       if (first || f.head.hash !== before) o.onHead(f.head)
     } catch (e) {
       if (stopped) return
