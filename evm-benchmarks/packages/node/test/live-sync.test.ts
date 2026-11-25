@@ -87,4 +87,15 @@ describe('liveSync', () => {
     const t = setup({}, async () => { throw new Error('offline') }); await wait(5); t.ws().open(); await wait(5)
     t.ws().drop(); await wait(40); expect(FakeWS.all.length).toBe(2); t.stop()
   })
+  test('a head arriving during a running sync is not lost', async () => {
+    FakeWS.all = []
+    let release!: () => void, run: Promise<void> | undefined
+    const pending = new Promise<void>((r) => (release = r))
+    // like Follower.sync(): a call while a pass runs joins it (the pass was planned at head 4 and ends at 6)
+    const f = { head: { number: 4 }, sync: () => (run ??= (async () => { await pending; f.head.number = f.head.number === 4 ? 6 : 7 })().finally(() => (run = undefined))) }
+    const stop = liveSync(f, async () => 'ws://x', { WebSocket: FakeWS as never, pingMs: 1e6, pongMs: 1e6 })
+    await wait(5); FakeWS.all[0]!.open(); FakeWS.all[0]!.msg(head(7)) // newer than 4: joins the running pass
+    release(); await wait(10)
+    expect(f.head.number).toBe(7); stop()
+  })
 })

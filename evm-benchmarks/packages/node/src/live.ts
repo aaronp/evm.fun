@@ -58,7 +58,17 @@ export function liveSync(
   const { pingMs = 30_000, pongMs = 10_000, minBackoffMs = 1_000, maxBackoffMs = 60_000 } = o
   let stopped = false, backoff = minBackoffMs, cur: { close(): void } | undefined, retry: ReturnType<typeof setTimeout> | undefined
   const state = (s: LiveState) => { if (!stopped) o.onState?.(s) }
-  const sync = () => f.sync().catch((e) => { if (e?.name === 'FollowerRemoved' || e?.name === 'FollowerGone') stop() }) // other errors: the Follower records them
+  let seen = 0 // the newest head announced; a sync that joined an older running pass can miss it
+  const sync = async () => {
+    for (;;) {
+      const before = f.head.number
+      try { await f.sync() } catch (e: any) { // other errors: the Follower records them
+        if (e?.name === 'FollowerRemoved' || e?.name === 'FollowerGone') stop()
+        return
+      }
+      if (stopped || seen <= f.head.number || f.head.number === before) return // caught up, stopped, or no progress (wait for the next head/reconnect)
+    }
+  }
   const stop = () => { stopped = true; clearTimeout(retry); cur?.close() }
   const again = () => {
     if (stopped) return
@@ -94,6 +104,7 @@ export function liveSync(
     ws.addEventListener('message', (e) => {
       if (e.data === PONG) { clearTimeout(pong); pong = undefined; return }
       const h = parseHead(e.data)
+      if (h) seen = Math.max(seen, h.number)
       if (h && h.number > f.head.number) void sync()
     })
     ws.addEventListener('close', (e) => end(e.code))
