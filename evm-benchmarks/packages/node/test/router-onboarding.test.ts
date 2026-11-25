@@ -5,6 +5,7 @@ import { Onboarding } from '@evmb/contracts'
 import { ChainHost, handle, type ChainHandleLike } from '../src/router'
 import { NodeClient, NodeError, claimTx, codeHash, inviteTx, mined, setupTxs, GRANT_CREATE_CHAIN } from '../src/client'
 import { CHAIN_ID_RE, ensureOnboarding, issueTx, redeemTx, revokeTx } from '../src/onboarding'
+import { NodeFault } from '../src/node'
 import { bunSql } from './bunSql'
 import { wasm } from './workload'
 import { createNode, type SerializedState } from 'webevm'
@@ -153,6 +154,17 @@ describe('onboarding on root', () => {
     for (let i = 0; i < 11; i++) out.push((await err(create(bob, { code: `NOSUCH${i}` }))).status)
     expect(out.slice(0, 10)).toEqual(Array(10).fill(403))
     expect(out[10]).toBe(429)
+  })
+
+  test('repeated 503s (a fault on root, not a wrong code) from one IP don\'t lead to a 429', async () => {
+    const code = await issue()
+    const node = (hosts.get('root')!.service as any).node
+    const real = node.apply
+    node.apply = async () => { throw new NodeFault('wasm trapped') }
+    const out: number[] = []
+    try { for (let i = 0; i < 11; i++) out.push((await err(create(sue, { code }))).status) } finally { node.apply = real }
+    expect(out).toEqual(Array(11).fill(503))
+    expect((await err(create(sue, { code }))).status).toBe(200)
   })
 
   test('claim and chainId together → 400', async () => {

@@ -231,7 +231,10 @@ export class ChainHost implements ChainHandleLike {
     if (!(await s.canRead(signer))) throw new ServiceError(403, `${signer} is not a reader of this chain`)
   }
 
-  /** Run a code check under the per-IP failure limit; a throw counts as a failure. */
+  /**
+   * Run a code check under the per-IP failure limit. Only a 403 counts as a failure: a refusal of the code itself (a
+   * `whyNot` or revert reason, a bad/used/expired code) or a forged request; a fault (503) or a stale nonce (400) doesn't.
+   */
   async #limited<T>(ip: string, f: () => Promise<T>): Promise<T> {
     const t = now()
     this.sql.exec('DELETE FROM fails WHERE at < ?', t - FAIL_WINDOW_S)
@@ -240,7 +243,7 @@ export class ChainHost implements ChainHandleLike {
     try {
       return await f()
     } catch (e) {
-      this.sql.exec('INSERT INTO fails VALUES (?, ?)', ip, t)
+      if (e instanceof ServiceError && e.status === 403) this.sql.exec('INSERT INTO fails VALUES (?, ?)', ip, t)
       throw e
     }
   }
