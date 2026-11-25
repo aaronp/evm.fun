@@ -12,6 +12,7 @@ import { isIssuerOn, readCodes, simulate, type CodeView } from './onboarding'
 import type { ChainRecord, WorkspaceStorage } from './storage'
 
 export type CodeSource = { code: string } | { vouch: true }
+type RootInfo = { onboarding: Address; access: Address }
 type Options = {
   workerUrl: string; keys: KeyStore; me: Address; storage: WorkspaceStorage; wasm: NodeConfig['wasm']
   /** where followers keep their copies (keyed by chain id); none: each follower boots from the cloud */
@@ -38,6 +39,10 @@ export class Workspace {
   private records: Map<string, ChainRecord>
   private listeners = new Set<() => void>()
   private deploying = new Set<string>()
+  /** root's local copy, opened on first use and synced before each read */
+  private rootF?: Promise<Follower>
+  /** root txs (issue, revoke, a create's redeem) one at a time: each reads my root nonce then sends */
+  private rootQueue: Promise<unknown> = Promise.resolve()
 
   private constructor(private o: Options, records: ChainRecord[]) {
     this.records = new Map(records.map((c) => [c.id, c]))
@@ -69,9 +74,10 @@ export class Workspace {
       if (code !== undefined && !isValidCode(code)) throw new Error('bad code')
       const c = this.get(id)
       if (c.status !== 'local') throw new Error(`chain ${id} is ${c.status}, not local`)
-      if (code) return this.send(c, code)
-      if (!(await this.isIssuer())) throw new Error('Only issuers can vouch')
-      return this.send(c, await this.issue(generateCode(), `Vouch: ${c.name}`, VOUCH_SECONDS, 1))
+      const root = await this.rootInfo()
+      if (code) return this.send(c, { code, onboarding: root.onboarding })
+      if (!(await this.issuerOn(root))) throw new Error('Only issuers can vouch')
+      return this.send(c, { code: await this.issue(root.onboarding, generateCode(), `Vouch: ${c.name}`, VOUCH_SECONDS, 1), onboarding: root.onboarding })
     })
   }
 
@@ -103,9 +109,18 @@ export class Workspace {
     return () => { stopped = true; stopLive?.(); void f?.dispose() }
   }
 
-  /** Whether I may issue codes: false when root refuses my read, or root's issuers list doesn't have me. */
-  async isIssuer(): Promise<boolean> {
-    try { return await this.onRoot((f, onb) => isIssuerOn(f, onb, this.o.me)) } catch (e) {
+  /** Whether I may issue codes: root's issuers list has me and I can write root (issuing is a root tx); false when root refuses my read. */
+  async isIssuer(): Promise<boolean> { return this.issuerOn(await this.rootInfo()) }
+
+  /** Dispose root's local copy, if open. */
+  async dispose(): Promise<void> {
+    const f = this.rootF
+    this.rootF = undefined
+    await f?.then((x) => x.dispose(), () => {})
+  }
+
+  private async issuerOn(root: RootInfo): Promise<boolean> {
+    try { return await this.onRoot((f) => isIssuerOn(f, root.onboarding, root.access, this.o.me)) } catch (e) {
       if (e instanceof FollowerRemoved) return false
       throw e
     }
@@ -117,22 +132,33 @@ export class Workspace {
     if (!isValidCode(code)) throw new Error('bad code')
     const seconds = VALID_FOR.find((v) => v.key === o.validFor)?.seconds
     if (!seconds) throw new Error(`bad validFor ${o.validFor}`)
-    return { code: await this.issue(code, o.label, seconds, o.uses) }
+    return { code: await this.issue((await this.rootInfo()).onboarding, code, o.label, seconds, o.uses) }
   }
 
   /** Every code on root with its grants, newest first. */
-  codes(): Promise<CodeView[]> { return this.onRoot((f, onb) => readCodes(f, onb, this.o.me)) }
+  async codes(): Promise<CodeView[]> {
+    const { onboarding } = await this.rootInfo()
+    return this.onRoot((f) => readCodes(f, onboarding, this.o.me))
+  }
 
   /** Stop further redeems of a code (its grants stay valid). */
   async revokeCode(hash: Hex): Promise<void> {
-    await this.rootTx('Revoke a code', encodeFunctionData({ abi: Onboarding.abi, functionName: 'revoke', args: [hash] }), (a, n, onb) => revokeTx(a, n, onb, hash))
+    const { onboarding } = await this.rootInfo()
+    await this.rootTx('Revoke a code', onboarding, encodeFunctionData({ abi: Onboarding.abi, functionName: 'revoke', args: [hash] }), (a, n) => revokeTx(a, n, onboarding, hash))
   }
 
-  private async issue(code: string, label: string, seconds: number, uses: number): Promise<string> {
+  private async issue(onboarding: Address, code: string, label: string, seconds: number, uses: number): Promise<string> {
     const expiresAt = Math.floor(Date.now() / 1000) + seconds
     const data = encodeFunctionData({ abi: Onboarding.abi, functionName: 'issue', args: [codeHash(code), label, BigInt(expiresAt), uses] })
-    await this.rootTx(`Issue ${label}`, data, (a, n, onb) => issueTx(a, n, onb, code, label, expiresAt, uses))
+    await this.rootTx(`Issue ${label}`, onboarding, data, (a, n) => issueTx(a, n, onboarding, code, label, expiresAt, uses))
     return code
+  }
+
+  /** `fn` after every root tx queued before it has settled. */
+  private serial<A>(fn: () => Promise<A>): Promise<A> {
+    const p = this.rootQueue.then(fn, fn)
+    this.rootQueue = p.catch(() => {})
+    return p
   }
 
   /** `fn` unless a deploy of `id` is already running (then `already deploying`, nothing sent). */
@@ -154,28 +180,33 @@ export class Workspace {
     }))
   }
 
-  private async onboarding(client: NodeClient): Promise<Address> {
-    const onb = (await client.health()).root?.onboarding
-    if (!onb) throw new Error(`${this.o.workerUrl} has no onboarding on its root chain`)
-    return onb
+  /** Root's Onboarding and ChainAccess addresses (one unsigned GET /health per call path). */
+  private async rootInfo(): Promise<RootInfo> {
+    const root = (await new NodeClient(this.o.workerUrl).health()).root
+    if (!root?.onboarding) throw new Error(`${this.o.workerUrl} has no onboarding on its root chain`)
+    return { onboarding: root.onboarding, access: root.access }
   }
 
-  /** `fn` on root's local copy (a Follower, synced first; kept in the follower store under "root"). */
-  private async onRoot<A>(fn: (f: Follower, onboarding: Address) => Promise<A>, client = this.client('Read root')): Promise<A> {
-    const onb = await this.onboarding(client)
-    const f = await Follower.open(client, 'root', this.o.wasm, { store: this.o.followerStore })
+  /** `fn` on root's local copy, synced first. The copy is opened once (kept in the follower store under "root"); a failure drops it, so the next call reopens. */
+  private async onRoot<A>(fn: (f: Follower) => Promise<A>): Promise<A> {
+    const opened = (this.rootF ??= Follower.open(this.client('Read root'), 'root', this.o.wasm, { store: this.o.followerStore }))
     try {
+      const f = await opened
       await f.sync()
-      return await fn(f, onb)
-    } finally { await f.dispose() }
+      return await fn(f)
+    } catch (e) {
+      if (this.rootF === opened) { this.rootF = undefined; void opened.then((f) => f.dispose(), () => {}) }
+      throw e
+    }
   }
 
-  /** Send one Onboarding tx to root: simulated first where I can read root (its revert reason thrown), else the worker decides. */
-  private async rootTx(purpose: string, data: Hex, tx: (a: LocalAccount, nonce: number, onb: Address) => Promise<Hex>): Promise<void> {
-    const client = this.client(purpose)
-    const onb = await this.onboarding(client)
-    await this.onRoot((f) => simulate(f, this.o.me, onb, data), client).catch((e) => { if (!(e instanceof FollowerRemoved)) throw e })
-    mined(await client.submit('root', [await tx(client.account!, await client.nonce('root'), onb)]))
+  /** Send one Onboarding tx to root, after the ones before it: simulated first where I can read root (its revert reason thrown), else the worker decides. */
+  private rootTx(purpose: string, onboarding: Address, data: Hex, tx: (a: LocalAccount, nonce: number) => Promise<Hex>): Promise<void> {
+    return this.serial(async () => {
+      await this.onRoot((f) => simulate(f, this.o.me, onboarding, data)).catch((e) => { if (!(e instanceof FollowerRemoved)) throw e })
+      const client = this.client(purpose)
+      mined(await client.submit('root', [await tx(client.account!, await client.nonce('root'))]))
+    })
   }
 
   private get(id: string): ChainRecord {
@@ -192,7 +223,13 @@ export class Workspace {
   }
 
   /** POST /chains with the chain's dump and set-up txs, plus a redeem of `code` if given; all signed in one key scope. */
-  private async send(c: ChainRecord, code?: string): Promise<ChainRecord> {
+  private send(c: ChainRecord, redeem?: { code: string; onboarding: Address }): Promise<ChainRecord> {
+    // a redeem is a root tx: its nonce read and its mining (in the create) wait for the root txs before it
+    return redeem ? this.serial(() => this.create(c, redeem)) : this.create(c)
+  }
+
+  private async create(c: ChainRecord, onRoot?: { code: string; onboarding: Address }): Promise<ChainRecord> {
+    const code = onRoot?.code
     const { keys, me, workerUrl, wasm } = this.o
     const dump = c.dump!
     const nonce = await withNode(wasm, dump, async (n) => Number(BigInt(await n.request({ method: 'eth_getTransactionCount', params: [me, 'latest'] }) as string)))
@@ -203,7 +240,7 @@ export class Workspace {
         const client = new NodeClient(workerUrl, account)
         const setup = await setupTxs(account, nonce, CHAIN_ID)
         let redeem
-        if (code) redeem = await redeemTx(account, await client.nonce('root'), await this.onboarding(client), code, c.id)
+        if (onRoot) redeem = await redeemTx(account, await client.nonce('root'), onRoot.onboarding, onRoot.code, c.id)
         sent = true
         try {
           return await client.createChain({ chainId: c.id, dump, setup, redeem })

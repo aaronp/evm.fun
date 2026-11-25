@@ -1,6 +1,6 @@
 // Root's Onboarding read from a synced root Follower: who issues, and the codes with their grants.
 import { decodeErrorResult, decodeFunctionResult, encodeFunctionData, zeroAddress, type Abi, type Address, type Hex } from 'viem'
-import { AllowList, Onboarding } from '@evmb/contracts'
+import { AllowList, ChainAccess, Onboarding } from '@evmb/contracts'
 import type { Follower } from '@evmb/node'
 
 export type CodeView = {
@@ -28,9 +28,11 @@ export async function simulate(f: Follower, from: Address, to: Address, data: He
   }
 }
 
-export async function isIssuerOn(f: Follower, onboarding: Address, me: Address): Promise<boolean> {
+/** In Onboarding's issuers list and a writer on root (issuing is a root tx the worker takes only from root's writers). */
+export async function isIssuerOn(f: Follower, onboarding: Address, access: Address, me: Address): Promise<boolean> {
   const issuers = await call<Address>(f, me, onboarding, Onboarding.abi as Abi, 'issuers')
-  return call<boolean>(f, me, issuers, AllowList.abi as Abi, 'allows', [me, '0x00000000000000000000000000000000', zeroAddress])
+  return (await call<boolean>(f, me, issuers, AllowList.abi as Abi, 'allows', [me, '0x00000000000000000000000000000000', zeroAddress]))
+    && call<boolean>(f, me, access, ChainAccess.abi as Abi, 'canWrite', [me])
 }
 
 type Code = { hash: Hex; label: string; issuer: Address; issuedAt: bigint; expiresAt: bigint; uses: number; usesLeft: number; revoked: boolean }

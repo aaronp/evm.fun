@@ -1,5 +1,5 @@
 // An in-process worker with root and its Onboarding, for the workspace tests.
-import { keccak256, toBytes, type Address } from 'viem'
+import { encodeFunctionData, keccak256, toBytes, type Abi, type Address } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { ChainHost, NodeClient, ensureOnboarding, handle, issueTx, mined, setupTxs, type ChainHandleLike } from '@evmb/node'
 import { createNode } from 'webevm'
@@ -26,7 +26,8 @@ export async function startWorker() {
   const dump = await node.dumpState()
   await node.dispose()
   await as(admin).createChain({ dump, setup: await setupTxs(admin, 0, 31337) })
-  const onb: Address = (await ensureOnboarding(as(admin), admin)).onboarding
+  const { onboarding: onb, allowList } = await ensureOnboarding(as(admin), admin)
+  const access = (await as(admin).health()).root!.access
   let n = 0
   /** The admin issues a fresh 1-use code, straight on root. */
   const issue = async (ttl = 600) => {
@@ -35,5 +36,11 @@ export async function startWorker() {
     mined(await a.submit('root', [await issueTx(admin, await a.nonce('root'), onb, code, `label ${n}`, now() + ttl, 1)]))
     return code
   }
-  return { url, onb, as, issue, stop: () => srv.stop(true) }
+  /** The admin sends `functionName(args)` to `to` on root (gas-free). */
+  const adminCall = async (to: Address, abi: Abi, functionName: string, args: unknown[]) => {
+    const a = as(admin)
+    const data = encodeFunctionData({ abi, functionName, args } as never)
+    mined(await a.submit('root', [await admin.signTransaction({ type: 'eip1559', chainId: 31337, nonce: await a.nonce('root'), to, data, gas: 500_000n, maxFeePerGas: 0n, maxPriorityFeePerGas: 0n })]))
+  }
+  return { url, onb, allowList, access, as, issue, adminCall, stop: () => srv.stop(true) }
 }
