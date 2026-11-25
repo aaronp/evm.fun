@@ -1043,12 +1043,13 @@ Every chain uses chainId 31337, so a tx an admin signs on one chain is valid on 
 - driver: Claude
 - approver: Aaron
 
-Each signed `GET /blocks` poll writes a request nonce and runs EVM `canRead` (plus a membership check) in the chain's Durable Object, so many devices polling often add up. `GET /state` returns the whole state with no size cap. (plan 17)
+Each signed `GET /blocks` writes a request nonce and runs EVM `canRead` (plus a membership check) in the chain's Durable Object, so many devices polling often add up; live followers (plan 23) fetch only per new block. `GET /state` returns the whole state with no size cap. The signed subscribe URL is single-use (nonce) and expires with the 300 s skew window. (plan 17)
 
 ### Controls
 | Control | Type | Effectiveness |
 |---|---|---|
-| evm.fun followers poll every 5 (default), 15 or 60 s, or only on Sync now (Manual); polling pauses while the tab is hidden and backs off after failures (plan 18) | Preventive | Partial |
+| evm.fun followers poll every 5 (default), 15 or 60 s, or only on Sync now (Manual); polling pauses while the tab is hidden and backs off after failures (plan 18); replaced by Live (below) | Preventive | Partial |
+| Live followers: no idle polls; a GET /blocks only per new block (plan 23) | Preventive | Partial |
 | Cursor writes at most once a minute when idle; pages capped at 100 blocks | Preventive | Partial |
 | Cap or stream `state` (later) | Preventive | Partial |
 

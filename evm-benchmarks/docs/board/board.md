@@ -60,19 +60,6 @@ Build the [Chain workspace design](https://claude.ai/code/artifact/76120764-ecd9
 - [ ] Tokens only, three themes (or the design's), phone width, contrast tests
 ```
 
-### Followers: streaming instead of polling
-- id: t-144
-- parent: t-112
-- tags: chains, cloudflare, size-M
-- history:
-  - Backlog @ 2026-11-23T20:46:23Z
-
-```md
-Followers pull new blocks on demand: the cloud node pushes each new head over a hibernating WebSocket (proved in the t-128 spike), so devices stop polling. Until then polling is configurable per browser (5 s / 15 s / 60 s / Manual, plus Sync now) — plan 18. Cuts the per-poll nonce write and read check (risk R57). Aaron, 2026-11-23.
-
-**Next (Aaron, 2026-11-25):** after the SpacetimeDB spike (t-155) showed subscription followers working, adopt the subscription model on Cloudflare now: the same push-a-block shape a SpacetimeDB destination would use later.
-```
-
 ### Device bookkeeping contract
 - id: t-143
 - parent: t-151
@@ -1091,6 +1078,28 @@ See t-152 (ADR-0025): no deployer list; the deploy role is checked on the submit
 ```
 
 ## Doing
+
+### Followers: streaming instead of polling
+- id: t-144
+- parent: t-112
+- tags: chains, cloudflare, size-M
+- history:
+  - Backlog @ 2026-11-23T20:46:23Z
+  - Doing @ 2026-11-25T09:07:26Z
+
+```md
+Followers pull new blocks on demand: the cloud node pushes each new head over a hibernating WebSocket (proved in the t-128 spike), so devices stop polling. Until then polling is configurable per browser (5 s / 15 s / 60 s / Manual, plus Sync now) — plan 18. Cuts the per-poll nonce write and read check (risk R57). Aaron, 2026-11-23.
+
+**Next (Aaron, 2026-11-25):** after the SpacetimeDB spike (t-155) showed subscription followers working, adopt the subscription model on Cloudflare now: the same push-a-block shape a SpacetimeDB destination would use later.
+```
+
+```dod
+- [x] Worker pushes heads (e2e)
+- [x] liveSync (Bun follower, e2e)
+- [x] evm.fun Live/Manual, polling removed
+- [x] Tests pass (`bun test packages/node`, follower-chain, web:build)
+- [ ] Checked in a browser (two browsers live; offline and back; Manual shows no socket; switching back without reload; removed device; three themes, phone width)
+```
 
 ### Deploy role: read, write and deploy
 - id: t-152
